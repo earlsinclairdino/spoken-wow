@@ -53,7 +53,7 @@ describe("parseEnvelope", () => {
 
   it("refuses a source it does not know", () => {
     const wrong = fixture("books-page.txt").replace("!SPOKEN1 books", "!SPOKEN1 mail");
-    expect(parseEnvelope(wrong).error).toBe("source");
+    expect(parseEnvelope(wrong)).toEqual({ ok: false, error: "source" });
   });
 
   it("refuses an oversize paste before parsing it", () => {
