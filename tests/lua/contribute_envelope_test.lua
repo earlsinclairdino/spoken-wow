@@ -80,6 +80,72 @@ local trailingNewline = C:Envelope("books", { { "page", "1" } }, "a\nb\n")
 Expect("a trailing newline in the text becomes a blank line before the fence",
     trailingNewline:match("\na\nb\n\n>>\n") ~= nil, true)
 
+------------------------------------------------------------------------------- Encode / Link
+-- Known base64 vectors (RFC 4648's own "f"/"fo"/"foo"... examples), unpadded: none of them
+-- contain a "+" or "/", so the "url-safe" alphabet swap makes no visible difference here, but a
+-- wrong bit-shuffle would still show up as a wrong letter.
+local vectors = {
+    { "", "" }, { "f", "Zg" }, { "fo", "Zm8" }, { "foo", "Zm9v" }, { "foob", "Zm9vYg" },
+    { "fooba", "Zm9vYmE" }, { "foobar", "Zm9vYmFy" },
+}
+for _, v in ipairs(vectors) do
+    Expect(("base64url(%q) matches the known vector"):format(v[1]), C:Base64URL(v[1]), v[2])
+end
+
+local LibDeflate = LibStub:GetLibrary("LibDeflate")
+
+local function RoundTrips(label, envelope)
+    local encoded = C:Encode(envelope)
+    Expect(label .. ": Encode produces something", type(encoded) == "string" and encoded ~= "", true)
+    Expect(label .. ": the alphabet is base64url only", encoded:match("^[A-Za-z0-9%-_]+$") ~= nil, true)
+    -- Undo the base64url ourselves (standard alphabet, '-'/'_' swapped back to '+'/'/', then
+    -- padded to a multiple of 4) so this test does not depend on Encode's own inverse existing.
+    local STD = encoded:gsub("-", "+"):gsub("_", "/")
+    local pad = (4 - (#STD % 4)) % 4
+    STD = STD .. string.rep("=", pad)
+    local decoded = require("base64_decode_for_test")(STD)
+    local inflated = LibDeflate:DecompressDeflate(decoded)
+    Expect(label .. ": deflate-raw round trips to the exact envelope", inflated, envelope)
+end
+
+RoundTrips("plain quest envelope", written)
+RoundTrips("Cyrillic quest envelope", C:Envelope("quests", { { "quest", "1" } }, "Убей шестерых.\n\nПотом возвращайся."))
+RoundTrips("an escaped >> fence line", fenced)
+
+Expect("Encode refuses a nil envelope", C:Encode(nil), nil)
+Expect("Encode refuses an empty envelope", C:Encode(""), nil)
+
+local link = C:Link("https://spoken.rusty.one/contribute", written)
+Expect("Link carries the base URL", link:match("^https://spoken%.rusty%.one/contribute#e1=") ~= nil, true)
+Expect("Link's fragment is exactly Encode's output", link, "https://spoken.rusty.one/contribute#e1=" .. C:Encode(written))
+Expect("Link refuses when Encode would", C:Link("https://x", nil), nil)
+
+-- A cap with no boundary is not a cap: this pins that an oversized encode is refused rather
+-- than handed to the player as a URL nothing can reliably paste. Genuine randomness, not a
+-- repeated phrase or a hand-rolled PRNG -- deflate erases both of those down to almost nothing
+-- (tried first; a naive LCG's low bits, and even a Checksum-driven sequence, both turned out
+-- patterned enough to compress to a few percent of their size), which would never reach the
+-- cap this is supposed to test.
+local urandom = assert(io.open("/dev/urandom", "rb"))
+local bytes = urandom:read(50000)
+urandom:close()
+local noise = {}
+for i = 1, #bytes do
+    noise[i] = string.char(33 + (bytes:byte(i) % 90))
+end
+local huge = C:Envelope("books", { { "page", "1" } }, table.concat(noise))
+Expect("Link refuses a result over its cap", C:Link("https://x", huge), nil)
+
+-- The fixture Encode itself produces, so the TypeScript decoder is pinned against the exact
+-- same bytes the Lua encoder emits -- not a second, hand-rolled encoding of the same fixture.
+if os.getenv("SPOKEN_WRITE_FIXTURES") then
+    local dir = here .. "/../fixtures/contributions/"
+    local bookFixture = assert(io.open(dir .. "books-page.txt", "r")):read("*a")
+    local file = assert(io.open(dir .. "books-page.e1.txt", "w"))
+    file:write(C:Encode(bookFixture))
+    file:close()
+end
+
 -- The fixtures the TypeScript reader is tested against.
 --
 -- Written by the writer itself, so the two implementations are held together by a file rather

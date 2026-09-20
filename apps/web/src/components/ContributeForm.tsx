@@ -12,11 +12,11 @@
  * "you pasted half of it" is help, while "checksum" is a diagnosis in a language they do not
  * speak.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { checkEnvelope, COMPLAINT_MAX } from "@/lib/contributions/contributions";
-import { parseEnvelope, type ParseError } from "@/lib/contributions/envelope";
+import { decodeFragment, type DecodeError, parseEnvelope, type ParseError } from "@/lib/contributions/envelope";
 
 const FIELD_LABELS: Record<string, string> = {
   quest: "Quest",
@@ -43,6 +43,15 @@ const MESSAGES: Record<ParseError, string> = {
   source: "That is not something this page can take.",
   oversize: "That is far larger than anything the addon produces.",
   malformed: "That is not an addon's text. Copy the whole box in the game, starting at !SPOKEN.",
+};
+
+const LINK_MESSAGES: Record<DecodeError, string> = {
+  malformed: "That link is missing its payload. Paste the addon's text into the box below instead.",
+  corrupt: "That link looks broken -- copy it again, or paste the addon's text into the box below.",
+  // DecompressionStream is missing on pre-16.4 Safari: said plainly, rather than leaving the
+  // player looking at a form that silently never fills in.
+  unsupported:
+    "This browser can't open this kind of link. Paste the addon's text into the box below instead.",
 };
 
 export type Preview =
@@ -74,6 +83,32 @@ export default function ContributeForm() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  // The one-copy flow: a #e1= link fills the box itself, so pressing Send is the only thing
+  // left for the player to do. Runs once, client-side only -- window.location.hash never
+  // exists during the server render, and the hash is stripped from the address bar immediately
+  // rather than merely read, so it cannot linger in history or get shared onward carrying the
+  // decoded game text a second time.
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash.startsWith("#e1=")) return;
+
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+
+    let cancelled = false;
+    decodeFragment(hash.slice("#e1=".length)).then((result) => {
+      if (cancelled) return;
+      if (result.ok) {
+        setRaw(result.text);
+      } else {
+        setLinkError(LINK_MESSAGES[result.error]);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const preview = previewOf(raw);
 
@@ -115,6 +150,12 @@ export default function ContributeForm() {
 
   return (
     <form onSubmit={submit} className="flex max-w-xl flex-col gap-4">
+      {linkError ? (
+        <p role="alert" className="text-sm text-red-400">
+          {linkError}
+        </p>
+      ) : null}
+
       <label className="flex flex-col gap-1 text-sm">
         Paste what the addon gave you
         <textarea

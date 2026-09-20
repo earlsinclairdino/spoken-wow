@@ -148,4 +148,38 @@ Expect("...and sends nothing, since the server keys gossip on the creature id", 
 
 world.npcName, world.npcGUID = savedName, savedGUID
 
+------------------------------------------------------------------------------- Show()
+-- Compression must run on the click alone -- HasGap fires on every quest and gossip event --
+-- and this spies on Encode rather than trusting the comment, so a future edit that moved the
+-- call into Capture/HasGap would fail here rather than merely cost more.
+world.title = "A Rough Start"
+world.questText = "Kill six of them.\nThen come back."
+stub.ShowPanel("QuestFrameDetailPanel")
+local encodeCalls = 0
+local realEncode = Spoken.Contribute.Encode
+Spoken.Contribute.Encode = function(...)
+    encodeCalls = encodeCalls + 1
+    return realEncode(...)
+end
+VoiceOver.Contribute:HasGap()
+VoiceOver.Contribute:Capture()
+Expect("HasGap/Capture never encode", encodeCalls, 0)
+
+VoiceOver.Contribute:Show()
+Expect("...only Show() does", encodeCalls, 1)
+local box = Spoken.ContributeBox
+Expect("Show() puts a link in the box, not the raw envelope",
+    box.editBox:GetText():match("^https://spoken%.rusty%.one/contribute#e1=") ~= nil, true)
+Expect("...with the link hint", box.hint:GetText(), "Copy this and open it in your browser:")
+Spoken.Contribute.Encode = realEncode
+
+-- The fallback an older bundled SpokenPlayer still gets: no Encode at all.
+Spoken.Contribute.Encode = nil
+VoiceOver.Contribute:Show()
+Expect("...falls back to the raw envelope when Encode is absent",
+    box.editBox:GetText():match("^!SPOKEN1 quests\n") ~= nil, true)
+Expect("...with the old two-copy hint", box.hint:GetText(), "Press Ctrl+C, then paste it at:")
+Expect("...and the address shown again", box.address:GetText(), "https://spoken.rusty.one/contribute")
+Spoken.Contribute.Encode = realEncode
+
 os.exit(Failures() == 0 and 0 or 1)

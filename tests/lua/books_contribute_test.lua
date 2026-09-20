@@ -46,4 +46,36 @@ stub.ShowPage({ title = "A letter", number = 1, text = UNKNOWN, creator = "Someb
 Expect("mail is never contributed", B:CaptureContribution(), nil)
 Expect("...and offers no button", B:HasContributionGap(), false)
 
+------------------------------------------------------------------------------- Show()
+-- Compression must run on the click alone -- see the perf comment on ShowContribution -- so
+-- this spies on Encode rather than merely trusting the comment: an assertion that only reads
+-- the source would still pass if a future edit moved the call into CaptureContribution.
+stub.ShowPage({ title = "Ledger of Nothing", number = 2, text = UNKNOWN })
+local encodeCalls = 0
+local realEncode = env.Spoken.Contribute.Encode
+env.Spoken.Contribute.Encode = function(...)
+    encodeCalls = encodeCalls + 1
+    return realEncode(...)
+end
+B:HasContributionGap()
+B:CaptureContribution()
+Expect("HasContributionGap/CaptureContribution never encode", encodeCalls, 0)
+
+B:ShowContribution()
+Expect("...only Show() does", encodeCalls, 1)
+local box = env.Spoken.ContributeBox
+Expect("Show() puts a link in the box, not the raw envelope",
+    box.editBox:GetText():match("^https://spoken%.rusty%.one/contribute#e1=") ~= nil, true)
+Expect("...with the link hint", box.hint:GetText(), "Copy this and open it in your browser:")
+env.Spoken.Contribute.Encode = realEncode
+
+-- The fallback an older bundled SpokenPlayer still gets: no Encode at all.
+env.Spoken.Contribute.Encode = nil
+B:ShowContribution()
+Expect("...falls back to the raw envelope when Encode is absent",
+    box.editBox:GetText():match("^!SPOKEN1 books\n") ~= nil, true)
+Expect("...with the old two-copy hint", box.hint:GetText(), "Press Ctrl+C, then paste it at:")
+Expect("...and the address shown again", box.address:GetText(), "https://spoken.rusty.one/contribute")
+env.Spoken.Contribute.Encode = realEncode
+
 os.exit(Failures() == 0 and 0 or 1)

@@ -20,9 +20,94 @@ local FACTOR = 31
 
 local byte, len, format = string.byte, string.len, string.format
 local gsub = gsub or string.gsub
+local floor = math.floor
 
 Contribute = {}
 Spoken.Contribute = Contribute
+
+-- The alphabet a browser's atob can read once '-'/'_' are swapped back to '+'/'/': RFC 4648's
+-- "base64url", unpadded. CHARS[0..63] rather than repeated string.sub calls, since every byte
+-- triplet below needs four lookups and Lua 5.1 has no bitwise operators to make those lookups
+-- with anything faster than a table index.
+local BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+local BASE64URL_CHARS = {}
+for i = 1, len(BASE64URL_ALPHABET) do
+    BASE64URL_CHARS[i - 1] = BASE64URL_ALPHABET:sub(i, i)
+end
+
+--- Arithmetic base64url (RFC 4648 section 5), no padding.
+---
+--- Multiply/floor/mod in place of the shifts and masks a bitwise base64 would use, the same
+--- trade Checksum makes: Lua 5.1 -- every client this ships to -- has no bitwise operators, and
+--- every intermediate here (at most 16777215, three bytes wide) stays exact in a double. No
+--- padding, because a fragment and atob's own '+/' swap both work without a trailing '=' to
+--- strip first, and stripping it is one more thing the browser side would have to remember.
+function Contribute:Base64URL(data)
+    local out, n, i = {}, len(data), 1
+    while i <= n do
+        local b1, b2, b3 = byte(data, i), byte(data, i + 1), byte(data, i + 2)
+        local group = b1 * 65536 + (b2 or 0) * 256 + (b3 or 0)
+        out[#out + 1] = BASE64URL_CHARS[floor(group / 262144) % 64]
+        out[#out + 1] = BASE64URL_CHARS[floor(group / 4096) % 64]
+        if b2 then
+            out[#out + 1] = BASE64URL_CHARS[floor(group / 64) % 64]
+        end
+        if b3 then
+            out[#out + 1] = BASE64URL_CHARS[group % 64]
+        end
+        i = i + 3
+    end
+    return table.concat(out)
+end
+
+-- The full URL, including the "https://.../contribute#e1=" prefix, above which Link refuses to
+-- hand the player a link at all.
+--
+-- Not chosen against a server or nginx limit -- the fragment never reaches either, which is the
+-- whole reason for putting the payload there instead of a query string. It exists only to catch
+-- a runaway encode: a 6 KB English book page, the longest thing this feature carries, measured
+-- under 1.5 KB of URL at level-5 deflate, so a result past this cap is not a big page, it is
+-- deflate failing to help at all -- most likely already-compressed or near-random bytes reaching
+-- Encode. Ten times that measured case, rounded up, leaves headroom for a genuinely long page
+-- while still refusing to ship a link nobody could reliably paste.
+local LINK_CAP = 15000
+
+--- The base64url form of the compressed envelope, or nil when either step fails.
+---
+--- CompressDeflate, not CompressZlib: the browser's DecompressionStream only speaks
+--- "deflate-raw", and a zlib header/checksum it would never read would only cost bytes for
+--- nothing. Level 5 measured enough ratio to matter (a synthetic 6 KB English page compresses to
+--- roughly a fifth its size; a Cyrillic sample compresses further, being 2 bytes/character in
+--- UTF-8) at a cost cheap enough that Show() -- never HasGap/Refresh; see the perf comment at
+--- each addon's own Show() -- can pay it once per click without the player noticing.
+function Contribute:Encode(envelope)
+    if type(envelope) ~= "string" or envelope == "" then
+        return nil
+    end
+    local lib = LibStub and LibStub:GetLibrary("LibDeflate", true)
+    if not lib then
+        return nil
+    end
+    local compressed = lib:CompressDeflate(envelope, { level = 5 })
+    if type(compressed) ~= "string" or compressed == "" then
+        return nil
+    end
+    return self:Base64URL(compressed)
+end
+
+--- The full contribute URL for an envelope, or nil when Encode fails or the URL would exceed
+--- LINK_CAP -- either way, the caller's job is to fall back to the raw envelope and address.
+function Contribute:Link(baseURL, envelope)
+    local encoded = self:Encode(envelope)
+    if not encoded then
+        return nil
+    end
+    local url = format("%s#e1=%s", baseURL, encoded)
+    if len(url) > LINK_CAP then
+        return nil
+    end
+    return url
+end
 
 --- The integrity check on a pasted envelope.
 ---

@@ -145,9 +145,24 @@ function Contribute:HasGap()
     return self:Capture() ~= nil and not HasSoundForCurrent()
 end
 
+-- Compression happens here and nowhere upstream of a click: HasGap/Capture run on every quest
+-- and gossip event to decide whether the button belongs on screen at all, and paying deflate's
+-- cost on each of those would be work spent on every panel the player merely glances at, for a
+-- result almost always thrown away unhandled. Show() runs once, when they have already decided
+-- to send it.
 function Contribute:Show()
     local envelope = self:Capture()
-    if envelope then
-        Spoken:ShowContribution(envelope, format("%s/contribute", SITE_URL))
+    if not envelope then
+        return
+    end
+    local address = format("%s/contribute", SITE_URL)
+    -- Encode is absent on an older SpokenPlayer a legacy-client zip can still bundle; Link
+    -- returns nil for that or for an oversized result. Either way, the two-copy fallback still
+    -- works, which is the whole point of shipping it alongside the link instead of replacing it.
+    local link = Spoken.Contribute.Encode and Spoken.Contribute:Link(address, envelope)
+    if link then
+        Spoken:ShowContribution(link, address, true)
+    else
+        Spoken:ShowContribution(envelope, address)
     end
 end

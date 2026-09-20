@@ -110,3 +110,68 @@ export function parseEnvelope(raw: string): Result {
 
   return { ok: true, value: { source, fields, text } };
 }
+
+export type DecodeError = "malformed" | "corrupt" | "unsupported";
+type DecodeResult = { ok: true; text: string } | { ok: false; error: DecodeError };
+
+/**
+ * The reader for the `#e1=` fragment addons/SpokenPlayer/Contribute.lua's Link builds:
+ * base64url -> raw deflate -> the same plaintext parseEnvelope already reads.
+ *
+ * Deliberately stops at plaintext rather than also calling parseEnvelope: ContributeForm feeds
+ * this text into the exact state a paste already populates, so previewOf's parseEnvelope ->
+ * checkEnvelope path runs once, the same way for a link and a paste, instead of this file
+ * running it a second time for the link and throwing that parse away. Kept in this node-free
+ * file, not a server route -- the fragment never leaves the browser (it is stripped from the
+ * URL and read only in memory), so there is no server round trip to decode it on, and never
+ * should be: sending it anywhere is the exact request-log/8k-limit exposure the link exists to
+ * avoid.
+ *
+ * Async because DecompressionStream is a stream API with no synchronous form; every caller
+ * already awaits the fetch this replaces, so that costs nothing a paste didn't already have.
+ */
+export async function decodeFragment(fragment: string): Promise<DecodeResult> {
+  // Older Safari (pre-16.4) has no DecompressionStream at all. Reported plainly rather than
+  // thrown -- ContributeForm's job is to say so and point at the paste box, not to crash on
+  // load for a player who did nothing wrong.
+  if (typeof DecompressionStream === "undefined") {
+    return { ok: false, error: "unsupported" };
+  }
+  if (!fragment) {
+    return { ok: false, error: "malformed" };
+  }
+
+  let bytes: Uint8Array<ArrayBuffer>;
+  try {
+    // '-'/'_' back to the standard alphabet, then padded to a multiple of 4: atob only speaks
+    // RFC 4648 base64, not the url-safe, unpadded form Contribute.lua's Base64URL emits.
+    const standard = fragment.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = standard + "=".repeat((4 - (standard.length % 4)) % 4);
+    const binary = atob(padded);
+    // Not Uint8Array.from(binary, ...): TypeScript infers that as Uint8Array<ArrayBufferLike>,
+    // which DecompressionStream's writer (typed for a concrete ArrayBuffer) then refuses.
+    bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+  } catch {
+    // atob throws on a fragment that was truncated mid-copy or edited by hand -- a player
+    // action, not a bug, so it is reported the same way a bad paste is.
+    return { ok: false, error: "corrupt" };
+  }
+
+  try {
+    const stream = new DecompressionStream("deflate-raw");
+    const writer = stream.writable.getWriter();
+    // Chained rather than run in parallel with the read below: a write/close error (corrupt
+    // deflate) otherwise surfaces as an unhandled rejection on this promise at the same time
+    // the read below rejects with the same error, since nothing here awaits it directly.
+    const written = writer.write(bytes).then(() => writer.close());
+    const [inflated] = await Promise.all([new Response(stream.readable).arrayBuffer(), written]);
+    return { ok: true, text: new TextDecoder("utf-8", { fatal: true }).decode(inflated) };
+  } catch {
+    // Bytes that are valid base64url but not valid deflate, or valid deflate that isn't valid
+    // UTF-8 -- either way, not this format, and not this reader's job to guess at.
+    return { ok: false, error: "corrupt" };
+  }
+}

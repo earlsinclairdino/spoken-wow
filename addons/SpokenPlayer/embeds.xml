@@ -1,5 +1,8 @@
 <Ui xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
     <Script file="Libs\LibStub\LibStub.lua"/>
+    <!-- Registers itself into LibStub above, so it must load after it -- see LibDeflate.lua's
+         own registration block, which errors out if a global named LibStub does not yet exist. -->
+    <Script file="Libs\LibDeflate\LibDeflate.lua"/>
     <Include file="Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml"/>
     <Include file="Libs\AceDB-3.0\AceDB-3.0.xml"/>
     <Include file="Libs\AceTimer-3.0\AceTimer-3.0.xml"/>

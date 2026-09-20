@@ -8,7 +8,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { checksum, parseEnvelope } from "./envelope";
+import { checksum, decodeFragment, parseEnvelope } from "./envelope";
 
 const fixture = (name: string) =>
   readFileSync(new URL(`../../../../../tests/fixtures/contributions/${name}`, import.meta.url), "utf8");
@@ -79,6 +79,41 @@ describe("parseEnvelope", () => {
     const result = parseEnvelope(crlf);
     expect(result.ok).toBe(true);
     expect(result.ok && result.value.text).toBe("Убей шестерых.\n\nПотом возвращайся.");
+  });
+});
+
+describe("decodeFragment", () => {
+  it("decodes the fixture Contribute:Encode wrote into the byte-identical plaintext envelope", async () => {
+    const encoded = fixture("books-page.e1.txt").trim();
+    const result = await decodeFragment(encoded);
+    expect(result).toEqual({ ok: true, text: fixture("books-page.txt") });
+  });
+
+  it("refuses an empty fragment", async () => {
+    expect(await decodeFragment("")).toEqual({ ok: false, error: "malformed" });
+  });
+
+  it("refuses a fragment that is not valid base64url", async () => {
+    expect(await decodeFragment("not valid base64url!!!")).toEqual({ ok: false, error: "corrupt" });
+  });
+
+  it("refuses a truncated fragment (valid base64url, broken deflate)", async () => {
+    const encoded = fixture("books-page.e1.txt").trim();
+    const result = await decodeFragment(encoded.slice(0, Math.floor(encoded.length / 2)));
+    expect(result).toEqual({ ok: false, error: "corrupt" });
+  });
+
+  // Bite-check: an assertion that would still pass with DecompressionStream deleted is not
+  // pinning anything -- this one only means something if the branch above it is provably live.
+  it("reports 'unsupported' when DecompressionStream is missing (older Safari)", async () => {
+    const real = globalThis.DecompressionStream;
+    // @ts-expect-error -- simulating an engine that never defined it
+    delete globalThis.DecompressionStream;
+    try {
+      expect(await decodeFragment("anything")).toEqual({ ok: false, error: "unsupported" });
+    } finally {
+      globalThis.DecompressionStream = real;
+    }
   });
 });
 

@@ -50,9 +50,22 @@ function SpokenBooks:HasContributionGap()
 	return self:CaptureContribution() ~= nil
 end
 
+-- Compression belongs here, not in CaptureContribution or HasContributionGap: those run on
+-- every page turn to decide whether the button belongs on screen, and paying deflate's cost
+-- there would tax every page the player merely reads, for a result thrown away unhandled on
+-- every one that isn't a gap. This runs once, on the click.
 function SpokenBooks:ShowContribution()
 	local envelope = self:CaptureContribution()
-	if envelope then
-		Spoken:ShowContribution(envelope, format("%s/contribute", self.SITE_URL))
+	if not envelope then
+		return
+	end
+	local address = format("%s/contribute", self.SITE_URL)
+	-- Encode is absent on an older SpokenPlayer a legacy-client zip can still bundle; Link
+	-- returns nil for that or for an oversized result, and the two-copy fallback still works.
+	local link = Spoken.Contribute.Encode and Spoken.Contribute:Link(address, envelope)
+	if link then
+		Spoken:ShowContribution(link, address, true)
+	else
+		Spoken:ShowContribution(envelope, address)
 	end
 end

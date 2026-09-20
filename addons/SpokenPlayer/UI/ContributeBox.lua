@@ -96,21 +96,32 @@ local function Build()
     return { frame = frame, editBox = editBox, address = address, title = title, hint = hint }
 end
 
---- Show an envelope, ready to copy, with the address to paste it into.
+--- Show something ready to copy: a contribute link, or (isLink falsy) the raw envelope plus
+--- the address to paste it into -- the fallback an older bundled player still gets, since a
+--- legacy-client zip can carry a SpokenPlayer that predates Encode/Link entirely.
 ---@return boolean shown  False when there is nothing to show, so a caller can stay quiet.
-function Spoken:ShowContribution(envelope, address)
-    if type(envelope) ~= "string" or envelope == "" then
+function Spoken:ShowContribution(payload, address, isLink)
+    if type(payload) ~= "string" or payload == "" then
         return false
     end
 
     box = box or Build()
     Spoken.ContributeBox = box
 
-    box.payload = envelope
-    box.editBox:SetText(envelope)
+    box.payload = payload
+    box.editBox:SetText(payload)
     box.editBox:HighlightText()
     box.editBox:SetFocus()
-    box.address:SetText(address or "")
+    if isLink then
+        -- The link already carries the address in it (https://.../contribute#e1=...), so a
+        -- second line repeating just the host would tell the player nothing the payload above
+        -- doesn't already say.
+        box.hint:SetText("Copy this and open it in your browser:")
+        box.address:SetText("")
+    else
+        box.hint:SetText("Press Ctrl+C, then paste it at:")
+        box.address:SetText(address or "")
+    end
     box.frame:Show()
     return true
 end

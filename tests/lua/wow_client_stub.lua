@@ -739,7 +739,11 @@ libs["LibDBIcon-1.0"] = {
     Show = function() end, Hide = function() end, Lock = function() end, Unlock = function() end, Refresh = function() end,
 }
 _G.LibStub = setmetatable({
-    NewLibrary = function() end,
+    -- Real enough to let a genuinely-vendored LibStub library (LibDeflate, so far) register
+    -- itself when its own source is dofile'd in a test, unlike the no-op this used to be: that
+    -- no-op only ever went unnoticed because every other library here is hand-faked above
+    -- rather than loaded for real, so nothing had called NewLibrary and expected a table back.
+    NewLibrary = function(_, major) libs[major] = libs[major] or {}; return libs[major] end,
     GetLibrary = function(_, name) return libs[name] end,
 }, { __call = function(_, name) return libs[name] end })
 
@@ -841,7 +845,9 @@ libs["AceDB-3.0"] = {
 function M.LoadSpoken(addonDirectory)
     for _, file in ipairs({ "Environment", "Version", "Core", "SoundUtils", "Callbacks", "SoundQueue", "Sources",
         "Strings", "UI/Layout", "UI/Portrait", "UI/Actions", "UI/ContributeBox", "UI/PlayerFrame", "UI/MinimapButton",
-        "UI/Options", "API", "Contribute", "Compat" }) do
+        -- Real LibDeflate, not a hand-faked stub library: Contribute:Encode's round trip through
+        -- actual compression is the point of testing it at all.
+        "UI/Options", "API", "Libs/LibDeflate/LibDeflate", "Contribute", "Compat" }) do
         dofile(addonDirectory .. file .. ".lua")
     end
     local env = _G.SpokenEnv

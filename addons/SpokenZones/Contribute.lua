@@ -105,9 +105,22 @@ function SpokenZones:HasContributionGap()
     return self:CaptureContribution() ~= nil
 end
 
+-- Compression belongs here, not in CaptureContribution or HasContributionGap: Autoplay and the
+-- lore window ask the gap question far more often than a player ever presses the button, and
+-- paying deflate's cost there would be work spent on every place walked through, not just the
+-- ones actually reported. This runs once, on the click.
 function SpokenZones:ShowContribution()
     local envelope = self:CaptureContribution()
-    if envelope then
-        Spoken:ShowContribution(envelope, format("%s/contribute", SITE_URL))
+    if not envelope then
+        return
+    end
+    local address = format("%s/contribute", SITE_URL)
+    -- Encode is absent on an older SpokenPlayer a legacy-client zip can still bundle; Link
+    -- returns nil for that or for an oversized result, and the two-copy fallback still works.
+    local link = Spoken.Contribute.Encode and Spoken.Contribute:Link(address, envelope)
+    if link then
+        Spoken:ShowContribution(link, address, true)
+    else
+        Spoken:ShowContribution(envelope, address)
     end
 end

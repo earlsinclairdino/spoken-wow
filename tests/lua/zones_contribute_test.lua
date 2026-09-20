@@ -54,4 +54,36 @@ stub.SetZone({ map = 1538, zone = "Somewhere Else" })
 Z.Zones[1538] = { full = "There is lore here." }
 Expect("a place with lore is not a gap", Z:HasContributionGap(), false)
 
+------------------------------------------------------------------------------- Show()
+-- Compression must run on the click alone -- Autoplay and the lore window ask the gap question
+-- on nearly every zone change, and this spies on Encode rather than trusting the comment, so a
+-- future edit that moved the call earlier would fail here rather than merely cost more.
+stub.SetZone({ map = 1537, zone = "Ironforge", subzone = "A Nook With No Lore", x = 0.55, y = 0.47 })
+local encodeCalls = 0
+local realEncode = env.Spoken.Contribute.Encode
+env.Spoken.Contribute.Encode = function(...)
+    encodeCalls = encodeCalls + 1
+    return realEncode(...)
+end
+Z:HasContributionGap()
+Z:CaptureContribution()
+Expect("HasContributionGap/CaptureContribution never encode", encodeCalls, 0)
+
+Z:ShowContribution()
+Expect("...only Show() does", encodeCalls, 1)
+local box = env.Spoken.ContributeBox
+Expect("Show() puts a link in the box, not the raw envelope",
+    box.editBox:GetText():match("^https://spoken%.rusty%.one/contribute#e1=") ~= nil, true)
+Expect("...with the link hint", box.hint:GetText(), "Copy this and open it in your browser:")
+env.Spoken.Contribute.Encode = realEncode
+
+-- The fallback an older bundled SpokenPlayer still gets: no Encode at all.
+env.Spoken.Contribute.Encode = nil
+Z:ShowContribution()
+Expect("...falls back to the raw envelope when Encode is absent",
+    box.editBox:GetText():match("^!SPOKEN1 zones\n") ~= nil, true)
+Expect("...with the old two-copy hint", box.hint:GetText(), "Press Ctrl+C, then paste it at:")
+Expect("...and the address shown again", box.address:GetText(), "https://spoken.rusty.one/contribute")
+env.Spoken.Contribute.Encode = realEncode
+
 os.exit(Failures() == 0 and 0 or 1)

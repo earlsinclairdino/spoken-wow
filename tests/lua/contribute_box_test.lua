@@ -25,10 +25,18 @@ Expect("...with no byte limit", box.editBox:GetMaxBytes(), 0)
 Expect("...selected, so Ctrl+C is the only keystroke", box.editBox.highlighted, true)
 Expect("...and is multi-line", box.editBox.multiLine, true)
 Expect("the address is shown beside it", box.address:GetText(), "https://x")
+Expect("the hint describes pasting, in the fallback case", box.hint:GetText(), "Press Ctrl+C, then paste it at:")
 
 -- Typing into it would destroy the payload before the player copied it.
 box.editBox:SetText("nonsense")
 box.editBox.handlers.OnTextChanged(box.editBox)
 Expect("a keystroke restores the envelope", box.editBox:GetText(), envelope)
+
+------------------------------------------------------------------------------- the link case
+local link = "https://spoken.rusty.one/contribute#e1=abc"
+Expect("a link is shown", Spoken:ShowContribution(link, "https://x", true), true)
+Expect("the box holds the link itself", box.editBox:GetText(), link)
+Expect("...with the link-specific hint", box.hint:GetText(), "Copy this and open it in your browser:")
+Expect("...and no redundant address line, since the link already carries it", box.address:GetText(), "")
 
 os.exit(Failures() == 0 and 0 or 1)
