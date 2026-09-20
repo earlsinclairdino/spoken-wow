@@ -127,7 +127,7 @@ function ContributeButton:PositionOnQuestPanel(panel)
     if right then
         button:SetPoint("RIGHT", right, "LEFT", -GAP, 0)
     else
-        button:SetWidth(180)
+        button:SetWidth(110)
     end
     return true
 end
@@ -143,7 +143,7 @@ function ContributeButton:PositionOnGossip()
     local button = self.button
     button:ClearAllPoints()
     button:SetPoint("RIGHT", goodbye, "LEFT", -GAP, 0)
-    button:SetWidth(180)
+    button:SetWidth(110)
     return true
 end
 
@@ -189,7 +189,10 @@ function ContributeButton:Setup()
 
     local button = CreateFrame("Button", nil, UIParent, "UIPanelButtonTemplate")
     button:SetHeight(BUTTON_HEIGHT)
-    button:SetText("No voice \226\128\148 contribute")
+    -- "Contribute", not "No voice -- contribute": the long form was the first thing a player
+    -- said was wrong about this button, and it has to share a row with Blizzard's own controls.
+    -- The books addon's button already says exactly this word, so the two now match.
+    button:SetText("Contribute")
     if button.SetFrameStrata then
         -- DIALOG rather than a verified match for QuestFrame's or GossipFrame's own strata --
         -- this file did not check what either actually is (neither Vanilla/QuestFrame.xml,

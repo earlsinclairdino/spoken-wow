@@ -94,12 +94,12 @@ stub.ShowPanel("QuestFrameRewardPanel")
 stub.FireEvent("QUEST_COMPLETE")
 Expect("the button still shows beside CompleteQuestButton when there is no Cancel button",
     VoiceOver.ContributeButton.button:IsShown(), true)
--- Pinning the branch, not just surviving it: only the fixed-width fallback calls SetWidth(180)
+-- Pinning the branch, not just surviving it: only the fixed-width fallback calls SetWidth(CONTRIBUTE_WIDTH)
 -- at all, so a regression that instead tried (and silently mis-anchored) a two-point SetPoint
 -- against the missing right-hand button would leave the button at its untouched default width
--- rather than 180, and this would catch it even though IsShown() above would not.
+-- rather than the fallback width, and this would catch it even though IsShown() above would not.
 Expect("...at the fixed fallback width, not a stretched two-point anchor",
-    VoiceOver.ContributeButton.button:GetWidth(), 180)
+    VoiceOver.ContributeButton.button:GetWidth(), 110)
 stub.HidePanels()
 
 -- Gossip, on the client generations whose GossipFrame this addon can actually anchor to (see
