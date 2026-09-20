@@ -191,6 +191,19 @@ typo rather than a corpus that failed to load — and takes the lineId from the 
 rather than from the request body, so nothing the reporter can edit decides which row
 triage sees.
 
+**A report presumes a page id, and a page this corpus has never seen has none to give.** That
+is every post-vanilla book, every locale but one, and whatever a private server wrote for
+itself — `Contribute.lua`'s `HasContributionGap` is true exactly there, whenever
+`PageOnScreen` found nothing. The Play button itself becomes the way to say so: relabelled
+**Contribute** in that state, it opens the same copy box the Report action uses, holding an
+envelope instead of an address — the addon, the build, the locale, the book, the page number
+and the page's own text, checksummed the same way a page it does know is looked up.
+**Mail is excluded the same way narration already excludes it**, doubly: a letter with a
+creator, or anything shown while `MailFrame` is open, is never captured. The player copies the
+box, opens `spoken.rusty.one/contribute`, pastes, and sees exactly what is about to be sent
+before it goes — the same page, submitted again by the same or another reader, bumps a count
+on one row at `/contributions` rather than filing a second.
+
 `UI/Layout.lua` is the fourth copy of a file that must stay byte-identical across
 SpokenPlayer, SpokenQuests, SpokenZones and SpokenBooks;
 `pipelines/quests/tests/test_package.py` is what enforces that.

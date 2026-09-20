@@ -786,6 +786,30 @@ reopening it. **A report never becomes a regeneration job.** Regenerating spends
 credits, so nothing public can start one; someone reads the report, listens, and queues the
 file through the normal flow.
 
+### When there is no line at all
+
+A report presumes a line exists and is wrong. Some of the time there is no line to be wrong —
+the corpus is built from a 1.12 world database, so it has nothing for content that postdates
+vanilla, for a locale that database does not carry, or for whatever a private server invented
+on top of it. In those three cases the client in front of the player is holding the only copy
+of the text, and `Contribute:HasGap()` puts a **Contribute** button on the Blizzard quest frame
+itself — beside Accept/Decline, Continue/Goodbye, or the reward row's own buttons, and beside
+the gossip frame's Goodbye button for an NPC line — exactly when there is text on screen and
+nothing queued to play.
+
+Clicking it opens the same copy box `ReportButton.lua` uses, holding a plain-text envelope
+instead of an address: the addon, the build, the locale, the quest or NPC, and the text
+itself. The client still cannot open a browser or post anywhere, so the player copies it,
+opens `spoken.rusty.one/contribute`, pastes, sees a field-by-field preview of exactly what is
+about to be sent, and submits.
+
+The same text pasted again — by the same player or a different one — bumps a count on the
+existing row rather than filing a second one; different text under the same key stays its own
+row. That count is the triage priority at `/contributions`, the contribution queue's own
+`/reports`: a collaborator accepts or rejects, and **accepting never starts generation** — a
+contribution becomes corpus text and a regeneration job the same deliberate way a report
+becomes a fix, by a person reading it first.
+
 ## Addon Install
 
 ```bash

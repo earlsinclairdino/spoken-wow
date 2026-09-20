@@ -29,7 +29,8 @@ no CurseForge either, and take their zips from [Releases](../../releases).
 
 ```
 addons/      the player, the feature addons, and the sound packs
-apps/web     the site: spoken.rusty.one, with quests, zones and books sections
+apps/web     the site: spoken.rusty.one, with quests, zones and books sections,
+             per-line reports and /contribute for text the corpus has none of yet
 pipelines/   corpus extraction and voiceline generation
              quests/ is Python, zones/ and books/ are Node
 deploy/web   the droplet: nginx, pm2, release scripts and the runbook

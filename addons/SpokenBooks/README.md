@@ -27,6 +27,16 @@ Without the pack it loads, stays quiet, and `/spb status` tells you what is miss
 - **The words are the ones vanilla shipped.** On WoW: Forever, a book that has been rewritten since will not be recognised, and the addon stays quiet rather than reading you the old version.
 - **Some readings still land wrong.** Reports decide what gets re-recorded first.
 
+## When there is no voice
+
+The corpus is built from a 1.12 world database, so it has nothing for a book written after
+vanilla, for languages that database does not carry, or for whatever a private server wrote
+for itself. Open one of those and the Play button reads **Contribute** instead: press it and
+it hands you the page's own text, copied straight off your screen. Copy the box, open
+`spoken.rusty.one/contribute`, paste it, and it joins the queue — the same text pasted by
+several readers is what moves a book up it. Your mail is never sent this way either; the
+addon still checks for a sender or an open mailbox first.
+
 ## Settings
 
 Game Menu → Options → AddOns → **Spoken Books**, or the Spoken minimap button. Everything on the panel is a command as well, so nothing here is out of reach on a client whose settings window will not open.
