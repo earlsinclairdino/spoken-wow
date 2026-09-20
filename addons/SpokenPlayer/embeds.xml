@@ -5,14 +5,15 @@
     <Include file="Libs\AceTimer-3.0\AceTimer-3.0.xml"/>
     <Script file="Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua"/>
     <Script file="Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua"/>
-    <!-- LAST, AND DELIBERATELY SO. Everything above is a dependency Core.lua asks LibStub for
+    <!-- Last, and deliberately so. Everything above is a dependency Core.lua asks LibStub for
          by name the moment it runs; LibDeflate is optional, and Contribute.lua already treats a
-         missing one as "show the player the envelope instead of a link".
+         missing one as "show the player the envelope instead of a link", so the worst case
+         here is the feature degrading rather than the addon failing to start.
 
-         The client stops processing the rest of an XML file when a script in it fails, so an
-         optional library loaded early takes the required ones down with it -- which is exactly
-         what happened: with LibDeflate second, login died on "Cannot find a library instance of
-         AceTimer-3.0", an error naming a library that has nothing to do with the change.
-         Ordered this way the worst case is the feature degrading, not the addon failing. -->
+         NOTE FOR WHOEVER EDITS THIS FILE NEXT: an XML comment may not contain a double hyphen.
+         Lua's comment marker written inside one of these makes the whole document invalid, and
+         the client then loads none of the libraries below, whichever line they sit on. That
+         failure arrives as "Cannot find a library instance of AceTimer-3.0" at Core.lua:8,
+         naming a library nobody touched, which is a long way from the comment that caused it. -->
     <Script file="Libs\LibDeflate\LibDeflate.lua"/>
 </Ui>

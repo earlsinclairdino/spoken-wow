@@ -97,6 +97,7 @@ test: test-player ## Everything: both webs, the Python pipeline, the addons
 
 lint: ## The checks CI gates on
 	@pnpm -r typecheck
+	@node scripts/check-addon-xml.mjs
 	@node pipelines/zones/tools/validate.mjs
 	@node scripts/descriptions.mjs --check
 	@node pipelines/zones/tools/locale/check-strings.mjs
