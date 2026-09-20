@@ -78,7 +78,7 @@ export function previewOf(raw: string): Preview {
   return { ok: true, rows, text: parsed.value.text };
 }
 
-export default function ContributeForm() {
+export default function ContributeForm({ signedInAs }: { signedInAs: string | null }) {
   const [raw, setRaw] = useState("");
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,8 +124,8 @@ export default function ContributeForm() {
       body: JSON.stringify({
         envelope: raw,
         body: data.get("body"),
-        name: data.get("name"),
-        email: data.get("email"),
+        name: signedInAs ? null : data.get("name"),
+        email: signedInAs ? null : data.get("email"),
         website: data.get("website"),
       }),
     }).catch(() => null);
@@ -197,15 +197,30 @@ export default function ContributeForm() {
         />
       </label>
 
-      <label className="flex flex-col gap-1 text-sm">
-        Your name (optional)
-        <input name="name" className="bg-background rounded border px-2 py-1.5" />
-      </label>
+      {/*
+        Asking a signed-in person for their name is asking them to answer a question the server
+        has already decided: the route takes identity from the session and drops whatever was
+        typed here, deliberately, because signing in and then typing someone else's name is a way
+        to put words in their mouth. Two fields that cannot affect the outcome are two fields
+        that make the form look longer and the answer look uncertain, so they are not shown.
+      */}
+      {signedInAs ? (
+        <p className="text-muted-foreground text-sm">
+          Filed as <span className="text-foreground">{signedInAs}</span>.
+        </p>
+      ) : (
+        <>
+          <label className="flex flex-col gap-1 text-sm">
+            Your name (optional)
+            <input name="name" className="bg-background rounded border px-2 py-1.5" />
+          </label>
 
-      <label className="flex flex-col gap-1 text-sm">
-        Your email (optional)
-        <input name="email" type="email" className="bg-background rounded border px-2 py-1.5" />
-      </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Your email (optional)
+            <input name="email" type="email" className="bg-background rounded border px-2 py-1.5" />
+          </label>
+        </>
+      )}
 
       {/* A honeypot. sr-only rather than display:none, which bots know to skip. */}
       <label className="sr-only" aria-hidden="true">
