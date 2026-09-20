@@ -95,6 +95,15 @@ function Spoken:GetPortraitRenderer(kind)
 end
 
 --------------------------------------------------------------------------------
+-- Contributions: sending text the corpus does not have
+--------------------------------------------------------------------------------
+--
+-- Additive, so API_VERSION does not move. A feature addon guards on the field rather than the
+-- version: `if Spoken.Contribute and Spoken.ShowContribution then`. A legacy-client zip may
+-- bundle a player older than the addon beside it, and that player should mean no contribute
+-- button, not an error.
+
+--------------------------------------------------------------------------------
 -- The frame, the minimap button, the settings
 --------------------------------------------------------------------------------
 

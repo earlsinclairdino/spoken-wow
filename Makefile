@@ -55,6 +55,7 @@ test-player: ## Run the addons' Lua tests (needs luajit)
 	@$(LUA) tests/lua/sources_test.lua
 	@$(LUA) tests/lua/api_contract_test.lua
 	@$(LUA) tests/lua/contribute_envelope_test.lua
+	@$(LUA) tests/lua/contribute_box_test.lua
 	@$(LUA) tests/lua/player_frame_test.lua
 	@$(LUA) tests/lua/zones_source_test.lua
 	@$(LUA) tests/lua/zones_pending_test.lua

@@ -347,6 +347,17 @@ function _G.CreateFrame(kind, name, parent)
     -- Recorded so a test can ask what a panel built, the way a player reads it: a row is
     -- a control with a label, and a panel that lost one is a setting nobody can reach.
     if parent and parent.children then table.insert(parent.children, f) end
+    -- The edit box a contribution is copied out of is multi-line and unbounded, neither of
+    -- which the report popup's box is. `highlighted` and `multiLine` are recorded because the
+    -- point of the frame is that the player presses Ctrl+C and nothing else.
+    if kind == "EditBox" then
+        function f:SetMultiLine(on) self.multiLine = on and true or false end
+        function f:SetMaxBytes(n) self.maxBytes = n end
+        function f:GetMaxBytes() return self.maxBytes or 0 end
+        function f:HighlightText() self.highlighted = true end
+        function f:SetAutoFocus() end
+        function f:SetScript(event, fn) self.handlers = self.handlers or {}; self.handlers[event] = fn end
+    end
     return f
 end
 
@@ -782,8 +793,8 @@ libs["AceDB-3.0"] = {
 --- variables the way ADDON_LOADED would.
 function M.LoadSpoken(addonDirectory)
     for _, file in ipairs({ "Environment", "Version", "Core", "SoundUtils", "Callbacks", "SoundQueue", "Sources",
-        "Strings", "UI/Layout", "UI/Portrait", "UI/Actions", "UI/PlayerFrame", "UI/MinimapButton", "UI/Options",
-        "API", "Contribute", "Compat" }) do
+        "Strings", "UI/Layout", "UI/Portrait", "UI/Actions", "UI/ContributeBox", "UI/PlayerFrame", "UI/MinimapButton",
+        "UI/Options", "API", "Contribute", "Compat" }) do
         dofile(addonDirectory .. file .. ".lua")
     end
     local env = _G.SpokenEnv

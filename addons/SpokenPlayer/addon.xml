@@ -10,6 +10,7 @@
     <Include file="UI\Layout.lua"/>
     <Include file="UI\Portrait.lua"/>
     <Include file="UI\Actions.lua"/>
+    <Include file="UI\ContributeBox.lua"/>
     <Include file="UI\PlayerFrame.lua"/>
     <Include file="UI\MinimapButton.lua"/>
     <Include file="UI\Options.lua"/>
