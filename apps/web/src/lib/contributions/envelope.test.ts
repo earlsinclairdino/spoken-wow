@@ -66,6 +66,13 @@ describe("parseEnvelope", () => {
   it("tolerates the whitespace a paste picks up", () => {
     expect(parseEnvelope(`\n  \n${fixture("books-page.txt")}\n\n`).ok).toBe(true);
   });
+
+  it("parses a paste whose newlines came from a Windows client", () => {
+    const crlf = fixture("quests-accept.txt").replace(/\n/g, "\r\n");
+    const result = parseEnvelope(crlf);
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.value.text).toBe("Убей шестерых.\n\nПотом возвращайся.");
+  });
 });
 
 describe("checksum", () => {

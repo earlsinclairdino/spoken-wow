@@ -45,6 +45,15 @@ export function checksum(body: string): number {
 }
 
 export function parseEnvelope(raw: string): Result {
+  // Cheap pre-filter: UTF-8 spends at least one byte per UTF-16 unit, so a string already
+  // longer than MAX_BYTES in units cannot be under MAX_BYTES in bytes either. That rejects the
+  // actual attack shape -- someone pasting megabytes -- without allocating a full encode of it.
+  // It is only sufficient, not exact: a shorter string can still exceed MAX_BYTES once
+  // multi-byte characters are counted, so the precise check below still runs when this one
+  // doesn't already decide it.
+  if (raw.length > MAX_BYTES) {
+    return { ok: false, error: "oversize" };
+  }
   if (new TextEncoder().encode(raw).length > MAX_BYTES) {
     return { ok: false, error: "oversize" };
   }
