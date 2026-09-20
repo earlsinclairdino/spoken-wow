@@ -1,11 +1,18 @@
 <Ui xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
     <Script file="Libs\LibStub\LibStub.lua"/>
-    <!-- Registers itself into LibStub above, so it must load after it -- see LibDeflate.lua's
-         own registration block, which errors out if a global named LibStub does not yet exist. -->
-    <Script file="Libs\LibDeflate\LibDeflate.lua"/>
     <Include file="Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml"/>
     <Include file="Libs\AceDB-3.0\AceDB-3.0.xml"/>
     <Include file="Libs\AceTimer-3.0\AceTimer-3.0.xml"/>
     <Script file="Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua"/>
     <Script file="Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua"/>
+    <!-- LAST, AND DELIBERATELY SO. Everything above is a dependency Core.lua asks LibStub for
+         by name the moment it runs; LibDeflate is optional, and Contribute.lua already treats a
+         missing one as "show the player the envelope instead of a link".
+
+         The client stops processing the rest of an XML file when a script in it fails, so an
+         optional library loaded early takes the required ones down with it -- which is exactly
+         what happened: with LibDeflate second, login died on "Cannot find a library instance of
+         AceTimer-3.0", an error naming a library that has nothing to do with the change.
+         Ordered this way the worst case is the feature degrading, not the addon failing. -->
+    <Script file="Libs\LibDeflate\LibDeflate.lua"/>
 </Ui>
