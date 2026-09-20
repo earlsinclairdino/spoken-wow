@@ -80,4 +80,40 @@ local trailingNewline = C:Envelope("books", { { "page", "1" } }, "a\nb\n")
 Expect("a trailing newline in the text becomes a blank line before the fence",
     trailingNewline:match("\na\nb\n\n>>\n") ~= nil, true)
 
+-- The fixtures the TypeScript reader is tested against.
+--
+-- Written by the writer itself, so the two implementations are held together by a file rather
+-- than by two people reading the same paragraph. `make contribute-fixtures` rewrites them;
+-- a diff in that output is the format changing, and the reader's tests fail in the same commit.
+if os.getenv("SPOKEN_WRITE_FIXTURES") then
+    local dir = here .. "/../fixtures/contributions/"
+    local function Write(name, body)
+        local file = assert(io.open(dir .. name, "w"))
+        file:write(body)
+        file:close()
+    end
+
+    Write("quests-accept.txt", C:Envelope("quests", {
+        { "addon", "SpokenQuests/1.4.2" }, { "build", "1.12.1/5875" }, { "locale", "ruRU" },
+        { "quest", "9123" }, { "event", "accept" }, { "npc", "12345 Deathguard Linnea" },
+        { "title", "A Rough Start" },
+    }, "Убей шестерых.\n\nПотом возвращайся."))
+
+    Write("books-page.txt", C:Envelope("books", {
+        { "addon", "SpokenBooks/1.1.0" }, { "build", "3.3.5/12340" }, { "locale", "enUS" },
+        { "page", "1839201" }, { "book", "Ledger of Nothing" }, { "number", "2" },
+    }, "A page no corpus has ever held.\n\nWritten for this test alone."))
+
+    Write("zones-subzone.txt", C:Envelope("zones", {
+        { "addon", "SpokenZones/2.0.1" }, { "build", "11509" }, { "locale", "enUS" },
+        { "map", "1537" }, { "zone", "Ironforge" }, { "subzone", "A Nook With No Lore" },
+        { "x", "0.55" }, { "y", "0.47" },
+    }, nil))
+
+    Write("quests-fenced.txt", C:Envelope("quests", {
+        { "addon", "SpokenQuests/1.4.2" }, { "build", "1.12.1/5875" }, { "locale", "enUS" },
+        { "quest", "1" }, { "event", "accept" },
+    }, "before\n>>\nafter"))
+end
+
 os.exit(Failures() == 0 and 0 or 1)

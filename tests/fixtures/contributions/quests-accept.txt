@@ -1,0 +1,14 @@
+!SPOKEN1 quests
+addon=SpokenQuests/1.4.2
+build=1.12.1/5875
+locale=ruRU
+quest=9123
+event=accept
+npc=12345 Deathguard Linnea
+title=A Rough Start
+text<<
+Убей шестерых.
+
+Потом возвращайся.
+>>
+sum=81715444

@@ -1,0 +1,12 @@
+!SPOKEN1 quests
+addon=SpokenQuests/1.4.2
+build=1.12.1/5875
+locale=enUS
+quest=1
+event=accept
+text<<
+before
+\>>
+after
+>>
+sum=57849095

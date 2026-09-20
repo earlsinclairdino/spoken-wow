@@ -19,7 +19,7 @@
 
 LUA ?= $(shell command -v luajit || command -v lua5.1)
 
-.PHONY: help test test-player lint package-all \
+.PHONY: help test test-player contribute-fixtures lint package-all \
         descriptions descriptions-check descriptions-published \
         audio-release audio-release-dry
 
@@ -74,6 +74,11 @@ test-player: ## Run the addons' Lua tests (needs luajit)
 	@$(LUA) tests/lua/books_contribute_test.lua
 	@$(LUA) tests/lua/zones_contribute_test.lua
 	@$(LUA) tests/lua/migration_test.lua
+
+# Rewrite the envelope fixtures the TypeScript reader is tested against. A diff here is the
+# wire format changing, and that is a change the reader's tests must be part of.
+contribute-fixtures:
+	SPOKEN_WRITE_FIXTURES=1 $(LUA) tests/lua/contribute_envelope_test.lua
 
 # The Python half needs its own venv:
 #
