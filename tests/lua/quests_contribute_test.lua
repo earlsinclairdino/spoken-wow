@@ -81,6 +81,12 @@ stub.ShowPanel("QuestFrameRewardPanel")
 stub.FireEvent("QUEST_COMPLETE")
 Expect("the button still shows beside CompleteQuestButton when there is no Cancel button",
     VoiceOver.ContributeButton.button:IsShown(), true)
+-- Pinning the branch, not just surviving it: only the fixed-width fallback calls SetWidth(180)
+-- at all, so a regression that instead tried (and silently mis-anchored) a two-point SetPoint
+-- against the missing right-hand button would leave the button at its untouched default width
+-- rather than 180, and this would catch it even though IsShown() above would not.
+Expect("...at the fixed fallback width, not a stretched two-point anchor",
+    VoiceOver.ContributeButton.button:GetWidth(), 180)
 stub.HidePanels()
 
 -- Gossip, on the client generations whose GossipFrame this addon can actually anchor to (see
@@ -93,15 +99,19 @@ Expect("the button appears on gossip too, once a Goodbye button can be found",
 
 -- The legacy fallback: no GreetingPanel.GoodbyeButton (as the three original 1.12/2.4.3/3.3.5
 -- clients might not have -- see GossipGoodbyeButton's comment), but a flat, older-style global
--- in its place. stub.absentAPI is what makes a Widget answer a capitalised lookup with nil
--- rather than the generic no-op every other method gets -- GreetingPanel reads as data here,
--- not a method call, so it has to disappear rather than resolve to a callable stand-in.
-stub.absentAPI.GreetingPanel = true
+-- in its place. The field is removed outright rather than through stub.absentAPI: absentAPI
+-- only changes what the Widget metatable answers when a lookup falls through to it, and
+-- GreetingPanel is a real field this stub assigns once at load (not something the metatable
+-- was ever asked about), so absentAPI has no effect on it -- setting it, as an earlier version
+-- of this test did, left the real GreetingPanel.GoodbyeButton in place and passed without ever
+-- reaching the fallback. Saved and restored so later code in this file still sees the real one.
+local savedGreetingPanel = _G.GossipFrame.GreetingPanel
+_G.GossipFrame.GreetingPanel = nil
 _G.GossipGreetingGoodbyeButton = stub.Widget("Button", "GossipGreetingGoodbyeButton")
 stub.ShowGossip("Legacy words.")
 stub.FireEvent("GOSSIP_SHOW")
 Expect("the legacy global is used when the parentKey path is absent",
     VoiceOver.ContributeButton.button:IsShown(), true)
-stub.absentAPI.GreetingPanel = nil
+_G.GossipFrame.GreetingPanel = savedGreetingPanel
 
 os.exit(Failures() == 0 and 0 or 1)

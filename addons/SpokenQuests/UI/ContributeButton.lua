@@ -93,10 +93,17 @@ end
 -- Blizzard used elsewhere, not a confirmed one. Both are tried, and if neither resolves, the
 -- button simply does not appear on gossip there -- Capture() still works from `/spq` or
 -- whatever else reaches it; nothing forces the guess to be right.
+--
+-- `type(greeting) == "table"` rather than a plain truthiness check: on a real client an
+-- absent parentKey just reads as nil, but the test stub's generic frame object answers any
+-- unset, capitalised field with a callable stand-in rather than nil (it exists to make
+-- ordinary method calls on parts of the UI a test never built into no-ops), and indexing
+-- .GoodbyeButton off THAT would error instead of falling through to the legacy global.
 local function GossipGoodbyeButton()
     local frame = _G.GossipFrame
-    if frame and frame.GreetingPanel and frame.GreetingPanel.GoodbyeButton then
-        return frame.GreetingPanel.GoodbyeButton
+    local greeting = frame and frame.GreetingPanel
+    if type(greeting) == "table" and greeting.GoodbyeButton then
+        return greeting.GoodbyeButton
     end
     return _G.GossipGreetingGoodbyeButton
 end
