@@ -81,6 +81,11 @@ export default function UserMenu() {
           <Link href="/reports">Reports</Link>
         </Button>
       )}
+      {canRegenerate(role) && (
+        <Button asChild variant="ghost" size="sm">
+          <Link href="/contributions">Contributions</Link>
+        </Button>
+      )}
       {isAdmin(role) && (
         <Button asChild variant="ghost" size="sm">
           <Link href="/admin">Users</Link>
