@@ -107,4 +107,27 @@ describe("submissionFrom", () => {
     };
     expect(submissionFrom(zones, "raw")).toBe(null);
   });
+
+  it("refuses a zones envelope with empty-string text, not just non-null text", () => {
+    const zones: Envelope = {
+      source: "zones",
+      fields: { map: "1537", subzone: "A Nook", locale: "enUS" },
+      text: "",
+    };
+    expect(submissionFrom(zones, "raw")).toBe(null);
+  });
+
+  it("refuses an npc id with trailing junk that isn't the writer's name suffix", () => {
+    const gossip: Envelope = { source: "quests", fields: { npc: "123abc", locale: "enUS" }, text: "Hail." };
+    expect(submissionFrom(gossip, "raw")).toBe(null);
+  });
+
+  it("accepts the writer's real npc shape, an id followed by a name", () => {
+    const gossip: Envelope = {
+      source: "quests",
+      fields: { npc: "12345 Deathguard Linnea", locale: "enUS" },
+      text: "Hail.",
+    };
+    expect(submissionFrom(gossip, "raw")?.key).toBe("npc:12345");
+  });
 });

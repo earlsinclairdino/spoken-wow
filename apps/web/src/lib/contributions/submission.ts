@@ -40,7 +40,11 @@ function keyFor(envelope: Envelope): string | null {
   const f = envelope.fields;
   if (envelope.source === "quests") {
     if (f.quest && f.event) return DIGITS.test(f.quest) ? `${f.quest}:${f.event}` : null;
-    const npc = f.npc?.match(/^(\d+)/)?.[1];
+    // The writer emits this field as "<id> <name>", e.g. "12345 Deathguard Linnea", so a
+    // trailing name is the normal case and can't be rejected the way quest/page/map are.
+    // Requiring the digit run to end at a space or the string's end -- not "all digits" --
+    // is what stops a hand-written "123abc" from smuggling in a non-numeric id.
+    const npc = f.npc?.match(/^(\d+)(?:\s|$)/)?.[1];
     return npc ? `npc:${npc}` : null;
   }
   if (envelope.source === "books") {
@@ -57,7 +61,7 @@ export function submissionFrom(envelope: Envelope, raw: string): Submission | nu
     // Zones carries no text because the client has none to give; one that does wasn't written
     // by our addon, so it's rejected rather than silently kept under a key whose triage view
     // won't show it.
-    if (envelope.text) return null;
+    if (envelope.text != null) return null;
   } else if (!envelope.text) {
     // For quests and books the text is the entire payload, so one without it is a report, not
     // a contribution.
