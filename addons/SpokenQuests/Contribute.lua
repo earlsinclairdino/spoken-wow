@@ -65,15 +65,36 @@ local function NPCKind()
     return Enums.GUID:IsCreature(guidType) and "creature" or nil
 end
 
--- The frame itself, made once and kept, rather than one per capture: it is only ever handed
--- a different unit. What is NOT kept is it being shown -- a PlayerModel left shown keeps
+-- PlayerModel loads asynchronously: probed against a live client, SetUnit followed
+-- immediately by GetModelFileID answers nothing, and the same read a moment later answers
+-- the real file id. So the model is never read on the click -- it is pre-warmed on the
+-- refresh path, into this cache, while the player is still reading the panel (seconds, not
+-- one frame), and Capture only ever looks the guid up here.
+--
+-- Keyed by the NPC's guid, since the probe is asked about a different unit every time a
+-- different NPC comes on screen, and a load that already finished for one says nothing
+-- about another. `false` remembers "asked, and nothing came back" (a gameobject, a client
+-- with no GUID, or a load that genuinely resolves to nothing) so a miss is asked for at most
+-- once per guid rather than retried on every refresh; a guid missing from this table entirely
+-- has simply never been asked about.
+local modelCache = {}
+
+-- The one guid currently waiting on a load, and whether that wait has a callback watching
+-- it. A second refresh for the same guid while it is still loading must not call SetUnit
+-- again -- that is the whole point of keying by guid at all.
+local loadingGUID
+local loadingHasCallback
+
+-- The frame itself, made once and kept, rather than one per prime: it is only ever handed a
+-- different unit. What is NOT kept is it being shown -- a PlayerModel left shown keeps
 -- driving a 3D scene draw for as long as the addon runs, and this client has hung its GPU on
 -- model rendering before. UI/Portrait.lua's pooled-model Acquire/Release (Compat.lua, for the
 -- clients that cannot show an arbitrary creature in a DressUpModel) is this repo's existing
--- answer to the same problem: show it, read it, then Hide/ClearModel the way Release does.
+-- answer to the same problem: show it while a load is in flight, then Hide/ClearModel once
+-- read, the way Release does.
 local modelProbe
 
-local function ModelFileID()
+local function ModelProbeFrame()
     if not CreateFrame then
         return nil
     end
@@ -87,35 +108,74 @@ local function ModelFileID()
         if modelProbe.SetPoint then modelProbe:SetPoint("CENTER") end
         if modelProbe.SetAlpha then modelProbe:SetAlpha(0) end
     end
+    return modelProbe
+end
 
-    if not modelProbe.SetUnit or not modelProbe.GetModelFileID then
-        return nil
+--- Read back whatever the probe currently has for `guid`, cache it, and put the probe away.
+--- Called once the load has actually finished (OnModelLoaded), or -- on a client old enough
+--- to have GetModelFileID but not that script -- on the refresh after the one that started
+--- the load, which is the best a client without the event can do without polling a timer.
+local function FinishModelLoad(guid)
+    local probe = modelProbe
+    -- Not `probe and pcall(...)`: `and` truncates pcall's two return values down to one, so
+    -- `id` would be nil even on a successful read. Separate statements keep both.
+    local ok, id = false, nil
+    if probe then
+        ok, id = pcall(probe.GetModelFileID, probe)
     end
-    -- Shown only for this read: GetModelFileID must be asked of a frame that is shown (task
-    -- 1's probing of a live client), but nothing says it has to stay shown between reads.
-    if modelProbe.Show then modelProbe:Show() end
-    pcall(modelProbe.SetUnit, modelProbe, "npc")
-    local ok, id = pcall(modelProbe.GetModelFileID, modelProbe)
-    if modelProbe.ClearModel then modelProbe:ClearModel() end
-    if modelProbe.Hide then modelProbe:Hide() end
+    if probe then
+        if probe.ClearModel then probe:ClearModel() end
+        if probe.Hide then probe:Hide() end
+    end
+    if loadingGUID == guid then
+        loadingGUID, loadingHasCallback = nil, nil
+    end
     -- Absent rather than zero: the site reads a missing model as "race unknown", and 0 is a
-    -- file id that would mean something. This is also what a model that has not finished
-    -- loading yet reads back as -- see the comment on Observations for what that costs.
-    if not ok or type(id) ~= "number" or id <= 0 then
-        return nil
+    -- file id that would mean something.
+    modelCache[guid] = (ok and type(id) == "number" and id > 0) and id or false
+end
+
+--- Start a model load for this NPC's guid, if nothing has asked about it yet. Everything
+--- this does is one-shot per guid -- HasGap calls it on every quest and gossip event, and a
+--- second call for a guid already cached or already loading must be free.
+local function PrimeModelCache(guid)
+    if not guid or modelCache[guid] ~= nil then
+        return
     end
-    return id
+    if loadingGUID == guid then
+        if not loadingHasCallback then
+            FinishModelLoad(guid)
+        end
+        return
+    end
+
+    local probe = ModelProbeFrame()
+    if not probe or not probe.SetUnit or not probe.GetModelFileID then
+        modelCache[guid] = false
+        return
+    end
+
+    loadingGUID = guid
+    if probe.Show then probe:Show() end
+    pcall(probe.SetUnit, probe, "npc")
+    -- Not every client generation this addon supports fires this for a PlayerModel; SetScript
+    -- on an unrecognised script type is a Lua error on a real client, which is what the pcall
+    -- is for. Failing it leaves loadingHasCallback false, and the fallback above reads on the
+    -- next refresh for this guid instead.
+    loadingHasCallback = probe.SetScript
+        and pcall(probe.SetScript, probe, "OnModelLoaded", function() FinishModelLoad(guid) end)
+end
+
+--- What the model probe has cached for the NPC on screen, or nil if nothing has resolved yet.
+--- Pure table lookup -- Capture must never touch the probe itself, only read what the refresh
+--- path already primed.
+local function CachedModelFileID()
+    local guid = Utils:GetNPCGUID()
+    local cached = guid and modelCache[guid]
+    return cached or nil
 end
 
 --- What the client can see about who is speaking. The site decides what it means.
----
---- Only ever called from Capture when an envelope is actually going to be built -- never from
---- HasGap, which runs on every quest and gossip event and must not touch the model probe just
---- to answer a yes/no question. Showing the probe and reading it back synchronously, as
---- ModelFileID does, is also why a model the client has not finished loading yet reads as
---- absent rather than blocking or retrying: this addon has no test bench against a live
---- client, so whether that ever loses a model a longer-lived probe would have caught is an
---- open question, not a settled one -- flagged rather than papered over with a retry timer.
 local function Observations(fields)
     local function add(key, value)
         if value ~= nil and value ~= "" then
@@ -123,7 +183,7 @@ local function Observations(fields)
         end
     end
     add("kind", NPCKind())
-    add("model", ModelFileID())
+    add("model", CachedModelFileID())
     add("sex", UnitSex and UnitSex("npc") or nil)
     add("creature", UnitCreatureType and UnitCreatureType("npc") or nil)
 end
@@ -234,15 +294,28 @@ local function HasSomethingToSend()
         return true
     end
     local gossip = GetGossipText and GetGossipText()
-    return gossip and gossip ~= "" and NPCID() ~= nil
+    if gossip and gossip ~= "" and NPCID() then
+        return true
+    end
+    return false
 end
 
 --- Whether the contribute button belongs on screen: something to send, and nothing to play.
+---
+--- Priming the model cache happens here, not in Capture, and only when there is actually a
+--- gap: most NPCs already have sound, and there is no reason to ever ask a model to load for
+--- one of those. One SetUnit per NPC encountered while a gap is showing, not one per event --
+--- a player reads a quest for seconds, which is ample for the load PrimeModelCache started to
+--- finish before a click ever reads it back.
 function Contribute:HasGap()
     if not (_G.Spoken and Spoken.Contribute and Spoken.ShowContribution) then
         return false
     end
-    return HasSomethingToSend() and not HasSoundForCurrent()
+    local gap = HasSomethingToSend() and not HasSoundForCurrent()
+    if gap then
+        PrimeModelCache(Utils:GetNPCGUID())
+    end
+    return gap
 end
 
 -- Compression happens here and nowhere upstream of a click: HasGap/Capture run on every quest

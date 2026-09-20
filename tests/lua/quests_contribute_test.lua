@@ -183,44 +183,88 @@ Expect("...and the address shown again", box.address:GetText(), "https://spoken.
 Spoken.Contribute.Encode = realEncode
 
 ---------------------------------------------------------------- what the client saw
--- The site works out the race from the model file id; the addon only reports it. The id is
--- read from a model frame that has to be shown and given a moment to load, so the stub
--- answers it the way a loaded frame does.
+-- The site works out the race from the model file id; the addon only reports it. PlayerModel
+-- loads asynchronously -- probed against a live client, SetUnit followed immediately by
+-- GetModelFileID answers nothing, and the same read a moment later answers the real file id
+-- -- so the model is never read on the click. HasGap pre-warms it into a cache keyed by NPC
+-- guid while the panel is still on screen (a player reads a quest for seconds), and Capture
+-- only ever looks the guid up.
 stub.HidePanels()
-world.questID = 9123
+world.questID = 9401
+world.title = "Nothing Heard Yet"
+world.questText = "Words with no line in the corpus."
 world.npcName = "Deathguard Linnea"
-world.npcGUID = "Creature-0-0-0-0-12345-0"
+-- A guid not reused anywhere else in this file: the model cache is keyed by guid and never
+-- reset between scenarios, so a guid this test has seen before would already be cached (or
+-- mid-load) from earlier in the run, and "priming a fresh NPC" would not be testing what it
+-- says it is.
+world.npcGUID = "Creature-0-0-0-0-90001-0"
 world.modelFileID = 122055
 world.unitSex = 2
 world.creatureType = "Humanoid"
 stub.ShowPanel("QuestFrameDetailPanel")
 
+local setUnitBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
+Expect("there is a gap to prime the model for", VoiceOver.Contribute:HasGap(), true)
+Expect("priming a fresh NPC calls SetUnit once",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitBefore + 1)
+
+local beforeLoad = VoiceOver.Contribute:Capture()
+Expect("nothing cached yet is omitted, not sent as 0", beforeLoad:match("\nmodel=") == nil, true)
+Expect("...and the envelope is still sent", beforeLoad:match("^!SPOKEN1 quests\n") ~= nil, true)
+
+-- A second refresh for the same NPC, still mid-load, must not ask again.
+Expect("still a gap on the next refresh", VoiceOver.Contribute:HasGap(), true)
+Expect("...and no second SetUnit for the same guid while it is loading",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitBefore + 1)
+
+-- The load finishes the way a live client fires it -- not a timer this addon polls.
+stub.FinishModelLoad()
+
 local seen = VoiceOver.Contribute:Capture()
-Expect("the model file id is reported", seen:match("\nmodel=122055\n") ~= nil, true)
+Expect("the model file id is reported once the load has fired", seen:match("\nmodel=122055\n") ~= nil, true)
 Expect("the sex the client reports is carried too", seen:match("\nsex=2\n") ~= nil, true)
 Expect("the creature type is carried", seen:match("\ncreature=Humanoid\n") ~= nil, true)
 Expect("a creature guid is reported as a creature", seen:match("\nkind=creature\n") ~= nil, true)
 Expect("no race is decided here", seen:match("\nrace=") == nil, true)
 
--- A client that cannot answer leaves the fields out rather than sending a zero: the site
--- treats an absent model as "unknown race", and 0 would be a model id that means something.
+-- A third refresh for the same, now-cached NPC still must not ask again.
+Expect("still a gap once cached", VoiceOver.Contribute:HasGap(), true)
+Expect("...and no further SetUnit once the guid is cached",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitBefore + 1)
+
+-- A different NPC is a different guid, and is worth asking about once of its own.
+world.npcGUID = "Creature-0-0-0-0-90002-0"
+world.npcName = "Someone Else"
+Expect("a different NPC is still a gap", VoiceOver.Contribute:HasGap(), true)
+Expect("...and does call SetUnit once, for the new guid",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitBefore + 2)
+
+-- A model that resolves to nothing (this NPC's own load finishing with none) leaves the
+-- field out rather than sending a zero: the site treats an absent model as "unknown race".
 world.modelFileID = nil
+stub.FinishModelLoad()
 local blind = VoiceOver.Contribute:Capture()
 Expect("an unavailable model is omitted, not sent as 0", blind:match("\nmodel=") == nil, true)
 Expect("...and the envelope is still sent", blind:match("^!SPOKEN1 quests\n") ~= nil, true)
 
--- The model frame is built at most once, and never merely because the button refreshed.
+-- The model frame is built at most once, and never merely because the button refreshed --
+-- and once a guid is cached (as this one now is), asking again must not even touch the probe.
 local framesBefore = stub.FrameCount and stub.FrameCount() or 0
-VoiceOver.Contribute:HasGap()
-Expect("asking whether there is a gap builds no model frame",
-    (stub.FrameCount and stub.FrameCount() or 0), framesBefore)
-
--- The frame count alone cannot see this: a probe built once and reused would still call
--- SetUnit (which starts a model loading) on every refresh. HasGap runs on every quest and
--- gossip event, so it must never reach the probe at all, not even to re-prime it.
 local setUnitCallsBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
 VoiceOver.Contribute:HasGap()
-Expect("asking whether there is a gap never touches the model probe",
+Expect("asking again for an already-cached NPC builds no model frame",
+    (stub.FrameCount and stub.FrameCount() or 0), framesBefore)
+Expect("...and calls SetUnit no further times",
     (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitCallsBefore)
+
+-- With nothing on screen at all, HasGap must not reach the model probe even to look --
+-- this is the case a previous version of this test only covered by accident, since the
+-- guid it asked about happened to already be cached.
+stub.HidePanels()
+local idleSetUnitBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
+VoiceOver.Contribute:HasGap()
+Expect("asking whether there is a gap with nothing on screen never touches the model probe",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), idleSetUnitBefore)
 
 os.exit(Failures() == 0 and 0 or 1)

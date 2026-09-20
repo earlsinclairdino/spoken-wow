@@ -384,12 +384,27 @@ function _G.CreateFrame(kind, name, parent)
     -- stub refuses to answer a frame that is not currently shown, the same way a real one
     -- answers nothing to a probe that never called Show. SetUnit is counted separately from
     -- CreateFrame: a probe built once and reused would still call SetUnit on every read, and
-    -- that is the cost HasGap must never pay merely to answer a yes/no question.
+    -- that is the cost HasGap must never pay merely to answer a yes/no question. Tracked as
+    -- M.playerModel (this addon only ever keeps one) so a test can fire OnModelLoaded itself,
+    -- the way a live client's asynchronous model load would -- see M.FinishModelLoad.
     if kind == "PlayerModel" then
+        M.playerModel = f
         function f:SetUnit(unit) self.unit = unit; setUnitCount = setUnitCount + 1 end
         function f:GetModelFileID() return self.shown and world.modelFileID or nil end
     end
     return f
+end
+
+--- Fire the model probe's OnModelLoaded script, the way a live client would once the file has
+--- actually finished loading. Probed against a live client: SetUnit followed immediately by
+--- GetModelFileID answers nothing, and the same read a moment later answers the real id -- so
+--- a test drives that moment explicitly rather than the addon polling for it.
+function M.FinishModelLoad()
+    local probe = M.playerModel
+    local handler = probe and probe.scripts and probe.scripts.OnModelLoaded
+    if handler then
+        handler(probe)
+    end
 end
 
 --- Every label under this frame, however deep: a control's own text, and the font string
