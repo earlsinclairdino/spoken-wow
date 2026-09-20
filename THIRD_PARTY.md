@@ -50,6 +50,9 @@ None of this is the project's to license, and the MIT grant does not reach it.
   which article each line came from.
 - **Book, letter and in-world text** for SpokenBooks comes from the same vmangos
   extraction as the quest corpus, and is likewise Blizzard's.
+- Text submitted through `/contribute` is game text as well: a player's client is showing it and
+  they are sending a copy. It sits on the same footing as the corpus above, and the same terms
+  apply to it.
 - **Map images, portrait frames and icons** derived from game assets
   (`PortraitFrameAtlas`, the continent maps) are Blizzard's.
 - **The generated audio** is synthesised by [ElevenLabs](https://elevenlabs.io) from the
