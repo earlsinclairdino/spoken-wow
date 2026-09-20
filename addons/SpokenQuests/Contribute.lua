@@ -65,9 +65,12 @@ local function NPCKind()
     return Enums.GUID:IsCreature(guidType) and "creature" or nil
 end
 
--- One frame, made once and kept, rather than one per capture: it is only ever handed a
--- different unit. Parented and sized because a model frame that is never shown never loads
--- one, and an unloaded frame answers nothing.
+-- The frame itself, made once and kept, rather than one per capture: it is only ever handed
+-- a different unit. What is NOT kept is it being shown -- a PlayerModel left shown keeps
+-- driving a 3D scene draw for as long as the addon runs, and this client has hung its GPU on
+-- model rendering before. UI/Portrait.lua's pooled-model Acquire/Release (Compat.lua, for the
+-- clients that cannot show an arbitrary creature in a DressUpModel) is this repo's existing
+-- answer to the same problem: show it, read it, then Hide/ClearModel the way Release does.
 local modelProbe
 
 local function ModelFileID()
@@ -83,16 +86,21 @@ local function ModelFileID()
         if modelProbe.SetSize then modelProbe:SetSize(64, 64) end
         if modelProbe.SetPoint then modelProbe:SetPoint("CENTER") end
         if modelProbe.SetAlpha then modelProbe:SetAlpha(0) end
-        if modelProbe.Show then modelProbe:Show() end
     end
 
     if not modelProbe.SetUnit or not modelProbe.GetModelFileID then
         return nil
     end
+    -- Shown only for this read: GetModelFileID must be asked of a frame that is shown (task
+    -- 1's probing of a live client), but nothing says it has to stay shown between reads.
+    if modelProbe.Show then modelProbe:Show() end
     pcall(modelProbe.SetUnit, modelProbe, "npc")
     local ok, id = pcall(modelProbe.GetModelFileID, modelProbe)
+    if modelProbe.ClearModel then modelProbe:ClearModel() end
+    if modelProbe.Hide then modelProbe:Hide() end
     -- Absent rather than zero: the site reads a missing model as "race unknown", and 0 is a
-    -- file id that would mean something.
+    -- file id that would mean something. This is also what a model that has not finished
+    -- loading yet reads back as -- see the comment on Observations for what that costs.
     if not ok or type(id) ~= "number" or id <= 0 then
         return nil
     end
@@ -100,6 +108,14 @@ local function ModelFileID()
 end
 
 --- What the client can see about who is speaking. The site decides what it means.
+---
+--- Only ever called from Capture when an envelope is actually going to be built -- never from
+--- HasGap, which runs on every quest and gossip event and must not touch the model probe just
+--- to answer a yes/no question. Showing the probe and reading it back synchronously, as
+--- ModelFileID does, is also why a model the client has not finished loading yet reads as
+--- absent rather than blocking or retrying: this addon has no test bench against a live
+--- client, so whether that ever loses a model a longer-lived probe would have caught is an
+--- open question, not a settled one -- flagged rather than papered over with a retry timer.
 local function Observations(fields)
     local function add(key, value)
         if value ~= nil and value ~= "" then
@@ -206,12 +222,27 @@ local function HasSoundForCurrent()
     return false
 end
 
+--- Whether Capture would build an envelope, without paying to build one.
+---
+--- The same two conditions Capture returns on, repeated rather than reused, because reuse
+--- here would mean calling Capture and throwing the envelope away -- and Capture is where
+--- Observations runs, which is exactly the model-probe cost HasGap must not pay on every
+--- quest and gossip event just to answer a yes/no question.
+local function HasSomethingToSend()
+    local event, text = EventOnScreen()
+    if event and text and text ~= "" then
+        return true
+    end
+    local gossip = GetGossipText and GetGossipText()
+    return gossip and gossip ~= "" and NPCID() ~= nil
+end
+
 --- Whether the contribute button belongs on screen: something to send, and nothing to play.
 function Contribute:HasGap()
     if not (_G.Spoken and Spoken.Contribute and Spoken.ShowContribution) then
         return false
     end
-    return self:Capture() ~= nil and not HasSoundForCurrent()
+    return HasSomethingToSend() and not HasSoundForCurrent()
 end
 
 -- Compression happens here and nowhere upstream of a click: HasGap/Capture run on every quest

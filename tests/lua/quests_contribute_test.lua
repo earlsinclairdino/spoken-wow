@@ -215,4 +215,12 @@ VoiceOver.Contribute:HasGap()
 Expect("asking whether there is a gap builds no model frame",
     (stub.FrameCount and stub.FrameCount() or 0), framesBefore)
 
+-- The frame count alone cannot see this: a probe built once and reused would still call
+-- SetUnit (which starts a model loading) on every refresh. HasGap runs on every quest and
+-- gossip event, so it must never reach the probe at all, not even to re-prime it.
+local setUnitCallsBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
+VoiceOver.Contribute:HasGap()
+Expect("asking whether there is a gap never touches the model probe",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitCallsBefore)
+
 os.exit(Failures() == 0 and 0 or 1)

@@ -355,6 +355,11 @@ function _G.StopMusic() table.insert(world.music, false) end
 -- once and reused shows up here as one, however many times the code that reuses it runs.
 local frameCount = 0
 function M.FrameCount() return frameCount end
+-- How many times a PlayerModel's SetUnit has been called: the frame count alone cannot see a
+-- probe that is built once but re-primed on every refresh, which is the cost that actually
+-- matters (SetUnit is what starts a model loading).
+local setUnitCount = 0
+function M.SetUnitCount() return setUnitCount end
 function _G.CreateFrame(kind, name, parent)
     frameCount = frameCount + 1
     local f = name and Frame(name) or MakeFrame(nil)
@@ -375,12 +380,14 @@ function _G.CreateFrame(kind, name, parent)
         function f:SetAutoFocus() end
         function f:SetScript(event, fn) self.handlers = self.handlers or {}; self.handlers[event] = fn end
     end
-    -- A PlayerModel only loads while it is shown, and answers nothing until it has. The
-    -- addon's own code is what decides to show it; the stub just reports what a loaded one
-    -- would say, or nothing when the world has no model for this unit.
+    -- A PlayerModel only loads while it is shown, and answers nothing until it has -- so the
+    -- stub refuses to answer a frame that is not currently shown, the same way a real one
+    -- answers nothing to a probe that never called Show. SetUnit is counted separately from
+    -- CreateFrame: a probe built once and reused would still call SetUnit on every read, and
+    -- that is the cost HasGap must never pay merely to answer a yes/no question.
     if kind == "PlayerModel" then
-        function f:SetUnit(unit) self.unit = unit end
-        function f:GetModelFileID() return world.modelFileID end
+        function f:SetUnit(unit) self.unit = unit; setUnitCount = setUnitCount + 1 end
+        function f:GetModelFileID() return self.shown and world.modelFileID or nil end
     end
     return f
 end
