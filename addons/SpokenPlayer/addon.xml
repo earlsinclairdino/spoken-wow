@@ -14,6 +14,7 @@
     <Include file="UI\MinimapButton.lua"/>
     <Include file="UI\Options.lua"/>
     <Include file="API.lua"/>
+    <Include file="Contribute.lua"/>
 
     <Include file="Compat.lua"/>
 </Ui>
