@@ -58,7 +58,13 @@ function Contribute:Capture()
     local event, text = EventOnScreen()
     local fields =
     {
-        { "addon", format("SpokenQuests/%s", VoiceOver.VERSION or "dev") },
+        -- VoiceOver.VERSION does not exist -- nothing in this addon ever assigns it. The
+        -- addon's own .toc version, read the way DataModules.lua already reads every sound
+        -- pack's (GetAddOnMetadata, compat-shimmed onto C_AddOns.GetAddOnMetadata in
+        -- Compatibility.lua for clients that moved it there), is the real mechanism to reuse
+        -- rather than inventing a second one; "dev" is what a source checkout with no .toc
+        -- metadata at all reads back as.
+        { "addon", format("SpokenQuests/%s", (GetAddOnMetadata and GetAddOnMetadata(AddonFolder, "Version")) or "dev") },
         { "build", format("%s/%s", (GetBuildInfo and select(1, GetBuildInfo())) or "?",
                                    (GetBuildInfo and select(2, GetBuildInfo())) or "?") },
         { "locale", (GetLocale and GetLocale()) or "enUS" },

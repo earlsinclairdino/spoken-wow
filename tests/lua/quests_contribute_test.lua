@@ -14,6 +14,17 @@ stub.SetClient("11509")
 -- itself, so there is no separate stub.LoadSpoken call here.
 local VoiceOver = stub.LoadQuests(QUESTS, SPOKEN)
 
+-- The addon's own .toc Version, as GetAddOnMetadata(AddonFolder, "Version") reads it -- picked
+-- deliberately unlike anything in the real .toc, so the assertion below cannot pass by
+-- coincidentally matching it; it is pinning that Contribute:Capture reads a real version, not
+-- confirming a particular one. TestPack stays alongside it: OnInitialize's EnumerateAddons has
+-- to see TestPack in this same list, or the DataModules:Register call further down (which
+-- asserts a module was detected during enumeration) fails.
+stub.SetAddOns({
+    { folder = "SpokenQuests", meta = { Version = "9.9.9" } },
+    { folder = "TestPack", meta = { ["X-VoiceOver-DataModule-Version"] = "1", Version = "1.2.1", Title = "TestPack" } },
+})
+
 world.questID = 9123
 world.title = "A Rough Start"
 world.questText = "Kill six of them.\nThen come back."
@@ -31,6 +42,8 @@ Expect("the text is the client's", envelope:match("\nKill six of them%.\nThen co
 Expect("the locale is carried", envelope:match("\nlocale=%a+\n") ~= nil, true)
 Expect("the build is carried", envelope:match("\nbuild=") ~= nil, true)
 Expect("no character name is carried", envelope:match(world.playerName or "Tester") == nil, true)
+Expect("the addon field carries the real .toc version, not the \"dev\" fallback",
+    envelope:match("\naddon=SpokenQuests/9%.9%.9\n") ~= nil, true)
 
 -- Gossip: no quest, but an NPC and their words are worth having.
 stub.HidePanels()
