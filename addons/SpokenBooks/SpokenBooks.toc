@@ -21,6 +21,7 @@ Checksum.lua
 Data/Books.lua
 Core.lua
 Reader.lua
+Contribute.lua
 Audio.lua
 Playlist.lua
 UI/Layout.lua

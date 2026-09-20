@@ -31,6 +31,13 @@
 --
 -- A long page's last line runs under the button. The alternative is a row where the button
 -- collides with one of Blizzard's own controls on page two of every book.
+--
+-- ONE BUTTON, TWO STATES, not two buttons: this corner is the only free one on the frame (see
+-- above), so a Contribute button would need it too. The two states never fight over it --
+-- Contribute.lua's HasContributionGap is true only when PageOnScreen found nothing, and this
+-- button's Play/Stop state exists only once PageOnScreen found a page with audio -- so
+-- re-labelling what is already here is the honest arrangement rather than a second control
+-- stacked on space that does not exist.
 
 local ADDON_NAME, SpokenBooks = ...
 
@@ -39,9 +46,9 @@ local BUTTON_HEIGHT = 22
 
 --- Show, hide and re-label the button for whatever is on screen now.
 ---
---- Hidden rather than disabled when there is nothing to play. A greyed-out button on every
---- letter and every page this corpus does not carry is a permanent invitation to wonder what
---- is broken; an absent one says the addon has nothing to offer here.
+--- Hidden rather than disabled when there is nothing to play or send. A greyed-out button on
+--- every letter and every page this corpus does not carry is a permanent invitation to wonder
+--- what is broken; an absent one says the addon has nothing to offer here.
 function SpokenBooks:RefreshPlayButton()
 	local button = self.playButton
 	if not button then
@@ -49,19 +56,32 @@ function SpokenBooks:RefreshPlayButton()
 	end
 
 	local pageId = self:PageOnScreen()
-	if not pageId or not self:HasAudio(pageId) then
-		button:Hide()
+	if pageId and self:HasAudio(pageId) then
+		button:Show()
+		self.playButtonMode = "play"
+
+		local book = self:PlaceOf(pageId)
+		if self:IsNarrating(book) then
+			button:SetText("Stop")
+		else
+			button:SetText("Play")
+		end
 		return
 	end
 
-	button:Show()
-
-	local book = self:PlaceOf(pageId)
-	if self:IsNarrating(book) then
-		button:SetText("Stop")
-	else
-		button:SetText("Play")
+	-- No clip to play. The other thing this corner can mean: a page this corpus never saw,
+	-- offered back as something to send instead of something to hear. Guarded the same way
+	-- Events.lua guards SetupPlayButton -- Contribute.lua is what defines this, and a test
+	-- that loads the book-event wiring without it must not error for lacking a file it never
+	-- asked to load.
+	if self.HasContributionGap and self:HasContributionGap() then
+		button:Show()
+		button:SetText("Contribute")
+		self.playButtonMode = "contribute"
+		return
 	end
+
+	button:Hide()
 end
 
 --- Build the button, once, as soon as the client has a book frame to hang it on.
@@ -102,6 +122,11 @@ function SpokenBooks:SetupPlayButton()
 	end
 
 	button:SetScript("OnClick", function()
+		if SpokenBooks.playButtonMode == "contribute" then
+			SpokenBooks:ShowContribution()
+			return
+		end
+
 		local pageId = SpokenBooks:PageOnScreen()
 		if pageId and SpokenBooks:IsNarrating(SpokenBooks:PlaceOf(pageId)) then
 			SpokenBooks:StopReading()
@@ -118,7 +143,10 @@ function SpokenBooks:SetupPlayButton()
 			return
 		end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		if self:GetText() == "Stop" then
+		if SpokenBooks.playButtonMode == "contribute" then
+			GameTooltip:SetText("No line for this page")
+			GameTooltip:AddLine("Send your own client's text so it can be added.", 1, 0.8, 0.2, true)
+		elseif self:GetText() == "Stop" then
 			GameTooltip:SetText("Stop reading this book")
 		else
 			GameTooltip:SetText("Read this book aloud")
