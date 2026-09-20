@@ -362,16 +362,13 @@ function Addon:OnInitialize()
     end
 
     -- The Contribute button, on the Blizzard quest/gossip frame rather than the Spoken player
-    -- frame -- see UI/ContributeButton.lua's header for why the player frame will not do.
-    -- Refreshed on a short repeating timer rather than from each quest/gossip event handler:
-    -- one place to keep in sync with what's on screen, running the same on every client
-    -- generation including the legacy ones the automatic quest watcher deliberately skips
-    -- above. Guarded like ReportButton just above: a failed build here must not take
-    -- playback down with it.
+    -- frame -- see UI/ContributeButton.lua's header for why the player frame will not do. Its
+    -- own event frame (built in Setup, not here) is what keeps it in sync with what's on
+    -- screen; no timer. Guarded like ReportButton just above: a failed build here must not
+    -- take playback down with it.
     local contributeButtonReady, contributeButtonError = pcall(function()
         if ContributeButton and ContributeButton.Setup then
             ContributeButton:Setup()
-            self:ScheduleRepeatingTimer(function() ContributeButton:Refresh() end, 0.2)
         end
     end)
     if not contributeButtonReady then

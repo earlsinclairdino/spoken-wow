@@ -24,6 +24,18 @@ setfenv(1, VoiceOver)
 local BUTTON_HEIGHT = 22
 local GAP = 8
 
+-- The events that flip a quest or gossip panel on or off, on every client generation this
+-- addon targets -- not a timer. VoiceOver.lua's own OnInitialize already pays for
+-- registering exactly these seven, unconditionally: QUEST_DETAIL/PROGRESS/COMPLETE/FINISHED
+-- on its dedicated recorder frame, and QUEST_GREETING/GOSSIP_SHOW/GOSSIP_CLOSED on its
+-- direct-event frame. Listening for the same seven here, on a second frame of our own, costs
+-- nothing that isn't already being paid, mirrors how PlayButton.lua refreshes off
+-- ITEM_TEXT_READY/ITEM_TEXT_CLOSED rather than a poll, and needs no timer of its own.
+local REFRESH_EVENTS = {
+    "QUEST_DETAIL", "QUEST_PROGRESS", "QUEST_COMPLETE", "QUEST_GREETING",
+    "GOSSIP_SHOW", "GOSSIP_CLOSED", "QUEST_FINISHED",
+}
+
 ContributeButton = {}
 
 -- A copy of VoiceOver.lua's helper of the same name, which is a local there and so not
@@ -76,11 +88,11 @@ end
 -- current retail) both place a lone GoodbyeButton at GossipFrame's bottom-right with nothing
 -- else on that row -- reached as GossipFrame.GreetingPanel.GoodbyeButton, a parentKey rather
 -- than a separate global. The three original 1.12/2.4.3/3.3.5 clients predate that source
--- tree; whether their own gossip frame exposes an equivalent global (older Blizzard UIs often
--- named this kind of button directly, e.g. GossipGreetingGoodbyeButton) is not something this
--- change could verify against a real client. Both are tried, and if neither resolves, the
+-- tree, and this change could not check what their own gossip frame actually exposes;
+-- GossipGreetingGoodbyeButton below is an unverified guess at the older, pre-parentKey naming
+-- Blizzard used elsewhere, not a confirmed one. Both are tried, and if neither resolves, the
 -- button simply does not appear on gossip there -- Capture() still works from `/spq` or
--- whatever else reaches it; nothing forces a guess at a frame this could not confirm.
+-- whatever else reaches it; nothing forces the guess to be right.
 local function GossipGoodbyeButton()
     local frame = _G.GossipFrame
     if frame and frame.GreetingPanel and frame.GreetingPanel.GoodbyeButton then
@@ -158,8 +170,8 @@ function ContributeButton:Refresh()
     end
 end
 
---- Build the button, once, parented to UIParent so its own visibility never depends on
---- QuestFrame's or GossipFrame's.
+--- Build the button and its event frame, once, parented to UIParent so its own visibility
+--- never depends on QuestFrame's or GossipFrame's.
 function ContributeButton:Setup()
     if self.button then
         return self.button
@@ -172,8 +184,12 @@ function ContributeButton:Setup()
     button:SetHeight(BUTTON_HEIGHT)
     button:SetText("No voice \226\128\148 contribute")
     if button.SetFrameStrata then
-        -- Above QuestFrame and GossipFrame, both of which draw at "HIGH": this button reads
-        -- as part of whichever one is open, not as a stray control behind it.
+        -- DIALOG rather than a verified match for QuestFrame's or GossipFrame's own strata --
+        -- this file did not check what either actually is (neither Vanilla/QuestFrame.xml,
+        -- TBC/QuestFrame.xml nor the two GossipFrame.xml files declare frameStrata inline, so
+        -- it comes from a template or from Lua this change did not chase down). DIALOG is
+        -- above every ordinary game panel, which is what "reads as part of whichever frame is
+        -- open" actually needs.
         button:SetFrameStrata("DIALOG")
     end
     button:Hide()
@@ -197,5 +213,19 @@ function ContributeButton:Setup()
     end)
 
     self.button = button
+
+    -- The refresh frame. Ignores its own event argument entirely -- every one of
+    -- REFRESH_EVENTS means only "something may have changed," so there is nothing to read out
+    -- of it, which sidesteps 1.12's OnEvent calling convention (no arguments; the event name
+    -- arrives in the global `event` instead) rather than having to account for it.
+    local watcher = CreateFrame("Frame")
+    for _, event in ipairs(REFRESH_EVENTS) do
+        pcall(watcher.RegisterEvent, watcher, event)
+    end
+    watcher:SetScript("OnEvent", function()
+        ContributeButton:Refresh()
+    end)
+    self.watcher = watcher
+
     return button
 end
