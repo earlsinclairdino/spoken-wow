@@ -360,6 +360,24 @@ function Addon:OnInitialize()
     if not reportButtonReady then
         Debug:Record("report-button-error", tostring(reportButtonError))
     end
+
+    -- The Contribute button, on the Blizzard quest/gossip frame rather than the Spoken player
+    -- frame -- see UI/ContributeButton.lua's header for why the player frame will not do.
+    -- Refreshed on a short repeating timer rather than from each quest/gossip event handler:
+    -- one place to keep in sync with what's on screen, running the same on every client
+    -- generation including the legacy ones the automatic quest watcher deliberately skips
+    -- above. Guarded like ReportButton just above: a failed build here must not take
+    -- playback down with it.
+    local contributeButtonReady, contributeButtonError = pcall(function()
+        if ContributeButton and ContributeButton.Setup then
+            ContributeButton:Setup()
+            self:ScheduleRepeatingTimer(function() ContributeButton:Refresh() end, 0.2)
+        end
+    end)
+    if not contributeButtonReady then
+        Debug:Record("contribute-button-error", tostring(contributeButtonError))
+    end
+
     -- Discover data packs now, but load their multi-megabyte generated Lua
     -- tables after entering the world. Keeping LoadAddOn out of AceAddon's
     -- shared initialization/login stack avoids Hardcore's stricter script

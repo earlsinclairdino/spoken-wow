@@ -68,6 +68,14 @@ function M.ShowPanel(name)
     end
 end
 
+--- Hide every Blizzard quest panel and clear gossip text: the client is showing no dialog at
+--- all. Gossip has no panel of its own in this stub, so closing "nothing on screen" means
+--- forgetting it too, the way GOSSIP_CLOSED leaves the client.
+function M.HidePanels()
+    M.ShowPanel(nil)
+    world.gossipText = nil
+end
+
 --- Deliver a client event to every frame registered for it.
 function M.FireEvent(event, ...)
     for _, frame in ipairs(allFrames) do
@@ -411,6 +419,11 @@ _G.C_Timer = {
 }
 _G.ERR_ZONE_EXPLORED = "Discovered %s."
 function _G.GetGossipText() return world.gossipText or "" end
+--- Put words on screen from an NPC with nothing to offer but talk: gossip text with no quest
+--- panel behind it.
+function M.ShowGossip(text)
+    world.gossipText = text
+end
 --- The namespaced gossip API. SetClient hands it to the clients that have one.
 M.gossipAPI = {
     GetText = function() return world.gossipText or "" end,
@@ -619,6 +632,20 @@ for _, name in ipairs({ "QuestFrameRewardPanel", "QuestFrameProgressPanel", "Que
     "QuestFrameGreetingPanel", "QuestLogDetailFrame", "GossipFrame", "QuestFrame" }) do
     _G[name] = Frame(name)
 end
+
+-- The bottom-row buttons UI/ContributeButton.lua anchors beside, one pair per quest panel, as
+-- Blizzard's own QuestFrame.xml names them on every client generation this addon targets.
+for _, name in ipairs({ "QuestFrameAcceptButton", "QuestFrameDeclineButton", "QuestFrameCompleteButton",
+    "QuestFrameGoodbyeButton", "QuestFrameCompleteQuestButton", "QuestFrameCancelButton" }) do
+    _G[name] = Frame(name)
+end
+
+-- The gossip frame's Goodbye button, reachable the way current Blizzard clients (Classic Era,
+-- Anniversary, and Mainline) expose it: nested under a parentKey rather than a separate
+-- global. See UI/ContributeButton.lua's GossipGoodbyeButton for why a plain global is also
+-- tried and why neither is assumed to exist on the three original legacy clients.
+_G.GossipFrame.GreetingPanel = Frame("GossipFrameGreetingPanel")
+_G.GossipFrame.GreetingPanel.GoodbyeButton = Frame("GossipFrameGreetingPanelGoodbyeButton")
 
 -- The installed addons, as the client's addon-management API sees them. One sound pack
 -- carrying the key it has always carried, until a test says otherwise.
@@ -913,7 +940,7 @@ function M.LoadQuests(addonDirectory, spokenDirectory)
         VO[module] = setmetatable({}, { __index = function() return function() end end })
     end
     for _, file in ipairs({ "Version", "Enums", "Utils", "Debug", "FuzzySearch", "EasterEggs",
-        "DataModules", "ReportButton", "Player", "VoiceOver" }) do
+        "DataModules", "ReportButton", "Player", "Contribute", "VoiceOver" }) do
         dofile(addonDirectory .. file .. ".lua")
     end
     return VO, env
@@ -938,7 +965,7 @@ function M.LoadQuestsAlone(addonDirectory)
         VO[module] = setmetatable({}, { __index = function() return function() end end })
     end
     for _, file in ipairs({ "Version", "Enums", "Utils", "Debug", "FuzzySearch", "EasterEggs",
-        "DataModules", "ReportButton", "Player", "VoiceOver" }) do
+        "DataModules", "ReportButton", "Player", "Contribute", "VoiceOver" }) do
         dofile(addonDirectory .. file .. ".lua")
     end
     return VO

@@ -13,6 +13,8 @@
     <Include file="EasterEggs.lua"/>
     <Include file="DataModules.lua"/>
     <Include file="Player.lua"/>
+    <Include file="Contribute.lua"/>
+    <Include file="UI\ContributeButton.lua"/>
     <Include file="VoiceOver.lua"/>
 
     <Include file="Compatibility.lua"/>
