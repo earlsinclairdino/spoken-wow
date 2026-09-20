@@ -10,7 +10,15 @@
  *
  * Never renders `ip`, `name` or `email`: reports/ReportTable shows a reporter's own name
  * because they gave it to have their report followed up on, but a contribution's identifying
- * fields exist only for abuse response, not for triage to read.
+ * fields exist only for abuse response, not for triage to read. `body` -- the optional
+ * complaint -- is different: it's the one field a player filled in specifically to be read,
+ * so it is rendered below, deliberately included in the Row this component accepts.
+ *
+ * `initial` is typed as `ContributionRow`, not the full `Contribution`, and page.tsx must
+ * project down to it before passing rows here: this is a "use client" component, so whatever
+ * shape its props carry crosses into the RSC flight payload and is readable in devtools
+ * regardless of what this file goes on to render. `ip`, `name`, `email` and `raw` have no
+ * reason to make that crossing at all.
  */
 import { useCallback, useState } from "react";
 
@@ -19,6 +27,12 @@ import { Button } from "@/components/ui/button";
 import type { ContributionStatus } from "@/lib/contributions/contributions";
 import type { Contribution } from "@/lib/contributions/store";
 import { cn } from "@/lib/utils";
+
+/** The fields this table reads. page.tsx projects full Contribution rows down to this shape. */
+export type ContributionRow = Pick<
+  Contribution,
+  "id" | "source" | "key" | "locale" | "count" | "text" | "status" | "createdAt" | "body"
+>;
 
 const SOURCE_LABELS: Record<Contribution["source"], string> = {
   quests: "Quests",
@@ -49,7 +63,7 @@ export default function ContributionTable({
   status,
   existing,
 }: {
-  initial: Contribution[];
+  initial: ContributionRow[];
   status: ContributionStatus | "all";
   /** id -> corpus text, present only where the row's key resolves to something on file. */
   existing: Record<number, string>;
@@ -163,8 +177,22 @@ export default function ContributionTable({
                       <summary className="text-muted-foreground cursor-pointer text-xs">
                         {row.text ? `${row.text.length} chars` : "no text"}
                         {found !== undefined ? " · corpus already has this key" : ""}
+                        {row.body ? " · note attached" : ""}
                       </summary>
                       <p className="mt-1 whitespace-pre-wrap">{row.text ?? "(no text sent)"}</p>
+                      {row.body ? (
+                        // The optional complaint: collected on the form, stored as `body`, and
+                        // until now rendered nowhere -- a player who explained what was wrong
+                        // had that reach no one. Shown here rather than its own column because
+                        // most rows won't have one and a column that's usually empty is a scan
+                        // slower than the details cell it would sit next to.
+                        <div className="mt-2 rounded border p-2">
+                          <p className="text-muted-foreground text-xs font-medium">
+                            What they said was wrong:
+                          </p>
+                          <p className="mt-1 whitespace-pre-wrap">{row.body}</p>
+                        </div>
+                      ) : null}
                       {found !== undefined ? (
                         // A "missing" key the corpus already answers to is a corpus bug, not
                         // an absent line -- shown beside the submitted text so that reading is

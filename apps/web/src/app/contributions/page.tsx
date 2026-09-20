@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
-import ContributionTable from "@/components/ContributionTable";
+import ContributionTable, { type ContributionRow } from "@/components/ContributionTable";
 import { auth } from "@/lib/auth";
 import { pageById } from "@/lib/books/catalogue";
 import { corpusLookup } from "@/lib/contributions/existing";
@@ -65,6 +65,23 @@ export default async function Page({
   const contributions = await listContributions(status);
   const existing = await existingTextFor(contributions);
 
+  // ContributionTable is a client component: whatever shape crosses in `initial` lands in the
+  // RSC flight payload and is readable in devtools, so the full row -- name, email, raw, the
+  // ip listContributions doesn't even select -- never leaves this server function. `body` is
+  // the one identifying-adjacent field that does cross, deliberately: see finding 4/the
+  // table's own docstring for why a player's complaint belongs where triage can read it.
+  const rows: ContributionRow[] = contributions.map((row) => ({
+    id: row.id,
+    source: row.source,
+    key: row.key,
+    locale: row.locale,
+    count: row.count,
+    text: row.text,
+    status: row.status,
+    createdAt: row.createdAt,
+    body: row.body,
+  }));
+
   return (
     <main className="mx-auto max-w-6xl px-5 pt-6 pb-24">
       <h1 className="text-xl font-semibold">Contributions</h1>
@@ -74,7 +91,7 @@ export default async function Page({
         pull on their own schedule.
       </p>
 
-      <ContributionTable initial={contributions} status={status} existing={existing} />
+      <ContributionTable initial={rows} status={status} existing={existing} />
     </main>
   );
 }
