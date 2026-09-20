@@ -71,6 +71,18 @@ export const assignFiles = namingModule.assignFiles as (
 
 export const textHash = namingModule.textHash as (spoken: string) => string;
 
+/** The file-safe form of a canonical subzone key. Round-trips with `normaliseKey` below. */
+export const slugFor = namingModule.slugFor as (key: string) => string;
+
+/**
+ * A display name reduced to the canonical key the corpus stores -- lower-cased, apostrophes
+ * stripped, a leading "the" dropped (WoW subzones are full of "The Underbog"-style names).
+ * The scraper runs this on the wiki's name before ever writing a "key" column, so anything
+ * that needs to line up with that column, such as a contribution's raw subzone text, has to
+ * run it too rather than approximate it.
+ */
+export const normaliseKey = wikiModule.normaliseKey as (name: string) => string;
+
 // Functions rather than constants: each reads an environment override the droplet sets,
 // and a path resolved at import would be fixed before the process had one.
 export const soundsDir = storeModule.soundsDir as () => string;

@@ -7,9 +7,16 @@
  * row filed as "missing" might in fact be a corpus bug -- the case the triage page exists to
  * surface. Quests keys have no such target to resolve against, so there is nothing to check.
  *
- * Pure and node-free so the parsing is testable without a database; the catalogue lookups
- * themselves are server-only and live in the page that calls this.
+ * The subzone canonicalisation is not reimplemented here. It used to be a hand-rolled regex
+ * chain in this file, and it silently disagreed with the pipeline on any subzone starting
+ * with "The " -- "The Underbog" slugged to "the-underbog" here and "underbog" in the corpus,
+ * so a row that was actually on file kept reading as missing. `normaliseKey`/`slugFor` come
+ * from zones/tools.ts's bridge instead, the same module the corpus itself is built through,
+ * so the two can't drift apart the way addons/SpokenBooks/Checksum.lua warns a duplicated
+ * rule eventually does.
  */
+import { normaliseKey, slugFor } from "@/lib/zones/tools";
+
 const DIGITS = /^\d+$/;
 
 export type CorpusLookup =
@@ -30,22 +37,8 @@ export function corpusLookup(source: string, key: string): CorpusLookup {
     const map = key.slice(0, sep);
     const subzone = key.slice(sep + 1);
     if (!DIGITS.test(map) || !subzone) return null;
-    return { source: "zones", mapID: Number(map), slug: zoneSlug(subzone) };
+    return { source: "zones", mapID: Number(map), slug: slugFor(normaliseKey(subzone)) };
   }
 
   return null;
-}
-
-/**
- * The same canonicalisation naming.mjs's slugFor expects of its input -- lower-cased and
- * apostrophe-stripped -- applied here because the addon sends the raw display string
- * (GetSubZoneText()) and the corpus keys on that canonical form, not the display string
- * itself.
- */
-export function zoneSlug(subzone: string): string {
-  return subzone
-    .toLowerCase()
-    .replace(/['’]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
 }

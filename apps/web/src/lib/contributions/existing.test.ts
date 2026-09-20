@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { corpusLookup, zoneSlug } from "./existing";
+import { corpusLookup } from "./existing";
 
 describe("corpusLookup", () => {
   it("reads a books key as the page id it is", () => {
@@ -34,10 +34,26 @@ describe("corpusLookup", () => {
   it("answers null for quests, which has no corpus target to resolve", () => {
     expect(corpusLookup("quests", "9123:accept")).toBe(null);
   });
-});
 
-describe("zoneSlug", () => {
-  it("lower-cases, strips apostrophes and spaces to hyphens", () => {
-    expect(zoneSlug("Sen'jin Village")).toBe("senjin-village");
+  /**
+   * The reviewer's exact case: a hand-rolled canonicaliser slugged "The Underbog" to
+   * "the-underbog", disagreeing with the corpus's "underbog" and turning a real match into a
+   * false "missing". If this ever gets re-inlined instead of going through zones/tools.ts's
+   * `normaliseKey`/`slugFor` bridge, this is the assertion that should go red first.
+   */
+  it("drops a leading 'The' the way the corpus's own normaliseKey does", () => {
+    expect(corpusLookup("zones", "1:The Underbog")).toEqual({
+      source: "zones",
+      mapID: 1,
+      slug: "underbog",
+    });
+  });
+
+  it("drops a leading 'The' from a multi-word subzone too", () => {
+    expect(corpusLookup("zones", "1:The Cape of Stranglethorn")).toEqual({
+      source: "zones",
+      mapID: 1,
+      slug: "cape-of-stranglethorn",
+    });
   });
 });
