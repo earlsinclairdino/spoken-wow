@@ -127,4 +127,25 @@ Expect("the legacy global is used when the parentKey path is absent",
     VoiceOver.ContributeButton.button:IsShown(), true)
 _G.GossipFrame.GreetingPanel = savedGreetingPanel
 
+---------------------------------------------------------------- the closing gossip frame
+-- CloseGossip fires GOSSIP_CLOSED, which refreshes the button, and on a real client the
+-- gossip text is still readable for that instant while the unit behind it is already gone.
+-- VoiceOver.lua's own GOSSIP_SHOW guards the same case -- "the player interacted with an NPC
+-- while having main menu or options opened" -- because DataModules keys gossip on the NPC's
+-- name when there is no GUID, and a nil name reaches string.gsub as nil.
+stub.HidePanels()
+stub.ShowGossip("Words with nobody left to say them.")
+local savedName, savedGUID = world.npcName, world.npcGUID
+world.npcName, world.npcGUID = nil, nil
+
+local askedGap, gapAnswer = pcall(function() return VoiceOver.Contribute:HasGap() end)
+Expect("a gossip frame closing under us does not error", askedGap, true)
+Expect("...and offers nothing, having no NPC to attribute the words to", gapAnswer, false)
+
+local askedCapture, captured = pcall(function() return VoiceOver.Contribute:Capture() end)
+Expect("capturing the same moment does not error", askedCapture, true)
+Expect("...and sends nothing, since the server keys gossip on the creature id", captured, nil)
+
+world.npcName, world.npcGUID = savedName, savedGUID
+
 os.exit(Failures() == 0 and 0 or 1)
