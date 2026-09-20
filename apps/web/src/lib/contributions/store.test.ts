@@ -17,10 +17,18 @@ import {
   setContributionStatus,
 } from "./store";
 
-const ip = "203.0.113.77";
-
 /** resolvedBy has a foreign key, so resolving needs a user that exists (as in reports/store.test.ts). */
 const RESOLVER = "test-contribution-resolver";
+
+/** A bucket no other run shares, so tests can count rows for one IP safely (reports/store.test.ts:18). */
+let ip: string;
+
+/**
+ * "dedup" is unique-indexed, so a literal shared with a concurrent run collides there too --
+ * and worse than the ip case, a collision there doesn't fail loudly, it just bumps someone
+ * else's count and shows up as a bogus number instead of an obvious assertion failure.
+ */
+let dedup: string;
 
 function submission(overrides: Record<string, unknown> = {}) {
   return {
@@ -31,7 +39,7 @@ function submission(overrides: Record<string, unknown> = {}) {
     text: "Убей шестерых.",
     meta: { npc: "12345 X" },
     raw: "!SPOKEN1 quests\n",
-    dedup: "dedup-one",
+    dedup: `${dedup}-one`,
     body: null,
     name: null,
     email: null,
@@ -42,6 +50,8 @@ function submission(overrides: Record<string, unknown> = {}) {
 }
 
 beforeEach(async () => {
+  ip = `test-${Math.random().toString(36).slice(2, 10)}`;
+  dedup = `test-${Math.random().toString(36).slice(2, 10)}`;
   await db().query(
     `insert into "user" ("id", "name", "email", "emailVerified")
      values ($1, 'Test Resolver', $2, false)
@@ -79,7 +89,7 @@ describe("createContribution", () => {
 
   it("keeps different text for the same key as its own row", async () => {
     await createContribution(submission());
-    await createContribution(submission({ text: "Kill six.", dedup: "dedup-two" }));
+    await createContribution(submission({ text: "Kill six.", dedup: `${dedup}-two` }));
     expect(await listContributions("new")).toHaveLength(2);
   });
 });
