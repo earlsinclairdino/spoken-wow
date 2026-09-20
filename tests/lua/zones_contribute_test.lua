@@ -36,6 +36,17 @@ Expect("there is no text block", envelope:match("text<<") == nil, true)
 Expect("the addon field carries the real .toc version, not the \"dev\" fallback",
     envelope:match("\naddon=SpokenZones/9%.9%.9\n") ~= nil, true)
 
+-- Off any map C_Map.GetPlayerMapPosition can place the player on -- an indoor area, an
+-- instance, or just a client generation that cannot answer -- PlayerPosition returns nil, nil,
+-- and the field is left out of the envelope entirely rather than sent as x=. An empty value is
+-- a field the site's reader has to have an opinion about; an absent key is not.
+stub.SetZone({ map = 1539, zone = "Somewhere Unplaceable" })
+local noPosition = Z:CaptureContribution()
+Expect("no position is carried as an omitted field, not an empty one",
+    noPosition:match("\nx=\n") == nil, true)
+Expect("...neither key is sent", noPosition:match("\nx=") == nil and noPosition:match("\ny=") == nil, true)
+Expect("...the rest of the envelope is still sent", noPosition:match("\nmap=1539\n") ~= nil, true)
+
 -- A place that does have lore is not a gap. A fresh map with no subzone, so this does not
 -- also exercise ResolveAreaKey's alias table -- Language.lua populates that, and this loader
 -- deliberately does not load it (Contribute.lua never reads an alias, only a plain zone key).

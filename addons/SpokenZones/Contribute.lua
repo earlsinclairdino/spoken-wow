@@ -52,9 +52,18 @@ function SpokenZones:CaptureContribution()
         { "map", map },
         { "zone", (GetRealZoneText and GetRealZoneText()) or "" },
         { "subzone", (GetSubZoneText and GetSubZoneText()) or "" },
-        { "x", x and format("%.2f", x) or "" },
-        { "y", y and format("%.2f", y) or "" },
     }
+
+    -- Omitted, not sent empty, when GetPlayerMapPosition has nothing -- an indoor map, an
+    -- instance, a map this client generation cannot place the player on. `x=` is a field the
+    -- site's reader would have to have an opinion about (empty string? zero? malformed?); a
+    -- key that is simply not there is a question it never has to ask. Matches how the quests
+    -- envelope already drops its own optional "quest" field rather than sending it blank --
+    -- see SpokenQuests/Contribute.lua's Capture.
+    if x and y then
+        fields[#fields + 1] = { "x", format("%.2f", x) }
+        fields[#fields + 1] = { "y", format("%.2f", y) }
+    end
 
     return Spoken.Contribute:Envelope("zones", fields, nil)
 end
