@@ -30,10 +30,25 @@ let ip: string;
  */
 let dedup: string;
 
+/**
+ * This run's triage key.
+ *
+ * The listing helpers take a status and nothing else, so an assertion that counts what comes
+ * back counts every row in the table -- including the real ones a developer filed by hand while
+ * testing the addon. Those are not pollution to be cleared; they are the data this feature
+ * exists to collect, and a test that only passes against an empty database is a test that fails
+ * the first time the feature is used.
+ */
+let key: string;
+
+function ours<T extends { key: string }>(rows: T[]): T[] {
+  return rows.filter((row) => row.key === key);
+}
+
 function submission(overrides: Record<string, unknown> = {}) {
   return {
     source: "quests" as const,
-    key: "9123:accept",
+    key,
     locale: "ruRU",
     build: "1.12.1/5875",
     text: "Убей шестерых.",
@@ -52,6 +67,7 @@ function submission(overrides: Record<string, unknown> = {}) {
 beforeEach(async () => {
   ip = `test-${Math.random().toString(36).slice(2, 10)}`;
   dedup = `test-${Math.random().toString(36).slice(2, 10)}`;
+  key = `${Math.floor(Math.random() * 1e9)}:accept`;
   await db().query(
     `insert into "user" ("id", "name", "email", "emailVerified")
      values ($1, 'Test Resolver', $2, false)
@@ -73,8 +89,8 @@ afterAll(async () => {
 describe("createContribution", () => {
   it("stores one", async () => {
     await createContribution(submission());
-    const [row] = await listContributions("new");
-    expect(row.key).toBe("9123:accept");
+    const [row] = ours(await listContributions("new"));
+    expect(row.key).toBe(key);
     expect(row.meta.npc).toBe("12345 X");
     expect(row.count).toBe(1);
   });
@@ -82,7 +98,7 @@ describe("createContribution", () => {
   it("bumps the count when the same text arrives again", async () => {
     await createContribution(submission());
     await createContribution(submission());
-    const rows = await listContributions("new");
+    const rows = ours(await listContributions("new"));
     expect(rows).toHaveLength(1);
     expect(rows[0].count).toBe(2);
   });
@@ -90,7 +106,7 @@ describe("createContribution", () => {
   it("keeps different text for the same key as its own row", async () => {
     await createContribution(submission());
     await createContribution(submission({ text: "Kill six.", dedup: `${dedup}-two` }));
-    expect(await listContributions("new")).toHaveLength(2);
+    expect(ours(await listContributions("new"))).toHaveLength(2);
   });
 });
 
@@ -111,7 +127,7 @@ describe("countRecentContributions", () => {
       await createContribution(submission());
       await recordContributionHit(ip);
     }
-    expect(await listContributions("new")).toHaveLength(1);
+    expect(ours(await listContributions("new"))).toHaveLength(1);
     expect(await countRecentContributions(ip, 60_000)).toBe(3);
   });
 });
@@ -119,7 +135,7 @@ describe("countRecentContributions", () => {
 describe("setContributionStatus", () => {
   it("accepts a row and lists it for export", async () => {
     await createContribution(submission());
-    const [row] = await listContributions("new");
+    const [row] = ours(await listContributions("new"));
     const updated = await setContributionStatus(row.id, "accepted", RESOLVER);
     expect(updated?.status).toBe("accepted");
     expect((await acceptedContributions()).map((r) => r.id)).toContain(row.id);
