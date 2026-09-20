@@ -189,15 +189,20 @@ Spoken.Contribute.Encode = realEncode
 -- -- so the model is never read on the click. HasGap pre-warms it into a cache keyed by NPC
 -- guid while the panel is still on screen (a player reads a quest for seconds), and Capture
 -- only ever looks the guid up.
+--
+-- OnModelLoaded is a fast path here, not a requirement: whether a real client ever calls it
+-- for a PlayerModel built this way has not been confirmed. Every guid below resolves either
+-- through it firing (stub.FinishModelLoad) or through the fallback that reads the
+-- still-shown probe directly on a later refresh (stub.modelCallbackDisabled) -- the same
+-- outcome either way, which is the point.
 stub.HidePanels()
 world.questID = 9401
 world.title = "Nothing Heard Yet"
 world.questText = "Words with no line in the corpus."
 world.npcName = "Deathguard Linnea"
--- A guid not reused anywhere else in this file: the model cache is keyed by guid and never
+-- Guids not reused anywhere else in this file: the model cache is keyed by guid and never
 -- reset between scenarios, so a guid this test has seen before would already be cached (or
--- mid-load) from earlier in the run, and "priming a fresh NPC" would not be testing what it
--- says it is.
+-- mid-load) from earlier in the run, and these tests would not be testing what they say.
 world.npcGUID = "Creature-0-0-0-0-90001-0"
 world.modelFileID = 122055
 world.unitSex = 2
@@ -213,12 +218,7 @@ local beforeLoad = VoiceOver.Contribute:Capture()
 Expect("nothing cached yet is omitted, not sent as 0", beforeLoad:match("\nmodel=") == nil, true)
 Expect("...and the envelope is still sent", beforeLoad:match("^!SPOKEN1 quests\n") ~= nil, true)
 
--- A second refresh for the same NPC, still mid-load, must not ask again.
-Expect("still a gap on the next refresh", VoiceOver.Contribute:HasGap(), true)
-Expect("...and no second SetUnit for the same guid while it is loading",
-    (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitBefore + 1)
-
--- The load finishes the way a live client fires it -- not a timer this addon polls.
+-- OnModelLoaded firing (the fast path) resolves the guid without waiting for another refresh.
 stub.FinishModelLoad()
 
 local seen = VoiceOver.Contribute:Capture()
@@ -228,7 +228,7 @@ Expect("the creature type is carried", seen:match("\ncreature=Humanoid\n") ~= ni
 Expect("a creature guid is reported as a creature", seen:match("\nkind=creature\n") ~= nil, true)
 Expect("no race is decided here", seen:match("\nrace=") == nil, true)
 
--- A third refresh for the same, now-cached NPC still must not ask again.
+-- Once cached, a further refresh for the same NPC must not ask again.
 Expect("still a gap once cached", VoiceOver.Contribute:HasGap(), true)
 Expect("...and no further SetUnit once the guid is cached",
     (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitBefore + 1)
@@ -240,27 +240,64 @@ Expect("a different NPC is still a gap", VoiceOver.Contribute:HasGap(), true)
 Expect("...and does call SetUnit once, for the new guid",
     (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitBefore + 2)
 
--- A model that resolves to nothing (this NPC's own load finishing with none) leaves the
--- field out rather than sending a zero: the site treats an absent model as "unknown race".
+---------------------------------------------------------- when OnModelLoaded never fires
+-- Correctness must not depend on this script actually firing: pcall(SetScript, ...)
+-- succeeding only proves it was registered, not that the client will ever call it.
+stub.modelCallbackDisabled = true
+
+-- A guid whose model does load, just with nothing ever announcing it: the second refresh,
+-- still mid-load, must not call SetUnit again, and reading the still-shown probe directly
+-- resolves it anyway.
+world.npcGUID = "Creature-0-0-0-0-90003-0"
+world.npcName = "Never Announces"
+world.modelFileID = 987654
+local pollSetUnitBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
+Expect("priming this NPC is still a gap", VoiceOver.Contribute:HasGap(), true)
+Expect("priming calls SetUnit once",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), pollSetUnitBefore + 1)
+local stillLoading = VoiceOver.Contribute:Capture()
+Expect("nothing cached on the priming refresh itself", stillLoading:match("\nmodel=") == nil, true)
+
+Expect("a second refresh, with no callback ever firing, is still a gap",
+    VoiceOver.Contribute:HasGap(), true)
+Expect("...and does not call SetUnit again while still loading",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), pollSetUnitBefore + 1)
+local polled = VoiceOver.Contribute:Capture()
+Expect("the callback never firing still resolves the model by the second refresh",
+    polled:match("\nmodel=987654\n") ~= nil, true)
+
+-- A guid whose model never loads at all: polling gives up after a couple of refreshes rather
+-- than leaving the probe shown (and loading) forever.
+world.npcGUID = "Creature-0-0-0-0-90004-0"
+world.npcName = "Never Loads"
 world.modelFileID = nil
-stub.FinishModelLoad()
-local blind = VoiceOver.Contribute:Capture()
-Expect("an unavailable model is omitted, not sent as 0", blind:match("\nmodel=") == nil, true)
-Expect("...and the envelope is still sent", blind:match("^!SPOKEN1 quests\n") ~= nil, true)
+local giveUpSetUnitBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
+Expect("priming this NPC is a gap too", VoiceOver.Contribute:HasGap(), true)
+Expect("the probe is shown while its load is pending",
+    stub.playerModel and stub.playerModel.shown, true)
+Expect("one refresh in, still trying", VoiceOver.Contribute:HasGap(), true)
+Expect("a second refresh gives up on this guid", VoiceOver.Contribute:HasGap(), true)
+Expect("...and the probe is put away rather than left shown",
+    stub.playerModel and stub.playerModel.shown, false)
+Expect("...having called SetUnit only the original once",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), giveUpSetUnitBefore + 1)
+local gaveUp = VoiceOver.Contribute:Capture()
+Expect("a guid that gave up is omitted, not sent as 0", gaveUp:match("\nmodel=") == nil, true)
+
+stub.modelCallbackDisabled = false
 
 -- The model frame is built at most once, and never merely because the button refreshed --
--- and once a guid is cached (as this one now is), asking again must not even touch the probe.
+-- and once a guid has resolved (as this one now has, with a cached miss), asking again must
+-- not even touch the probe.
 local framesBefore = stub.FrameCount and stub.FrameCount() or 0
 local setUnitCallsBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
 VoiceOver.Contribute:HasGap()
-Expect("asking again for an already-cached NPC builds no model frame",
+Expect("asking again for an already-resolved NPC builds no model frame",
     (stub.FrameCount and stub.FrameCount() or 0), framesBefore)
 Expect("...and calls SetUnit no further times",
     (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitCallsBefore)
 
--- With nothing on screen at all, HasGap must not reach the model probe even to look --
--- this is the case a previous version of this test only covered by accident, since the
--- guid it asked about happened to already be cached.
+-- With nothing on screen at all, HasGap must not reach the model probe even to look.
 stub.HidePanels()
 local idleSetUnitBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
 VoiceOver.Contribute:HasGap()

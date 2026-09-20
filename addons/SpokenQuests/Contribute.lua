@@ -79,11 +79,19 @@ end
 -- has simply never been asked about.
 local modelCache = {}
 
--- The one guid currently waiting on a load, and whether that wait has a callback watching
--- it. A second refresh for the same guid while it is still loading must not call SetUnit
--- again -- that is the whole point of keying by guid at all.
+-- The one guid currently waiting on a load, and how many refreshes it has waited without
+-- resolving. A second refresh for the same guid while it is still loading must not call
+-- SetUnit again -- that is the whole point of keying by guid at all -- and a guid that never
+-- resolves must eventually be given up on rather than left loading (and the probe shown)
+-- forever.
 local loadingGUID
-local loadingHasCallback
+local loadingRefreshes
+
+-- How many refreshes a guid may wait, once primed, before PollLoadingGUID gives up on it and
+-- caches a miss instead. OnModelLoaded is the fast path -- most of the time this bound is
+-- never reached, because the callback (when this client fires it at all) resolves the guid
+-- first. This is what makes the client behaving either way converge on the same outcome.
+local MAX_LOAD_REFRESHES = 2
 
 -- The frame itself, made once and kept, rather than one per prime: it is only ever handed a
 -- different unit. What is NOT kept is it being shown -- a PlayerModel left shown keeps
@@ -112,9 +120,9 @@ local function ModelProbeFrame()
 end
 
 --- Read back whatever the probe currently has for `guid`, cache it, and put the probe away.
---- Called once the load has actually finished (OnModelLoaded), or -- on a client old enough
---- to have GetModelFileID but not that script -- on the refresh after the one that started
---- the load, which is the best a client without the event can do without polling a timer.
+--- The one place that finalises a load, regardless of what noticed it was time to: the
+--- OnModelLoaded callback (the fast path), or PollLoadingGUID reading the probe directly
+--- (the fallback that does not depend on that callback ever firing).
 local function FinishModelLoad(guid)
     local probe = modelProbe
     -- Not `probe and pcall(...)`: `and` truncates pcall's two return values down to one, so
@@ -128,11 +136,28 @@ local function FinishModelLoad(guid)
         if probe.Hide then probe:Hide() end
     end
     if loadingGUID == guid then
-        loadingGUID, loadingHasCallback = nil, nil
+        loadingGUID, loadingRefreshes = nil, nil
     end
     -- Absent rather than zero: the site reads a missing model as "race unknown", and 0 is a
     -- file id that would mean something.
     modelCache[guid] = (ok and type(id) == "number" and id > 0) and id or false
+end
+
+--- A refresh for a guid that is still loading, with no cached answer yet: OnModelLoaded may
+--- or may not exist on this client, and may or may not have fired already -- there is no way
+--- to tell from here, and no need to. The probe is still shown regardless (nothing but
+--- FinishModelLoad ever hides it), so read it directly. Finalise on success, or once this
+--- guid has waited long enough that leaving the probe shown any longer is not worth it either.
+local function PollLoadingGUID(guid)
+    loadingRefreshes = loadingRefreshes + 1
+    local probe = modelProbe
+    local ok, id = false, nil
+    if probe then
+        ok, id = pcall(probe.GetModelFileID, probe)
+    end
+    if (ok and type(id) == "number" and id > 0) or loadingRefreshes >= MAX_LOAD_REFRESHES then
+        FinishModelLoad(guid)
+    end
 end
 
 --- Start a model load for this NPC's guid, if nothing has asked about it yet. Everything
@@ -143,9 +168,7 @@ local function PrimeModelCache(guid)
         return
     end
     if loadingGUID == guid then
-        if not loadingHasCallback then
-            FinishModelLoad(guid)
-        end
+        PollLoadingGUID(guid)
         return
     end
 
@@ -156,14 +179,17 @@ local function PrimeModelCache(guid)
     end
 
     loadingGUID = guid
+    loadingRefreshes = 0
     if probe.Show then probe:Show() end
     pcall(probe.SetUnit, probe, "npc")
-    -- Not every client generation this addon supports fires this for a PlayerModel; SetScript
-    -- on an unrecognised script type is a Lua error on a real client, which is what the pcall
-    -- is for. Failing it leaves loadingHasCallback false, and the fallback above reads on the
-    -- next refresh for this guid instead.
-    loadingHasCallback = probe.SetScript
-        and pcall(probe.SetScript, probe, "OnModelLoaded", function() FinishModelLoad(guid) end)
+    -- A fast path, not a requirement: PollLoadingGUID above reads the probe directly on the
+    -- next refresh regardless of whether this ever fires, so correctness here never depends
+    -- on this client generation supporting the script at all, only on how many refreshes it
+    -- costs before the fallback notices. SetScript on an unrecognised script type is a Lua
+    -- error on a real client, which is what the pcall is for.
+    if probe.SetScript then
+        pcall(probe.SetScript, probe, "OnModelLoaded", function() FinishModelLoad(guid) end)
+    end
 end
 
 --- What the model probe has cached for the NPC on screen, or nil if nothing has resolved yet.

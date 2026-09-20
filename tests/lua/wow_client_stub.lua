@@ -391,9 +391,26 @@ function _G.CreateFrame(kind, name, parent)
         M.playerModel = f
         function f:SetUnit(unit) self.unit = unit; setUnitCount = setUnitCount + 1 end
         function f:GetModelFileID() return self.shown and world.modelFileID or nil end
+        -- Set at call time, not frame-creation time, so a test can flip M.modelCallbackDisabled
+        -- after the probe already exists (it is built once and kept for the addon's whole
+        -- lifetime) and still simulate a client that has never once called the handler it was
+        -- asked to install -- SetScript on an unrecognised script type is a real Lua error, not
+        -- a silent no-op, which is what the addon's own pcall around SetScript is guarding.
+        function f:SetScript(script, fn)
+            if script == "OnModelLoaded" and M.modelCallbackDisabled then
+                self.scripts.OnModelLoaded = nil
+                error("OnModelLoaded is not a recognised script type on this client")
+            end
+            self.scripts[script] = fn
+        end
     end
     return f
 end
+
+-- Whether this client ever calls a PlayerModel's OnModelLoaded handler at all -- unknown for
+-- real, since it has not been confirmed against a live client; a test sets this true to
+-- exercise the addon's fallback for that possibility instead of the fast path.
+M.modelCallbackDisabled = false
 
 --- Fire the model probe's OnModelLoaded script, the way a live client would once the file has
 --- actually finished loading. Probed against a live client: SetUnit followed immediately by
