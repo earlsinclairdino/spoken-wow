@@ -15,7 +15,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { COMPLAINT_MAX } from "@/lib/contributions/contributions";
+import { checkEnvelope, COMPLAINT_MAX } from "@/lib/contributions/contributions";
 import { parseEnvelope, type ParseError } from "@/lib/contributions/envelope";
 
 const FIELD_LABELS: Record<string, string> = {
@@ -46,7 +46,7 @@ const MESSAGES: Record<ParseError, string> = {
 };
 
 export type Preview =
-  | { ok: true; source: string; rows: { label: string; value: string }[]; text: string | null }
+  | { ok: true; rows: { label: string; value: string }[]; text: string | null }
   | { ok: false; message: string };
 
 /** Exported for its test: what the page will show for a given paste. */
@@ -56,11 +56,17 @@ export function previewOf(raw: string): Preview {
   const parsed = parseEnvelope(raw);
   if (!parsed.ok) return { ok: false, message: MESSAGES[parsed.error] };
 
+  // A clean parse is not a sendable envelope: submissionFrom (via checkEnvelope) still applies
+  // the key/text rules, and previously nothing here did -- a parse-only preview approved
+  // things the server would 400 on and told the player nothing about why.
+  const check = checkEnvelope(parsed.value);
+  if (!check.ok) return { ok: false, message: check.message };
+
   const rows = Object.entries(parsed.value.fields).map(([key, value]) => ({
     label: FIELD_LABELS[key] ?? key,
     value,
   }));
-  return { ok: true, source: parsed.value.source, rows, text: parsed.value.text };
+  return { ok: true, rows, text: parsed.value.text };
 }
 
 export default function ContributeForm() {

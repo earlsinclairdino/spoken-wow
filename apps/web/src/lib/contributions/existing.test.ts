@@ -31,6 +31,17 @@ describe("corpusLookup", () => {
     expect(corpusLookup("zones", "npc:12345")).toBe(null);
   });
 
+  it("reads a colon-less zones key as the zone's own lore, not a subzone", () => {
+    // checkEnvelope now emits a bare mapID for the open part of a zone (no subzone); this key
+    // has to resolve to the zone-level entry -- file "{mapID}/zone" in naming.mjs -- rather
+    // than being treated as malformed the way a real subzone split would be.
+    expect(corpusLookup("zones", "1537")).toEqual({ source: "zones", mapID: 1537, slug: "zone" });
+  });
+
+  it("refuses a bare zones key that is not digits", () => {
+    expect(corpusLookup("zones", "npc")).toBe(null);
+  });
+
   it("answers null for quests, which has no corpus target to resolve", () => {
     expect(corpusLookup("quests", "9123:accept")).toBe(null);
   });

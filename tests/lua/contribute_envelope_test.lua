@@ -110,6 +110,15 @@ if os.getenv("SPOKEN_WRITE_FIXTURES") then
         { "x", "0.55" }, { "y", "0.47" },
     }, nil))
 
+    -- The main zones gap, not an edge case: GetSubZoneText() returns "" for the open part of a
+    -- zone, and SpokenZones/Contribute.lua always writes the field (CaptureContribution never
+    -- omits "subzone" the way it omits "x"/"y"), so the wire shape is subzone="" rather than
+    -- the field being absent -- pinning that shape is the whole point of this fixture.
+    Write("zones-zone.txt", C:Envelope("zones", {
+        { "addon", "SpokenZones/2.0.1" }, { "build", "11509" }, { "locale", "enUS" },
+        { "map", "1537" }, { "zone", "Ironforge" }, { "subzone", "" },
+    }, nil))
+
     Write("quests-fenced.txt", C:Envelope("quests", {
         { "addon", "SpokenQuests/1.4.2" }, { "build", "1.12.1/5875" }, { "locale", "enUS" },
         { "quest", "1" }, { "event", "accept" },

@@ -31,6 +31,13 @@ describe("parseEnvelope", () => {
     expect(result.ok && result.value.fields.subzone).toBe("A Nook With No Lore");
   });
 
+  it("reads the open-part-of-a-zone envelope's subzone field as empty, not absent", () => {
+    // The addon always writes the field (Contribute.lua never omits it the way it omits
+    // x/y); this is the shape checkEnvelope's bare-map branch has to treat as "no subzone".
+    const result = parseEnvelope(fixture("zones-zone.txt"));
+    expect(result.ok && result.value.fields.subzone).toBe("");
+  });
+
   it("unescapes a >> line inside the text", () => {
     const result = parseEnvelope(fixture("quests-fenced.txt"));
     expect(result.ok && result.value.text).toBe("before\n>>\nafter");

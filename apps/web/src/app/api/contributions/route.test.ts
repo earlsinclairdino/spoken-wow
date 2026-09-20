@@ -78,6 +78,18 @@ describe("POST /api/contributions", () => {
     expect((await POST(post({ envelope: "x".repeat(200_000) }))).status).toBe(413);
   });
 
+  it("reports a missing envelope as missing, not as a truncated paste", async () => {
+    const response = await POST(post({}));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe("missing");
+  });
+
+  it("reports a non-string envelope as missing too", async () => {
+    const response = await POST(post({ envelope: 12345 }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe("missing");
+  });
+
   // Ten pastes of the same envelope are one row and ten hits; the limit is on the person.
   it("stops at the hourly limit", async () => {
     for (let i = 0; i < 10; i++) {

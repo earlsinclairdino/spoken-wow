@@ -38,7 +38,13 @@ export async function POST(request: Request) {
     return Response.json({ ok: true });
   }
 
-  const raw = typeof body.envelope === "string" ? body.envelope : "";
+  // Distinct from parseEnvelope's own "truncated": that means a real paste got cut short, and
+  // this means there was never a string to parse at all -- coercing it to "" and letting it
+  // fall into parseEnvelope used to report the wrong one of those two.
+  if (typeof body.envelope !== "string") {
+    return Response.json({ error: "missing" }, { status: 400 });
+  }
+  const raw = body.envelope;
   // Checked before parsing, not inside it: the cap exists so a pasted log is refused rather
   // than walked.
   if (new TextEncoder().encode(raw).length > MAX_BYTES) {
