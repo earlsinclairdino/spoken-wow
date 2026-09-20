@@ -792,10 +792,10 @@ A report presumes a line exists and is wrong. Some of the time there is no line 
 the corpus is built from a 1.12 world database, so it has nothing for content that postdates
 vanilla, for a locale that database does not carry, or for whatever a private server invented
 on top of it. In those three cases the client in front of the player is holding the only copy
-of the text, and `Contribute:HasGap()` puts a **Contribute** button on the Blizzard quest frame
-itself — beside Accept/Decline, Continue/Goodbye, or the reward row's own buttons, and beside
-the gossip frame's Goodbye button for an NPC line — exactly when there is text on screen and
-nothing queued to play.
+of the text, and `Contribute:HasGap()` puts a button reading **"No voice — contribute"** on
+the Blizzard quest frame itself — anchored into whichever of the accept, progress or reward
+panel's own button row is on screen, and beside the gossip frame's Goodbye button for an NPC
+line — exactly when there is text on screen and nothing queued to play.
 
 Clicking it opens the same copy box `ReportButton.lua` uses, holding a plain-text envelope
 instead of an address: the addon, the build, the locale, the quest or NPC, and the text

@@ -196,8 +196,8 @@ is every post-vanilla book, every locale but one, and whatever a private server 
 itself — `Contribute.lua`'s `HasContributionGap` is true exactly there, whenever
 `PageOnScreen` found nothing. The Play button itself becomes the way to say so: relabelled
 **Contribute** in that state, it opens the same copy box the Report action uses, holding an
-envelope instead of an address — the addon, the build, the locale, the book, the page number
-and the page's own text, checksummed the same way a page it does know is looked up.
+envelope instead of an address — the addon, the build, the locale, the book, the page number,
+the checksum the page would be looked up by if the corpus knew it, and the page's own text.
 **Mail is excluded the same way narration already excludes it**, doubly: a letter with a
 creator, or anything shown while `MailFrame` is open, is never captured. The player copies the
 box, opens `spoken.rusty.one/contribute`, pastes, and sees exactly what is about to be sent

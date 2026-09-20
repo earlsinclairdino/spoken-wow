@@ -24,10 +24,10 @@ Open the map and the lore of the zone you're looking at appears beside it. Click
 Zone lore is written from the wiki, not from anything the client carries, so there is no
 text in your client for the addon to hand over the way SpokenQuests and SpokenBooks can. What
 it hands over instead is the place itself: stand somewhere the panel has nothing for — Outland,
-a corner the lore hasn't reached yet — and the map panel's **Contribute** button, beside
-Report, sends the map, the zone, the subzone and your coordinates, no text attached. Copy the
-box, open `spoken.rusty.one/contribute`, paste it, and it joins the queue. The same place sent
-in by several players is what moves it up.
+a corner the lore hasn't reached yet — and a button reading **"No lore -- tell us"** appears
+beside Report. Press it and it sends the map, the zone, the subzone and your coordinates, no
+text attached. Copy the box, open `spoken.rusty.one/contribute`, paste it, and it joins the
+queue. The same place sent in by several players is what moves it up.
 
 ## Narration needs a sound pack
 

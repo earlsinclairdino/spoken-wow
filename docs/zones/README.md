@@ -1318,12 +1318,12 @@ breaks.
 Feedback presumes an entry exists and is wrong. Standing somewhere the panel has nothing for —
 Outland, or any other corner the lore hasn't reached yet — is a different report, and the lore
 is wiki-sourced rather than client-sourced, so the client has no text to hand over for it.
-`HasContributionGap` puts a **Contribute** button on the map panel beside the Report button,
-and it carries no page of text: only the map, the zone, the subzone and the player's
-coordinates on the current map, from the one lookup this addon did not already have a reason
-to make (`Contribute.lua`'s `PlayerPosition`). Coordinates are sent only when the client can
-place the player on the current map at all; indoors and in instances they are left out rather
-than sent as zero.
+`HasContributionGap` puts a button reading **"No lore -- tell us"** on the map panel beside
+the Report button, and it carries no page of text: only the map, the zone, the subzone and
+the player's coordinates on the current map, from the one lookup this addon did not already
+have a reason to make (`Contribute.lua`'s `PlayerPosition`). Coordinates are sent only when
+the client can place the player on the current map at all; indoors and in instances they are
+left out rather than sent as zero.
 
 The envelope travels the same plain-text format and the same `spoken.rusty.one/contribute` page
 as the quests and books ones, for one reason: one triage queue for three addons. What
