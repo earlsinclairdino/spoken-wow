@@ -52,13 +52,33 @@ local function Flatten(value)
     return value
 end
 
--- A text line that is only closing angles gains one backslash, so the fence below is the only
--- ">>" the reader can meet at the start of a line. The reader strips one back.
+-- A line that is *entirely* backslashes-then-closing-angles gains one more backslash, so the
+-- fence below is the only ">>" the reader can meet at the start of a line. The reader strips
+-- exactly one backslash from a line matching ^\+>>$ -- so a line already read "\>>" must come
+-- back as "\>>" untouched by anything else on it, which is why this only ever touches a line
+-- whose entire content is backslashes then ">>": a line merely starting with ">>" (">>trailer")
+-- is not the fence and must survive unescaped, or the reader's exact-match unescape would
+-- leave a stray backslash in front of it.
 local function Fence(text)
     text = gsub(tostring(text), "\r\n", "\n")
     text = gsub(text, "\r", "\n")
-    text = gsub("\n" .. text, "\n(\\*>>)", "\n\\%1")
-    return text:sub(2)
+
+    local lines = {}
+    local pos = 1
+    while true do
+        local nl = string.find(text, "\n", pos, true)
+        local line = text:sub(pos, nl and nl - 1 or nil)
+        if line:match("^\\*>>$") then
+            line = "\\" .. line
+        end
+        lines[#lines + 1] = line
+        if not nl then
+            break
+        end
+        pos = nl + 1
+    end
+
+    return table.concat(lines, "\n")
 end
 
 ---@param source string  "quests" | "zones" | "books"
@@ -78,6 +98,9 @@ function Contribute:Envelope(source, fields, text)
         end
     end
 
+    -- An empty string is treated the same as nil: a fence around nothing would carry no
+    -- information the fields don't already, and the reader would have to special-case an
+    -- empty body anyway. Deliberate, not an oversight -- see contribute_envelope_test.lua.
     if type(text) == "string" and text ~= "" then
         out[#out + 1] = "text<<"
         out[#out + 1] = Fence(text)

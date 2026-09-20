@@ -43,4 +43,41 @@ Expect("an unknown source is refused", C:Envelope("mail", { { "page", "1" } }, "
 Expect("a field value never spans lines",
     C:Envelope("quests", { { "title", "A\nB" } }, nil):match("\ntitle=A B\n") ~= nil, true)
 
+-- An empty string is deliberately folded into "no text", the same as nil: a fence around
+-- nothing would tell the reader nothing the fields don't already say.
+local emptyText = C:Envelope("books", { { "page", "1" } }, "")
+Expect("an empty string text has no fence, like nil", emptyText:match("text<<") == nil, true)
+
+------------------------------------------------------------------------------- the fence, exactly
+-- A line only *starting* with ">>" is not the fence and must survive untouched -- escaping it
+-- would corrupt a contributed line like ">>see attached", and the reader's exact-match
+-- unescape (only a line that IS "\+>>" loses one backslash) would never undo it.
+local trailer = C:Envelope("books", { { "page", "1" } }, "before\n>>trailer\nafter")
+Expect("a line only starting with >> is not escaped", trailer:match("\n>>trailer\n") ~= nil, true)
+Expect("...and gains no backslash", trailer:match("\\>>trailer") == nil, true)
+
+-- A line that was already "\>>" in the player's own text must come back out as "\>>": the
+-- reader strips exactly one backslash from a line matching ^\+>>$, so the writer adds exactly
+-- one every time, however many backslashes were already there.
+local already = C:Envelope("books", { { "page", "1" } }, "before\n" .. "\\>>" .. "\nafter")
+Expect("an already-escaped \\>> line gains one more backslash", already:match("\n\\\\>>\n") ~= nil, true)
+
+local doubled = C:Envelope("books", { { "page", "1" } }, "before\n" .. "\\\\>>" .. "\nafter")
+Expect("two backslashes before >> become three", doubled:match("\n\\\\\\>>\n") ~= nil, true)
+
+-- CRLF normalises to \n before a line is tested against the fence pattern, same as Flatten.
+local crlf = C:Envelope("books", { { "page", "1" } }, "line1\r\n>>\r\nline2")
+Expect("a \\r\\n-terminated >> line is still recognised and escaped",
+    crlf:match("\nline1\n\\>>\nline2\n>>\nsum=") ~= nil, true)
+
+-- No trailing newline in the text closes the fence directly under the last line; a trailing
+-- newline in the text is data and survives as a blank line before the fence.
+local noTrailing = C:Envelope("books", { { "page", "1" } }, "a\nb")
+Expect("no trailing newline in the text: the fence follows the last line directly",
+    noTrailing:match("\na\nb\n>>\n") ~= nil, true)
+
+local trailingNewline = C:Envelope("books", { { "page", "1" } }, "a\nb\n")
+Expect("a trailing newline in the text becomes a blank line before the fence",
+    trailingNewline:match("\na\nb\n\n>>\n") ~= nil, true)
+
 os.exit(Failures() == 0 and 0 or 1)
