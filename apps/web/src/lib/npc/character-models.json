@@ -1,0 +1,326 @@
+{
+  "116921": {
+    "race": "bloodelf",
+    "gender": "female"
+  },
+  "117170": {
+    "race": "bloodelf",
+    "gender": "male"
+  },
+  "117400": {
+    "race": "broken",
+    "gender": "female"
+  },
+  "117412": {
+    "race": "broken",
+    "gender": "male"
+  },
+  "117437": {
+    "race": "draenei",
+    "gender": "female"
+  },
+  "117721": {
+    "race": "draenei",
+    "gender": "male"
+  },
+  "118135": {
+    "race": "dwarf",
+    "gender": "female"
+  },
+  "118355": {
+    "race": "dwarf",
+    "gender": "male"
+  },
+  "118652": {
+    "race": "felorc",
+    "gender": "female"
+  },
+  "118653": {
+    "race": "felorc",
+    "gender": "male"
+  },
+  "118654": {
+    "race": "felorc",
+    "gender": "male"
+  },
+  "118667": {
+    "race": "felorc",
+    "gender": "male"
+  },
+  "118798": {
+    "race": "foresttroll",
+    "gender": "male"
+  },
+  "119063": {
+    "race": "gnome",
+    "gender": "female"
+  },
+  "119159": {
+    "race": "gnome",
+    "gender": "male"
+  },
+  "119369": {
+    "race": "goblin",
+    "gender": "female"
+  },
+  "119376": {
+    "race": "goblin",
+    "gender": "male"
+  },
+  "119563": {
+    "race": "human",
+    "gender": "female"
+  },
+  "119940": {
+    "race": "human",
+    "gender": "male"
+  },
+  "120590": {
+    "race": "nightelf",
+    "gender": "female"
+  },
+  "120791": {
+    "race": "nightelf",
+    "gender": "male"
+  },
+  "121087": {
+    "race": "orc",
+    "gender": "female"
+  },
+  "121287": {
+    "race": "orc",
+    "gender": "male"
+  },
+  "121608": {
+    "race": "scourge",
+    "gender": "female"
+  },
+  "121768": {
+    "race": "scourge",
+    "gender": "male"
+  },
+  "121941": {
+    "race": "skeleton",
+    "gender": "female"
+  },
+  "121942": {
+    "race": "skeleton",
+    "gender": "male"
+  },
+  "121961": {
+    "race": "tauren",
+    "gender": "female"
+  },
+  "122055": {
+    "race": "tauren",
+    "gender": "male"
+  },
+  "122414": {
+    "race": "troll",
+    "gender": "female"
+  },
+  "122560": {
+    "race": "troll",
+    "gender": "male"
+  },
+  "122738": {
+    "race": "tuskarr",
+    "gender": "male"
+  },
+  "122815": {
+    "race": "vrykul",
+    "gender": "male"
+  },
+  "232863": {
+    "race": "icetroll",
+    "gender": "male"
+  },
+  "233367": {
+    "race": "northrendskeleton",
+    "gender": "male"
+  },
+  "233878": {
+    "race": "taunka",
+    "gender": "male"
+  },
+  "307453": {
+    "race": "worgen",
+    "gender": "female"
+  },
+  "307454": {
+    "race": "worgen",
+    "gender": "male"
+  },
+  "535052": {
+    "race": "pandaren",
+    "gender": "male"
+  },
+  "589715": {
+    "race": "pandaren",
+    "gender": "female"
+  },
+  "878772": {
+    "race": "dwarf",
+    "gender": "male"
+  },
+  "900914": {
+    "race": "gnome",
+    "gender": "male"
+  },
+  "917116": {
+    "race": "orc",
+    "gender": "male"
+  },
+  "921844": {
+    "race": "nightelf",
+    "gender": "female"
+  },
+  "940356": {
+    "race": "gnome",
+    "gender": "female"
+  },
+  "949470": {
+    "race": "orc",
+    "gender": "female"
+  },
+  "950080": {
+    "race": "dwarf",
+    "gender": "female"
+  },
+  "959310": {
+    "race": "scourge",
+    "gender": "male"
+  },
+  "968705": {
+    "race": "tauren",
+    "gender": "male"
+  },
+  "974343": {
+    "race": "nightelf",
+    "gender": "male"
+  },
+  "986648": {
+    "race": "tauren",
+    "gender": "female"
+  },
+  "997378": {
+    "race": "scourge",
+    "gender": "female"
+  },
+  "1000764": {
+    "race": "human",
+    "gender": "female"
+  },
+  "1005887": {
+    "race": "draenei",
+    "gender": "male"
+  },
+  "1006221": {
+    "race": "human",
+    "gender": "male"
+  },
+  "1011653": {
+    "race": "human",
+    "gender": "male"
+  },
+  "1018060": {
+    "race": "troll",
+    "gender": "female"
+  },
+  "1022598": {
+    "race": "draenei",
+    "gender": "female"
+  },
+  "1022938": {
+    "race": "troll",
+    "gender": "male"
+  },
+  "1100087": {
+    "race": "bloodelf",
+    "gender": "male"
+  },
+  "1100258": {
+    "race": "bloodelf",
+    "gender": "female"
+  },
+  "1593999": {
+    "race": "lightforgeddraenei",
+    "gender": "female"
+  },
+  "1620605": {
+    "race": "lightforgeddraenei",
+    "gender": "male"
+  },
+  "1630218": {
+    "race": "highmountaintauren",
+    "gender": "male"
+  },
+  "1630402": {
+    "race": "highmountaintauren",
+    "gender": "female"
+  },
+  "1630447": {
+    "race": "zandalaritroll",
+    "gender": "male"
+  },
+  "1662187": {
+    "race": "zandalaritroll",
+    "gender": "female"
+  },
+  "1721003": {
+    "race": "kultiran",
+    "gender": "male"
+  },
+  "1733758": {
+    "race": "voidelf",
+    "gender": "female"
+  },
+  "1734034": {
+    "race": "voidelf",
+    "gender": "male"
+  },
+  "1793470": {
+    "race": "thinhuman",
+    "gender": "male"
+  },
+  "1810676": {
+    "race": "nightborne",
+    "gender": "female"
+  },
+  "1814471": {
+    "race": "nightborne",
+    "gender": "male"
+  },
+  "1886724": {
+    "race": "kultiran",
+    "gender": "female"
+  },
+  "1890759": {
+    "race": "vulpera",
+    "gender": "female"
+  },
+  "1890761": {
+    "race": "vulpera",
+    "gender": "male"
+  },
+  "1890763": {
+    "race": "darkirondwarf",
+    "gender": "female"
+  },
+  "1890765": {
+    "race": "darkirondwarf",
+    "gender": "male"
+  },
+  "1968587": {
+    "race": "orc",
+    "gender": "male"
+  },
+  "2564806": {
+    "race": "mechagnome",
+    "gender": "female"
+  },
+  "2622502": {
+    "race": "mechagnome",
+    "gender": "male"
+  }
+}
