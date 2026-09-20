@@ -407,16 +407,36 @@ _G.DEFAULT_CHAT_FRAME = { AddMessage = function() end }
 world.inCombat = false
 function _G.UnitAffectingCombat() return world.inCombat end
 function _G.GetSubZoneText() return world.subZone or "" end
+function _G.GetRealZoneText() return world.zone or "" end
 -- Defaults to 1: the login greeting's one exception is a brand-new character, so a test
 -- that says nothing about the level is testing that case.
 function _G.UnitLevel() return world.playerLevel or 1 end
 _G.C_Map = {
     GetMapInfo = function(id) return { mapType = 3 } end,
     GetBestMapForUnit = function() return world.playerMapID or 1411 end,
+    -- A Vector2D stand-in: real C_Map.GetPlayerMapPosition returns one with :GetXY(), or nil
+    -- off the map it was asked about. world.posX unset means "not on any map", not "at 0,0" --
+    -- 0,0 is a real corner, so nil has to stay reachable rather than defaulting to it.
+    GetPlayerMapPosition = function(mapID, unit)
+        if world.posX == nil then
+            return nil
+        end
+        return { GetXY = function() return world.posX, world.posY end }
+    end,
 }
 _G.C_Timer = {
     After = function(delay, fn) table.insert(timers, { at = world.time + delay, fn = fn }) end,
 }
+--- Where the player is standing, for the zones addon's map/position reads: GetPlayerMapID,
+--- GetRealZoneText, GetSubZoneText and C_Map.GetPlayerMapPosition. `x`/`y` are optional --
+--- omitting them leaves world.posX nil, which GetPlayerMapPosition reads as off any map.
+function M.SetZone(t)
+    world.playerMapID = t.map
+    world.zone = t.zone
+    world.subZone = t.subzone
+    world.posX = t.x
+    world.posY = t.y
+end
 _G.ERR_ZONE_EXPLORED = "Discovered %s."
 function _G.GetGossipText() return world.gossipText or "" end
 --- Put words on screen from an NPC with nothing to offer but talk: gossip text with no quest

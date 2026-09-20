@@ -48,6 +48,7 @@ Locale/zhCN.lua
 Locale/zhTW.lua
 Core.lua
 Audio.lua
+Contribute.lua
 Autoplay.lua
 Data/enUS/Zones.lua
 Data/enUS/Subzones.lua

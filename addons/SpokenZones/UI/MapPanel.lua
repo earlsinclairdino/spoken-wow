@@ -2,6 +2,12 @@
 --
 -- Shows lore for the zone the map is displaying, or for a subzone the player
 -- clicked (see UI/SubzoneClick.lua), with a link back to the zone.
+--
+-- Also the home for the contribute button (UI/ReportButton.lua's CreateContributeButton):
+-- this panel is up, next to the map, for as long as a player might be standing somewhere with
+-- no lore, which the lore window is not -- that one only opens on request. The button's own
+-- visibility answers a different question than everything else on this panel (the player's
+-- location, not what is displayed here), so it is not part of Refresh below.
 
 local ADDON_NAME, SpokenZones = ...
 local L = SpokenZones.L
@@ -18,7 +24,10 @@ local AUDIO_RESERVE = 66
 -- another one.
 local REPORT_RESERVE = 64
 
-local panel, header, infoLine, body, footer, audioButton, reportButton
+-- Room for the contribute button beside the report button, on the same footer row.
+local CONTRIBUTE_RESERVE = 138
+
+local panel, header, infoLine, body, footer, audioButton, reportButton, contributeButton
 
 --------------------------------------------------------------------------------
 -- Construction
@@ -76,9 +85,14 @@ local function BuildPanel()
 	reportButton = SpokenZones:CreateReportButton(panel)
 	reportButton:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -PADDING, PADDING - 6)
 
+	-- Left of Report rather than under it: unlike Report it does not depend on a selection,
+	-- so it never competes for the same anchor and can sit on the footer row permanently.
+	contributeButton = SpokenZones:CreateContributeButton(panel)
+	contributeButton:SetPoint("BOTTOMRIGHT", reportButton, "BOTTOMLEFT", -6, 0)
+
 	footer = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
 	footer:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", PADDING, PADDING - 4)
-	footer:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -(PADDING + REPORT_RESERVE), PADDING - 4)
+	footer:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -(PADDING + REPORT_RESERVE + CONTRIBUTE_RESERVE), PADDING - 4)
 	footer:SetJustifyH("LEFT")
 	footer:SetText("Lore: warcraft.wiki.gg (CC BY-SA 4.0)")
 
