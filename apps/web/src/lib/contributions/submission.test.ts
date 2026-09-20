@@ -64,4 +64,47 @@ describe("submissionFrom", () => {
     expect(made?.locale).toBe("enUS");
     expect(made?.meta.npc).toBe("7 Y");
   });
+
+  it("refuses a quest id that isn't numeric, which would collide with a gossip key", () => {
+    // Nothing but the paste box stops someone typing this by hand: quest="npc" would
+    // otherwise produce the same key as gossip from creature 12345.
+    const forged: Envelope = {
+      source: "quests",
+      fields: { quest: "npc", event: "12345", locale: "enUS" },
+      text: "Hail.",
+    };
+    expect(submissionFrom(forged, "raw")).toBe(null);
+  });
+
+  it("refuses a map id that isn't numeric, rather than let a colon in it forge a key", () => {
+    const zones: Envelope = {
+      source: "zones",
+      fields: { map: "1:2", subzone: "X", locale: "enUS" },
+      text: null,
+    };
+    expect(submissionFrom(zones, "raw")).toBe(null);
+  });
+
+  it("does not collide a subzone's own colon with the map:subzone separator", () => {
+    const a = submissionFrom(
+      { source: "zones", fields: { map: "1", subzone: "2:X", locale: "enUS" }, text: null },
+      "raw",
+    );
+    const b = submissionFrom(
+      { source: "zones", fields: { map: "12", subzone: "X", locale: "enUS" }, text: null },
+      "raw",
+    );
+    expect(a?.key).toBe("1:2:X");
+    expect(b?.key).toBe("12:X");
+    expect(a?.key).not.toBe(b?.key);
+  });
+
+  it("refuses a zones envelope carrying text, since the client has none to give", () => {
+    const zones: Envelope = {
+      source: "zones",
+      fields: { map: "1537", subzone: "A Nook", locale: "enUS" },
+      text: "This didn't come from our writer.",
+    };
+    expect(submissionFrom(zones, "raw")).toBe(null);
+  });
 });
