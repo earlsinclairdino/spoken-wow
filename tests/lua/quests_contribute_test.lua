@@ -182,4 +182,37 @@ Expect("...with the old two-copy hint", box.hint:GetText(), "Press Ctrl+C, then 
 Expect("...and the address shown again", box.address:GetText(), "https://spoken.rusty.one/contribute")
 Spoken.Contribute.Encode = realEncode
 
+---------------------------------------------------------------- what the client saw
+-- The site works out the race from the model file id; the addon only reports it. The id is
+-- read from a model frame that has to be shown and given a moment to load, so the stub
+-- answers it the way a loaded frame does.
+stub.HidePanels()
+world.questID = 9123
+world.npcName = "Deathguard Linnea"
+world.npcGUID = "Creature-0-0-0-0-12345-0"
+world.modelFileID = 122055
+world.unitSex = 2
+world.creatureType = "Humanoid"
+stub.ShowPanel("QuestFrameDetailPanel")
+
+local seen = VoiceOver.Contribute:Capture()
+Expect("the model file id is reported", seen:match("\nmodel=122055\n") ~= nil, true)
+Expect("the sex the client reports is carried too", seen:match("\nsex=2\n") ~= nil, true)
+Expect("the creature type is carried", seen:match("\ncreature=Humanoid\n") ~= nil, true)
+Expect("a creature guid is reported as a creature", seen:match("\nkind=creature\n") ~= nil, true)
+Expect("no race is decided here", seen:match("\nrace=") == nil, true)
+
+-- A client that cannot answer leaves the fields out rather than sending a zero: the site
+-- treats an absent model as "unknown race", and 0 would be a model id that means something.
+world.modelFileID = nil
+local blind = VoiceOver.Contribute:Capture()
+Expect("an unavailable model is omitted, not sent as 0", blind:match("\nmodel=") == nil, true)
+Expect("...and the envelope is still sent", blind:match("^!SPOKEN1 quests\n") ~= nil, true)
+
+-- The model frame is built at most once, and never merely because the button refreshed.
+local framesBefore = stub.FrameCount and stub.FrameCount() or 0
+VoiceOver.Contribute:HasGap()
+Expect("asking whether there is a gap builds no model frame",
+    (stub.FrameCount and stub.FrameCount() or 0), framesBefore)
+
 os.exit(Failures() == 0 and 0 or 1)

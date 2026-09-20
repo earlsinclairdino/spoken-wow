@@ -14,6 +14,9 @@ local world = {
     rewardText = "",
     npcName = "Innkeeper Test",
     npcGUID = "Creature-0-0-0-0-1234-0",
+    modelFileID = nil,    -- what a loaded PlayerModel answers for the unit on screen
+    unitSex = 2,          -- UnitSex: 1 unknown, 2 male, 3 female
+    creatureType = "Humanoid",
     panels = {},
     played = {},
     -- Sound state the player addon is tested against. `played` keeps the path only, so
@@ -332,7 +335,8 @@ function _G.GetRealmName() return "Realm" end
 function _G.UnitGUID() return world.npcGUID end
 function _G.UnitExists() return true end
 function _G.UnitIsPlayer() return false end
-function _G.UnitSex() return 2 end
+function _G.UnitSex() return world.unitSex end
+function _G.UnitCreatureType() return world.creatureType end
 function _G.GetCVar(key) return world.cvars[key] or "1" end
 function _G.SetCVar(key, value)
     world.cvars[key] = tostring(value)
@@ -347,7 +351,12 @@ end
 function _G.StopSound(handle) table.insert(world.stopped, handle) end
 function _G.PlayMusic(path) table.insert(world.music, path) end
 function _G.StopMusic() table.insert(world.music, false) end
+-- How many frames CreateFrame has built, across every name and kind: a model probe built
+-- once and reused shows up here as one, however many times the code that reuses it runs.
+local frameCount = 0
+function M.FrameCount() return frameCount end
 function _G.CreateFrame(kind, name, parent)
+    frameCount = frameCount + 1
     local f = name and Frame(name) or MakeFrame(nil)
     f.frameType = kind
     f.parent = parent
@@ -365,6 +374,13 @@ function _G.CreateFrame(kind, name, parent)
         function f:HighlightText() self.highlighted = true end
         function f:SetAutoFocus() end
         function f:SetScript(event, fn) self.handlers = self.handlers or {}; self.handlers[event] = fn end
+    end
+    -- A PlayerModel only loads while it is shown, and answers nothing until it has. The
+    -- addon's own code is what decides to show it; the stub just reports what a loaded one
+    -- would say, or nothing when the world has no model for this unit.
+    if kind == "PlayerModel" then
+        function f:SetUnit(unit) self.unit = unit end
+        function f:GetModelFileID() return world.modelFileID end
     end
     return f
 end

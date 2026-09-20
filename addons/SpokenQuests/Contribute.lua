@@ -45,6 +45,73 @@ local function NPCField()
     return id and tostring(id) or name
 end
 
+--- Which id space the unit's GUID belongs to.
+---
+--- Creature and gameobject ids overlap -- creature 68 is a Stormwind City Guard, gameobject 68
+--- is a Wanted Poster -- so the site cannot key on the number alone. Enums.GUID already knows
+--- the difference and ReportButton reads it the same way.
+local function NPCKind()
+    local guid = Utils:GetNPCGUID()
+    if not guid or not Utils.GetGUIDType then
+        return nil
+    end
+    local ok, guidType = pcall(Utils.GetGUIDType, Utils, guid)
+    if not ok or not guidType then
+        return nil
+    end
+    if guidType == Enums.GUID.GameObject then
+        return "gameobject"
+    end
+    return Enums.GUID:IsCreature(guidType) and "creature" or nil
+end
+
+-- One frame, made once and kept, rather than one per capture: it is only ever handed a
+-- different unit. Parented and sized because a model frame that is never shown never loads
+-- one, and an unloaded frame answers nothing.
+local modelProbe
+
+local function ModelFileID()
+    if not CreateFrame then
+        return nil
+    end
+    if not modelProbe then
+        local ok, frame = pcall(CreateFrame, "PlayerModel", nil, UIParent)
+        if not ok or not frame then
+            return nil
+        end
+        modelProbe = frame
+        if modelProbe.SetSize then modelProbe:SetSize(64, 64) end
+        if modelProbe.SetPoint then modelProbe:SetPoint("CENTER") end
+        if modelProbe.SetAlpha then modelProbe:SetAlpha(0) end
+        if modelProbe.Show then modelProbe:Show() end
+    end
+
+    if not modelProbe.SetUnit or not modelProbe.GetModelFileID then
+        return nil
+    end
+    pcall(modelProbe.SetUnit, modelProbe, "npc")
+    local ok, id = pcall(modelProbe.GetModelFileID, modelProbe)
+    -- Absent rather than zero: the site reads a missing model as "race unknown", and 0 is a
+    -- file id that would mean something.
+    if not ok or type(id) ~= "number" or id <= 0 then
+        return nil
+    end
+    return id
+end
+
+--- What the client can see about who is speaking. The site decides what it means.
+local function Observations(fields)
+    local function add(key, value)
+        if value ~= nil and value ~= "" then
+            fields[#fields + 1] = { key, value }
+        end
+    end
+    add("kind", NPCKind())
+    add("model", ModelFileID())
+    add("sex", UnitSex and UnitSex("npc") or nil)
+    add("creature", UnitCreatureType and UnitCreatureType("npc") or nil)
+end
+
 --- Which panel the player is looking at, as the event it would have played.
 local function EventOnScreen()
     if QuestFrameRewardPanel and QuestFrameRewardPanel:IsShown() then
@@ -81,6 +148,7 @@ function Contribute:Capture()
         end
         fields[#fields + 1] = { "event", EVENT_PATHS[event] }
         fields[#fields + 1] = { "npc", NPCField() }
+        Observations(fields)
         fields[#fields + 1] = { "title", GetTitleText and GetTitleText() or "" }
         return Spoken.Contribute:Envelope("quests", fields, text)
     end
@@ -96,6 +164,7 @@ function Contribute:Capture()
     local gossip = GetGossipText and GetGossipText()
     if gossip and gossip ~= "" and NPCID() then
         fields[#fields + 1] = { "npc", NPCField() }
+        Observations(fields)
         return Spoken.Contribute:Envelope("quests", fields, gossip)
     end
 
