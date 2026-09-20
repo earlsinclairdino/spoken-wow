@@ -240,10 +240,42 @@ Expect("a different NPC is still a gap", VoiceOver.Contribute:HasGap(), true)
 Expect("...and does call SetUnit once, for the new guid",
     (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitBefore + 2)
 
+---------------------------------------------------------- retargeting mid-load
+-- Switching to a different NPC before the current one's load resolves is ordinary play, not
+-- an edge case -- quickly glancing between two quest givers. The abandoned guid must still be
+-- finalised (cached as whatever it resolved to, or as a miss), or the probe would stay shown
+-- and associated with a target no longer even on screen every time this happens.
+stub.modelCallbackDisabled = true
+world.modelFileID = nil
+local retargetSetUnitBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
+world.npcGUID = "Creature-0-0-0-0-90007-0"
+world.npcName = "Ding"
+Expect("priming the first of two rapidly-retargeted NPCs is a gap", VoiceOver.Contribute:HasGap(), true)
+Expect("its probe is shown while the load is pending",
+    stub.playerModel and stub.playerModel.shown, true)
+
+world.npcGUID = "Creature-0-0-0-0-90008-0"
+world.npcName = "Dong"
+Expect("retargeting before it resolves is still a gap", VoiceOver.Contribute:HasGap(), true)
+Expect("retargeting still only calls SetUnit once for the new NPC",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), retargetSetUnitBefore + 2)
+
+-- The abandoned NPC was finalised on the switch, not left in limbo: returning to it reads
+-- the cache rather than priming it again, and finalises the OTHER one in turn.
+world.npcGUID = "Creature-0-0-0-0-90007-0"
+world.npcName = "Ding"
+Expect("returning to the abandoned NPC is still a gap", VoiceOver.Contribute:HasGap(), true)
+Expect("...but does not prime it again -- it was finalised, not forgotten, when abandoned",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), retargetSetUnitBefore + 2)
+local backToDing = VoiceOver.Contribute:Capture()
+Expect("its model resolved to a miss rather than staying unresolved forever",
+    backToDing:match("\nmodel=") == nil, true)
+Expect("the probe ends up hidden once nothing is left loading",
+    stub.playerModel and stub.playerModel.shown, false)
+
 ---------------------------------------------------------- when OnModelLoaded never fires
 -- Correctness must not depend on this script actually firing: pcall(SetScript, ...)
 -- succeeding only proves it was registered, not that the client will ever call it.
-stub.modelCallbackDisabled = true
 
 -- A guid whose model does load, just with nothing ever announcing it: the second refresh,
 -- still mid-load, must not call SetUnit again, and reading the still-shown probe directly

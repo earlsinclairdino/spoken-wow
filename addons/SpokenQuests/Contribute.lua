@@ -164,6 +164,16 @@ end
 --- this does is one-shot per guid -- HasGap calls it on every quest and gossip event, and a
 --- second call for a guid already cached or already loading must be free.
 local function PrimeModelCache(guid)
+    -- Whatever is on screen now, a load left in flight for a DIFFERENT guid is no longer
+    -- relevant to anything -- retargeting between two quest givers faster than a load
+    -- resolves is ordinary play, not an edge case. Finalise it (whatever it resolved to, or
+    -- nothing) before doing anything else, so the probe is never left associated with an
+    -- abandoned target: not while priming the new one, and not indefinitely afterward if the
+    -- player then lingers on a guid that happens to already be cached.
+    if loadingGUID and loadingGUID ~= guid then
+        FinishModelLoad(loadingGUID)
+    end
+
     if not guid or modelCache[guid] ~= nil then
         return
     end
