@@ -40,14 +40,31 @@ export async function getResolution(kind: NpcKind, npcId: number): Promise<NpcRe
   return rows[0] ?? null;
 }
 
+// Provenance is a rank, not a set of equally-trusted labels: a submission carrying less
+// information must never erase one carrying more. `moderator` outranks everything because a
+// person decided; `corpus` outranks `client` because it is exact, including a flavor nothing
+// else can supply; `client` outranks `none` because a mapped model id is still an observation
+// where a bare envelope is none at all. This CASE is inlined into the upsert's `where` twice
+// (once for the stored row, once for the incoming one) so the comparison lives in the one
+// place both sides of a write pass through, rather than in whichever caller happens to be last.
+function provenanceRank(column: string): string {
+  return `case ${column}
+    when 'moderator' then 3
+    when 'corpus' then 2
+    when 'client' then 1
+    else 0
+  end`;
+}
+
 export async function upsertResolution(
   input: Omit<NpcResolution, "updatedAt">,
 ): Promise<NpcResolution> {
-  // The `where` guards a moderator's answer against a later client guess: without it, the
-  // stored row's provenance and confirmed flag are excluded.* like everything else, so a
-  // contribution filed after a moderator has already confirmed an NPC would silently downgrade
-  // it back to an unconfirmed guess. A skipped update returns no row -- `do update ... where`
-  // makes the row a no-op, not a match failure -- so the read-back below is what keeps this
+  // The `where` compares ranks rather than special-casing `moderator`: without it, a `none`
+  // write from an older addon that sends no model at all would wipe a `client` or `corpus`
+  // row's race back to null, and `client` would freely overwrite `corpus`'s exact answer.
+  // Equal rank still updates (`>=`), so a fresh corpus read can refresh a name and a second
+  // moderator edit still lands. A skipped update returns no row -- `do update ... where` makes
+  // the row a no-op, not a match failure -- so the read-back below is what keeps this
   // function's return type honest in that case.
   const { rows } = await db().query<NpcResolution>(
     `insert into "npc_resolution"
@@ -68,8 +85,8 @@ export async function upsertResolution(
            "note" = excluded."note",
            "resolvedBy" = excluded."resolvedBy",
            "updatedAt" = now()
-       where not ("npc_resolution"."provenance" = 'moderator'
-                  and excluded."provenance" <> 'moderator')
+       where ${provenanceRank(`"npc_resolution"."provenance"`)}
+             <= ${provenanceRank(`excluded."provenance"`)}
      returning ${COLUMNS}`,
     [
       input.npcKind, input.npcId, input.npcName, input.race, input.gender, input.flavor,
@@ -79,9 +96,9 @@ export async function upsertResolution(
   );
   if (rows[0]) return rows[0];
 
-  // The `where` above turned the write into a no-op, which means the row on disk is the
-  // moderator's answer this call was blocked from downgrading -- hand that back rather than
-  // undefined, so a caller that ignores the possibility still gets a real NpcResolution.
+  // The `where` above turned the write into a no-op, which means the row on disk already
+  // outranks this submission -- hand that back rather than undefined, so a caller that ignores
+  // the possibility still gets a real NpcResolution.
   const existing = await getResolution(input.npcKind, input.npcId);
   if (!existing) {
     throw new Error(`upsertResolution: no-op update left no row for ${input.npcKind}/${input.npcId}`);

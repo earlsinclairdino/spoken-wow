@@ -88,7 +88,7 @@ describe("listUnconfirmed", () => {
   });
 });
 
-describe("upsertResolution moderator precedence", () => {
+describe("upsertResolution provenance precedence", () => {
   it("lets a client write over a client row update", async () => {
     await upsertResolution(resolution({ race: "tauren" }));
     const result = await upsertResolution(resolution({ race: "orc" }));
@@ -118,6 +118,58 @@ describe("upsertResolution moderator precedence", () => {
     );
     expect(result.race).toBe("tauren");
     expect((await getResolution("creature", npcId))?.race).toBe("tauren");
+  });
+
+  // The concrete failure the rank was built for: an older addon that sends no model at all
+  // resolves to "none", and must not wipe out the race a mapped model id already gave us.
+  it("does not let a bare 'none' write wipe a client row's race", async () => {
+    await upsertResolution(resolution({ race: "tauren", provenance: "client" }));
+    const result = await upsertResolution(
+      resolution({ race: null, gender: null, flavor: null, provenance: "none" }),
+    );
+    expect(result.race).toBe("tauren");
+    expect(result.provenance).toBe("client");
+    const row = await getResolution("creature", npcId);
+    expect(row?.race).toBe("tauren");
+    expect(row?.provenance).toBe("client");
+  });
+
+  // The other shape of the same bug: a model-id guess is not license to overwrite the corpus's
+  // exact answer, which carries a flavor nothing else can supply.
+  it("does not let a client write overwrite a corpus row", async () => {
+    await upsertResolution(
+      resolution({ race: "tauren", flavor: "grizzled", provenance: "corpus" }),
+    );
+    const result = await upsertResolution(
+      resolution({ race: "orc", flavor: "standard", provenance: "client" }),
+    );
+    expect(result.race).toBe("tauren");
+    expect(result.flavor).toBe("grizzled");
+    expect(result.provenance).toBe("corpus");
+    const row = await getResolution("creature", npcId);
+    expect(row?.race).toBe("tauren");
+    expect(row?.provenance).toBe("corpus");
+  });
+
+  it("lets a corpus write over a client row update", async () => {
+    await upsertResolution(resolution({ race: "orc", provenance: "client" }));
+    const result = await upsertResolution(
+      resolution({ race: "tauren", flavor: "grizzled", provenance: "corpus" }),
+    );
+    expect(result.race).toBe("tauren");
+    expect((await getResolution("creature", npcId))?.provenance).toBe("corpus");
+  });
+
+  // Equal rank still updates: a fresh corpus read refreshing a name is not a downgrade.
+  it("lets a corpus write over a corpus row update", async () => {
+    await upsertResolution(
+      resolution({ npcName: "Boarton Shadetotem", provenance: "corpus" }),
+    );
+    const result = await upsertResolution(
+      resolution({ npcName: "Boarton the Elder", provenance: "corpus" }),
+    );
+    expect(result.npcName).toBe("Boarton the Elder");
+    expect((await getResolution("creature", npcId))?.npcName).toBe("Boarton the Elder");
   });
 });
 
