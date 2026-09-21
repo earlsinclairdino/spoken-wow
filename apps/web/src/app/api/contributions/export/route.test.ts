@@ -120,6 +120,20 @@ describe("GET /api/contributions/export", () => {
     });
   });
 
+  // checkEnvelope only requires a digit run ending at a space, with no magnitude bound, so a
+  // contribution with an npc id past Postgres's `integer` range (2147483647) can and does land
+  // in the table -- the intake route's insert of the contribution itself has no int column to
+  // overflow. Before observedFrom bounded npcId, this row's meta reaching unnest($2::int[])
+  // here 500'd the whole export; now observedFrom answers npcId: null for it, so it is treated
+  // exactly like a row with no npc at all rather than crashing the route.
+  it("does not 500 on a row whose npc id overflows Postgres's integer range", async () => {
+    await acceptedRow("overflow:99999999999", { kind: "creature", npc: "99999999999 Foo" });
+
+    const rows = await exported();
+    const row = rows.find((r) => r.key === "overflow:99999999999");
+    expect(row).toMatchObject({ race: null, npcProvenance: null, npcConfirmed: false });
+  });
+
   // The whitelist discipline the route's own docstring calls out: nothing gained here may open
   // a hole in it.
   it("still excludes the fields the export deliberately never carries", async () => {

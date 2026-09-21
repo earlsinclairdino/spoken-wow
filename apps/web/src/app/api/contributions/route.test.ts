@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import { closeDb, db } from "@/lib/db";
+import { checksum } from "@/lib/contributions/envelope";
 
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
@@ -49,11 +50,25 @@ function post(body: unknown): Request {
   });
 }
 
+/**
+ * A gossip envelope with the given npc field, checksummed the way the addon's writer does --
+ * so the overflow test below exercises checkEnvelope, submissionFrom and observedFrom exactly
+ * as a real paste would, rather than constructing a Submission by hand and skipping the parts
+ * of the pipeline the bug actually lived in.
+ */
+function gossipEnvelope(npc: string): string {
+  const body = `!SPOKEN1 quests\naddon=SpokenQuests/2.0.4\nbuild=1.60.1/69913\nlocale=enUS\nnpc=${npc}\nkind=creature\ntext<<\nHail.\n>>\n`;
+  return `${body}sum=${checksum(body)}\n`;
+}
+
 afterEach(async () => {
   await db().query(`delete from "contribution" where "ip" = $1`, [ip]);
   await db().query(`delete from "contribution_hit" where "ip" = $1`, [ip]);
   // The observed-npc test resolves npc 9123 into a row this database does not otherwise carry.
   await db().query(`delete from "npc_resolution" where "npcId" = $1`, [9123]);
+  // Nothing to clean up for the overflow test's npc id: the whole point of the fix is that no
+  // row is ever written for it, and "npcId" is `integer`, so comparing it against a literal
+  // this large would itself fail to cast.
 });
 
 afterAll(async () => {
@@ -113,15 +128,29 @@ describe("POST /api/contributions", () => {
   });
 
   // The fixture's npc (9123) is not in the corpus, so this is the client-reported path: its
-  // model id (122055) maps to tauren/male in character-models.json.
+  // model id (122055) maps to tauren/male in character-models.json. tauren-male has no
+  // "standard" voice in the game at all (see corpus.test.ts's defaultFlavorFor), so "warrior"
+  // -- its busiest -- is the honest default, and the flagship case finding 2 was about.
   it("works out who is speaking as the contribution lands", async () => {
     expect((await POST(post({ envelope: observedEnvelope }))).status).toBe(200);
 
-    const { rows } = await db().query<{ race: string; provenance: string; confirmed: boolean }>(
-      `select "race", "provenance", "confirmed" from "npc_resolution" where "npcId" = $1`,
-      [9123],
-    );
-    expect(rows[0]).toMatchObject({ race: "tauren", provenance: "client", confirmed: false });
+    const { rows } = await db().query<{
+      race: string;
+      flavor: string;
+      provenance: string;
+      confirmed: boolean;
+      build: string;
+    }>(`select "race", "flavor", "provenance", "confirmed", "build" from "npc_resolution" where "npcId" = $1`, [
+      9123,
+    ]);
+    expect(rows[0]).toMatchObject({
+      race: "tauren", flavor: "warrior", provenance: "client", confirmed: false,
+    });
+    // submissionFrom pulls `build` out of meta into its own column, so observedFrom(meta)
+    // alone would never see it -- the intake route has to pass it back in explicitly. The
+    // fixture's own build=1.60.1/69913 line is what makes this a real assertion rather than
+    // one that would pass against `undefined` too.
+    expect(rows[0].build).toBe("1.60.1/69913");
   });
 
   // The text is the thing worth keeping; an NPC resolution error must not cost the contribution.
@@ -137,6 +166,25 @@ describe("POST /api/contributions", () => {
     expect(consoleError).toHaveBeenCalled();
 
     consoleError.mockRestore();
+  });
+
+  // checkEnvelope only requires the npc field's digit run to end at a space, with no magnitude
+  // bound, so npc=99999999999 Foo + kind=creature is a contribution this route accepts and
+  // stores. Before observedFrom bounded npcId (see resolve.test.ts), Postgres rejected the
+  // npc_resolution insert with "value out of range for type integer", swallowed here by the
+  // try/catch below -- so the contribution still landed, but poisoned: a permanent row whose
+  // npcId no query against `integer` could ever ask about again without itself failing to
+  // cast. This pins the fixed behaviour: the contribution still stores, and there is nothing
+  // left for the triage page or the export to trip over.
+  it("stores the contribution but writes no resolution for an npc id past Postgres's integer range", async () => {
+    const response = await POST(post({ envelope: gossipEnvelope("99999999999 Foo") }));
+    expect(response.status).toBe(200);
+
+    const { rows } = await db().query<{ key: string }>(
+      `select "key" from "contribution" where "ip" = $1`,
+      [ip],
+    );
+    expect(rows[0]?.key).toBe("npc:99999999999");
   });
 
   it("never queues generation", async () => {

@@ -27,7 +27,9 @@ export async function GET() {
   // array the two loops would need to stay in lockstep with.
   const keys: { npcKind: NpcKind; npcId: number }[] = [];
   for (const row of rows) {
-    const observed = observedFrom(row.meta);
+    // build is its own column, not part of row.meta (submissionFrom strips it out at intake) --
+    // observedFrom needs it put back or every resolution built from a stored row loses it.
+    const observed = observedFrom({ ...row.meta, build: row.build });
     if (observed.npcKind !== null && observed.npcId !== null) {
       keys.push({ npcKind: observed.npcKind, npcId: observed.npcId });
     }
@@ -36,7 +38,7 @@ export async function GET() {
 
   const body = rows
     .map((row) => {
-      const observed = observedFrom(row.meta);
+      const observed = observedFrom({ ...row.meta, build: row.build });
       const resolution =
         observed.npcKind !== null && observed.npcId !== null
           ? resolutions.get(resolutionKey(observed.npcKind, observed.npcId))

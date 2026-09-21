@@ -74,6 +74,15 @@ describe("POST /api/contributions/npc", () => {
     expect((await POST(post({ npcKind: "creature", npcId: -1 }))).status).toBe(400);
   });
 
+  // The same `integer` column the intake path's npcId bound protects (resolve.ts's digits()):
+  // a moderator's own POST is authenticated, but that only means the id came from someone
+  // trusted, not that it fits. Refused here rather than left to Postgres, the same reasoning.
+  it("refuses an id past Postgres's integer range", async () => {
+    expect(
+      (await POST(post({ npcKind: "creature", npcId: 99999999999, race: "tauren" }))).status,
+    ).toBe(400);
+  });
+
   it("accepts id 0, a real npc id resolve.ts's own observedFrom treats as one", async () => {
     // A route that rejected 0 as "not positive" would silently make an NPC the intake path can
     // resolve automatically one a moderator could never correct by hand -- exactly the id-0

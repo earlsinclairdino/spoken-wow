@@ -92,7 +92,11 @@ export async function POST(request: Request) {
   // should be. A failure here must not fail the contribution -- the text is the thing worth
   // keeping, and an unresolved NPC is a row a moderator can fix.
   try {
-    await resolveNpc(observedFrom(submission.meta));
+    // build is not in submission.meta -- submissionFrom destructures it out into its own
+    // column (the spec, migration 0030 and the README all promise it survives), so it has to
+    // be put back here or observedFrom reads meta.build as undefined and every resolution from
+    // this path loses it.
+    await resolveNpc(observedFrom({ ...submission.meta, build: submission.build }));
   } catch (error) {
     console.error("contribution stored but npc resolution failed", error);
   }

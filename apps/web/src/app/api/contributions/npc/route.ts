@@ -17,11 +17,15 @@
  * check is satisfied by "moderator" whether or not the row is confirmed.
  */
 import { requireRegenerate } from "@/lib/generation/authz";
-import { getResolution, upsertResolution } from "@/lib/npc/store";
+import { getResolution, NPC_KINDS, upsertResolution, type NpcKind } from "@/lib/npc/store";
 
 export const dynamic = "force-dynamic";
 
-const KINDS = new Set(["creature", "gameobject"]);
+// An integer column (migration 0030), same as the intake path's npcId -- see resolve.ts's
+// digits() for why an upper bound matters here too: a moderator's own POST is authenticated,
+// but nothing stops a mistyped or pasted id from being just as oversized, and the same
+// out-of-range insert would fail the same way.
+const INT32_MAX = 2147483647;
 
 export async function POST(request: Request) {
   const { session, denied } = await requireRegenerate();
@@ -29,13 +33,15 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 
-  const npcKind = typeof body.npcKind === "string" && KINDS.has(body.npcKind) ? body.npcKind : null;
+  const npcKind = (NPC_KINDS as readonly string[]).includes(body.npcKind as string)
+    ? (body.npcKind as NpcKind)
+    : null;
   const npcId = Number(body.npcId);
   if (!npcKind) return Response.json({ error: "unknown kind" }, { status: 400 });
   // `< 0`, not `<= 0`: id 0 is a real NPC id (resolve.ts's own observedFrom/resolveNpc treat it
   // that way, with an explicit "not a truthiness check" note), and a moderator must be able to
   // correct it exactly like any other id the intake path resolved automatically.
-  if (!Number.isInteger(npcId) || npcId < 0) {
+  if (!Number.isInteger(npcId) || npcId < 0 || npcId > INT32_MAX) {
     return Response.json({ error: "unknown npc" }, { status: 400 });
   }
 
@@ -44,10 +50,10 @@ export async function POST(request: Request) {
 
   // What the client reported is kept even when a moderator overrules it: it is evidence about
   // the NPC, and the next person to look may want to know what the guess was based on.
-  const existing = await getResolution(npcKind as "creature" | "gameobject", npcId);
+  const existing = await getResolution(npcKind, npcId);
 
   const row = await upsertResolution({
-    npcKind: npcKind as "creature" | "gameobject",
+    npcKind,
     npcId,
     npcName: existing?.npcName ?? null,
     race: text(body.race, 64),
