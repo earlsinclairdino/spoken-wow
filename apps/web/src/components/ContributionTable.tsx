@@ -24,15 +24,31 @@ import { useCallback, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { ContributionStatus } from "@/lib/contributions/contributions";
 import type { Contribution } from "@/lib/contributions/store";
+import type { NpcResolution } from "@/lib/npc/store";
 import { cn } from "@/lib/utils";
+
+/**
+ * Who a row's NPC is, in exactly the shape this table renders -- the same Pick<> discipline as
+ * ContributionRow below, for the same reason: `npcName`, `modelFileId`, `sex`, `creatureType`,
+ * `build`, `note` and `resolvedBy` are on NpcResolution but never drawn here, so they stay out
+ * of the flight payload.
+ */
+export type NpcSummary = Pick<
+  NpcResolution,
+  "npcKind" | "npcId" | "race" | "gender" | "flavor" | "provenance" | "confirmed"
+>;
 
 /** The fields this table reads. page.tsx projects full Contribution rows down to this shape. */
 export type ContributionRow = Pick<
   Contribution,
   "id" | "source" | "key" | "locale" | "count" | "text" | "status" | "createdAt" | "body"
->;
+> & {
+  /** Null when the envelope never named an NPC at all -- zones and books, or a quest keyed on quest+event. */
+  npc: NpcSummary | null;
+};
 
 const SOURCE_LABELS: Record<Contribution["source"], string> = {
   quests: "Quests",
@@ -58,6 +74,22 @@ function when(at: string): string {
   });
 }
 
+/** "race-gender-flavor", or as much of it as is known -- a moderator can fill in the rest. */
+function speaker(npc: NpcSummary): string {
+  return [npc.race, npc.gender, npc.flavor].map((part) => part ?? "?").join("-");
+}
+
+/**
+ * A row's speaker column must never read as a confident answer when it isn't one: `confirmed`
+ * is the one column resolveNpc and the override route agree means "trust this", so it -- not
+ * provenance alone -- is what this table shows plainly versus flags.
+ */
+function speakerNote(npc: NpcSummary): string | null {
+  if (npc.confirmed) return null;
+  if (npc.provenance === "client") return "guessed from the model the client reported";
+  return "not identified";
+}
+
 export default function ContributionTable({
   initial,
   status,
@@ -76,6 +108,46 @@ export default function ContributionTable({
    */
   const [resolved, setResolved] = useState<Record<number, Contribution["status"]>>({});
   const [busy, setBusy] = useState<number | null>(null);
+
+  /**
+   * The npc column, overlaid on the server's rows for the same reason `resolved` is: the
+   * override writes through to the NPC, not this contribution, so nothing here navigates away
+   * on save and a reload would be the only other way to see it land.
+   */
+  const [npcOverrides, setNpcOverrides] = useState<Record<number, NpcSummary>>({});
+  const [npcBusy, setNpcBusy] = useState<number | null>(null);
+
+  const overrideNpc = useCallback(
+    async (
+      contributionId: number,
+      npc: NpcSummary,
+      answer: { race: string; gender: string; flavor: string; note: string },
+    ) => {
+      setNpcBusy(contributionId);
+      const response = await fetch("/api/contributions/npc", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ npcKind: npc.npcKind, npcId: npc.npcId, ...answer }),
+      }).catch(() => null);
+      setNpcBusy(null);
+
+      if (!response?.ok) return;
+      const { resolution } = (await response.json()) as { resolution: NpcResolution };
+      setNpcOverrides((current) => ({
+        ...current,
+        [contributionId]: {
+          npcKind: resolution.npcKind,
+          npcId: resolution.npcId,
+          race: resolution.race,
+          gender: resolution.gender,
+          flavor: resolution.flavor,
+          provenance: resolution.provenance,
+          confirmed: resolution.confirmed,
+        },
+      }));
+    },
+    [],
+  );
 
   const resolve = useCallback(async (id: number, next: ContributionStatus) => {
     setBusy(id);
@@ -139,6 +211,7 @@ export default function ContributionTable({
               <th className="border-b py-2 pr-3 font-normal">Locale</th>
               <th className="border-b py-2 pr-3 font-normal">Count</th>
               <th className="border-b py-2 pr-3 font-normal">What they sent</th>
+              <th className="border-b py-2 pr-3 font-normal">Speaker</th>
               <th className="border-b py-2 pr-3 font-normal">Status</th>
               <th className="border-b py-2 font-normal" />
             </tr>
@@ -148,6 +221,7 @@ export default function ContributionTable({
             {rows.map((row) => {
               const current = resolved[row.id] ?? row.status;
               const found = existing[row.id];
+              const npc = npcOverrides[row.id] ?? row.npc;
 
               return (
                 <tr key={row.id} className="align-middle [&>td]:border-b [&>td]:py-2 [&>td]:leading-5">
@@ -204,7 +278,30 @@ export default function ContributionTable({
                           <p className="mt-1 whitespace-pre-wrap">{found}</p>
                         </div>
                       ) : null}
+                      {npc ? (
+                        <NpcOverrideForm
+                          npc={npc}
+                          busy={npcBusy === row.id}
+                          onSave={(answer) => void overrideNpc(row.id, npc, answer)}
+                        />
+                      ) : null}
                     </details>
+                  </td>
+
+                  <td className="pr-3 text-xs whitespace-nowrap">
+                    {npc ? (
+                      <>
+                        <span>{speaker(npc)}</span>
+                        <Badge variant="outline" className="ml-1 py-0 leading-5">
+                          {npc.provenance}
+                        </Badge>
+                        {speakerNote(npc) ? (
+                          <p className="text-muted-foreground mt-0.5">{speakerNote(npc)}</p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </td>
 
                   <td className="pr-3 text-xs whitespace-nowrap">{STATUS_LABELS[current]}</td>
@@ -250,5 +347,71 @@ export default function ContributionTable({
         </table>
       )}
     </>
+  );
+}
+
+/**
+ * The override, inside the same `<details>` as the submitted text: race, gender, flavor and a
+ * note, posted to /api/contributions/npc.
+ *
+ * Its own inputs rather than lifting them into the table's state -- a form per row, opened one
+ * at a time, is exactly what `<details>` already scopes, and the table has no other reason to
+ * know what a moderator is mid-typing in a row nobody has saved yet.
+ */
+function NpcOverrideForm({
+  npc,
+  busy,
+  onSave,
+}: {
+  npc: NpcSummary;
+  busy: boolean;
+  onSave: (answer: { race: string; gender: string; flavor: string; note: string }) => void;
+}) {
+  const [race, setRace] = useState(npc.race ?? "");
+  const [gender, setGender] = useState(npc.gender ?? "");
+  const [flavor, setFlavor] = useState(npc.flavor ?? "");
+  const [note, setNote] = useState("");
+
+  return (
+    <form
+      className="mt-2 rounded border p-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSave({ race, gender, flavor, note });
+      }}
+    >
+      <p className="text-muted-foreground text-xs font-medium">
+        Say who this is (empty clears a field):
+      </p>
+      <div className="mt-1 flex flex-wrap gap-2">
+        <Input
+          value={race}
+          onChange={(event) => setRace(event.target.value)}
+          placeholder="race"
+          className="h-8 w-28 text-xs"
+        />
+        <Input
+          value={gender}
+          onChange={(event) => setGender(event.target.value)}
+          placeholder="gender"
+          className="h-8 w-24 text-xs"
+        />
+        <Input
+          value={flavor}
+          onChange={(event) => setFlavor(event.target.value)}
+          placeholder="flavor"
+          className="h-8 w-28 text-xs"
+        />
+        <Input
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="why (e.g. a Wowhead link)"
+          className="h-8 flex-1 text-xs"
+        />
+        <Button type="submit" size="sm" variant="outline" disabled={busy}>
+          Save
+        </Button>
+      </div>
+    </form>
   );
 }

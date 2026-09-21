@@ -2,12 +2,14 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
-import ContributionTable, { type ContributionRow } from "@/components/ContributionTable";
+import ContributionTable, { type ContributionRow, type NpcSummary } from "@/components/ContributionTable";
 import { auth } from "@/lib/auth";
 import { pageById } from "@/lib/books/catalogue";
 import { corpusLookup } from "@/lib/contributions/existing";
 import { isStatus, type ContributionStatus } from "@/lib/contributions/contributions";
 import { listContributions, type Contribution } from "@/lib/contributions/store";
+import { observedFrom } from "@/lib/npc/resolve";
+import { getResolution } from "@/lib/npc/store";
 import { canRegenerate } from "@/lib/permissions";
 import { lineByPath } from "@/lib/zones/catalogue";
 
@@ -44,6 +46,45 @@ async function existingTextFor(contributions: Contribution[]): Promise<Record<nu
   return found;
 }
 
+/**
+ * Who the corpus, the client or a moderator believes each row's NPC to be.
+ *
+ * Keyed on the contribution id, not the (kind, id) pair, because that is what the table already
+ * indexes rows by; the underlying resolution is still shared across every contribution that
+ * names the same NPC, which is the whole point of resolveNpc writing through to it.
+ *
+ * A row present with `npc` set but every field null is meaningful, not absent: it says a
+ * moderator or the resolver looked and found no race to assign (a narrator, say). Absent
+ * entirely means the envelope never named an NPC at all -- zones and books never do, and a
+ * quests envelope keyed on quest+event rather than npc doesn't either.
+ */
+async function npcFor(contributions: Contribution[]): Promise<Record<number, NpcSummary>> {
+  const found: Record<number, NpcSummary> = {};
+
+  await Promise.all(
+    contributions.map(async (row) => {
+      const observed = observedFrom(row.meta);
+      if (!observed.npcKind || observed.npcId === null) return;
+
+      // No resolution row yet -- an older contribution, or a best-effort resolve at intake that
+      // failed -- is still an NPC a moderator can answer for, so the kind/id survive into the
+      // summary even when there is nothing else to show yet.
+      const resolution = await getResolution(observed.npcKind, observed.npcId);
+      found[row.id] = {
+        npcKind: observed.npcKind,
+        npcId: observed.npcId,
+        race: resolution?.race ?? null,
+        gender: resolution?.gender ?? null,
+        flavor: resolution?.flavor ?? null,
+        provenance: resolution?.provenance ?? "none",
+        confirmed: resolution?.confirmed ?? false,
+      };
+    }),
+  );
+
+  return found;
+}
+
 export default async function Page({
   searchParams,
 }: {
@@ -64,6 +105,7 @@ export default async function Page({
 
   const contributions = await listContributions(status);
   const existing = await existingTextFor(contributions);
+  const npcs = await npcFor(contributions);
 
   // ContributionTable is a client component: whatever shape crosses in `initial` lands in the
   // RSC flight payload and is readable in devtools, so the full row -- name, email, raw, the
@@ -80,6 +122,7 @@ export default async function Page({
     status: row.status,
     createdAt: row.createdAt,
     body: row.body,
+    npc: npcs[row.id] ?? null,
   }));
 
   return (
