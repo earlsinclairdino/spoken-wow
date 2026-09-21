@@ -43,6 +43,12 @@ export async function getResolution(kind: NpcKind, npcId: number): Promise<NpcRe
 export async function upsertResolution(
   input: Omit<NpcResolution, "updatedAt">,
 ): Promise<NpcResolution> {
+  // The `where` guards a moderator's answer against a later client guess: without it, the
+  // stored row's provenance and confirmed flag are excluded.* like everything else, so a
+  // contribution filed after a moderator has already confirmed an NPC would silently downgrade
+  // it back to an unconfirmed guess. A skipped update returns no row -- `do update ... where`
+  // makes the row a no-op, not a match failure -- so the read-back below is what keeps this
+  // function's return type honest in that case.
   const { rows } = await db().query<NpcResolution>(
     `insert into "npc_resolution"
        ("npcKind", "npcId", "npcName", "race", "gender", "flavor", "provenance", "confirmed",
@@ -62,6 +68,8 @@ export async function upsertResolution(
            "note" = excluded."note",
            "resolvedBy" = excluded."resolvedBy",
            "updatedAt" = now()
+       where not ("npc_resolution"."provenance" = 'moderator'
+                  and excluded."provenance" <> 'moderator')
      returning ${COLUMNS}`,
     [
       input.npcKind, input.npcId, input.npcName, input.race, input.gender, input.flavor,
@@ -69,7 +77,16 @@ export async function upsertResolution(
       input.build, input.note, input.resolvedBy,
     ],
   );
-  return rows[0];
+  if (rows[0]) return rows[0];
+
+  // The `where` above turned the write into a no-op, which means the row on disk is the
+  // moderator's answer this call was blocked from downgrading -- hand that back rather than
+  // undefined, so a caller that ignores the possibility still gets a real NpcResolution.
+  const existing = await getResolution(input.npcKind, input.npcId);
+  if (!existing) {
+    throw new Error(`upsertResolution: no-op update left no row for ${input.npcKind}/${input.npcId}`);
+  }
+  return existing;
 }
 
 export async function listUnconfirmed(): Promise<NpcResolution[]> {

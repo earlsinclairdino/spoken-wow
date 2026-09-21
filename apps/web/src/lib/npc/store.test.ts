@@ -87,3 +87,60 @@ describe("listUnconfirmed", () => {
     expect((await listUnconfirmed()).some((r) => r.npcId === npcId)).toBe(false);
   });
 });
+
+describe("upsertResolution moderator precedence", () => {
+  it("lets a client write over a client row update", async () => {
+    await upsertResolution(resolution({ race: "tauren" }));
+    const result = await upsertResolution(resolution({ race: "orc" }));
+    expect(result.race).toBe("orc");
+    expect((await getResolution("creature", npcId))?.race).toBe("orc");
+  });
+
+  it("leaves a moderator row untouched by a later client write, and returns the moderator row", async () => {
+    await upsertResolution(
+      resolution({ race: "highmountaintauren", provenance: "moderator", confirmed: true }),
+    );
+    const result = await upsertResolution(resolution({ race: "orc", provenance: "client" }));
+    expect(result.race).toBe("highmountaintauren");
+    expect(result.provenance).toBe("moderator");
+    expect(result.confirmed).toBe(true);
+    const row = await getResolution("creature", npcId);
+    expect(row?.race).toBe("highmountaintauren");
+    expect(row?.provenance).toBe("moderator");
+  });
+
+  it("lets a moderator write over a moderator row update", async () => {
+    await upsertResolution(
+      resolution({ race: "highmountaintauren", provenance: "moderator", confirmed: true }),
+    );
+    const result = await upsertResolution(
+      resolution({ race: "tauren", provenance: "moderator", confirmed: true }),
+    );
+    expect(result.race).toBe("tauren");
+    expect((await getResolution("creature", npcId))?.race).toBe("tauren");
+  });
+});
+
+describe("npc_resolution invariants", () => {
+  it("rejects a client row marked confirmed", async () => {
+    await expect(
+      db().query(
+        `insert into "npc_resolution"
+           ("npcKind", "npcId", "provenance", "confirmed")
+         values ($1, $2, 'client', true)`,
+        ["creature", npcId],
+      ),
+    ).rejects.toThrow(/npc_resolution_confirmed_provenance_check/);
+  });
+
+  it("rejects a 'none' row carrying a race", async () => {
+    await expect(
+      db().query(
+        `insert into "npc_resolution"
+           ("npcKind", "npcId", "provenance", "race")
+         values ($1, $2, 'none', 'tauren')`,
+        ["creature", npcId],
+      ),
+    ).rejects.toThrow(/npc_resolution_none_is_empty_check/);
+  });
+});
