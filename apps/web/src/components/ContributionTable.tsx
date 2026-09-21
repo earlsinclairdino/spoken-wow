@@ -25,8 +25,12 @@ import { useCallback, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import type { ConfirmedFilter } from "@/app/contributions/page";
 import type { ContributionStatus } from "@/lib/contributions/contributions";
 import type { Contribution } from "@/lib/contributions/store";
+// From npc.ts, not npc/store.ts: store.ts imports @/lib/db, and pulling PROVENANCES (a value,
+// not just a type) out of it would drag Postgres's own node built-ins into this client bundle.
+import { PROVENANCES, type Provenance } from "@/lib/npc/npc";
 import type { NpcResolution } from "@/lib/npc/store";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +67,19 @@ const STATUS_LABELS: Record<ContributionStatus, string> = {
 };
 
 const STATUS_OPTIONS: readonly ContributionStatus[] = ["new", "accepted", "rejected"];
+
+const PROVENANCE_LABELS: Record<Provenance, string> = {
+  corpus: "Corpus",
+  client: "Client guess",
+  moderator: "Moderator",
+  none: "No race",
+};
+
+const CONFIRMED_LABELS: Record<Exclude<ConfirmedFilter, "all">, string> = {
+  confirmed: "Confirmed",
+  unconfirmed: "Unconfirmed",
+};
+const CONFIRMED_OPTIONS: readonly Exclude<ConfirmedFilter, "all">[] = ["unconfirmed", "confirmed"];
 
 /** The day and the clock time, short enough to sit in a column, matching ReportTable's `when`. */
 function when(at: string): string {
@@ -101,10 +118,14 @@ function speakerNote(npc: NpcSummary): string | null {
 export default function ContributionTable({
   initial,
   status,
+  provenance,
+  confirmed,
   existing,
 }: {
   initial: ContributionRow[];
   status: ContributionStatus | "all";
+  provenance: Provenance | "all";
+  confirmed: ConfirmedFilter;
   /** id -> corpus text, present only where the row's key resolves to something on file. */
   existing: Record<number, string>;
 }) {
@@ -175,16 +196,29 @@ export default function ContributionTable({
     return status === "all" || current === status;
   });
 
+  // Combines whichever one of the three dimensions is changing with the other two as they
+  // stand -- otherwise a click on a provenance link would reset status and confirmed back to
+  // their defaults, undoing whatever else the moderator had already narrowed to.
+  function href(next: { status?: ContributionStatus | "all"; provenance?: Provenance | "all"; confirmed?: ConfirmedFilter }) {
+    const params = new URLSearchParams({
+      status: next.status ?? status,
+      provenance: next.provenance ?? provenance,
+      confirmed: next.confirmed ?? confirmed,
+    });
+    return `/contributions?${params}`;
+  }
+
   return (
     <>
-      {/* Three links rather than FilterChip's dropdown: there is exactly one dimension to
-          filter on here, where reports has three, and a queue is the thing collaborators
-          want to jump between, not narrow. */}
+      {/* Links rather than FilterChip's dropdown, matching /reports's own status filter: a
+          queue is the thing collaborators want to jump between, not narrow through a dropdown.
+          Three groups now, not one -- provenance and confirmed are what finding 5 asked for,
+          the thing that makes an unconfirmed NPC guess revisitable later. */}
       <nav className="mb-4 flex flex-wrap items-center gap-2 text-sm">
         {STATUS_OPTIONS.map((option) => (
           <a
             key={option}
-            href={`/contributions?status=${option}`}
+            href={href({ status: option })}
             className={cn(
               "rounded-full border px-3 py-1",
               status === option
@@ -196,7 +230,7 @@ export default function ContributionTable({
           </a>
         ))}
         <a
-          href="/contributions?status=all"
+          href={href({ status: "all" })}
           className={cn(
             "rounded-full border px-3 py-1",
             status === "all"
@@ -206,6 +240,38 @@ export default function ContributionTable({
         >
           All
         </a>
+      </nav>
+
+      <nav className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted-foreground text-xs">Speaker:</span>
+        {CONFIRMED_OPTIONS.map((option) => (
+          <a
+            key={option}
+            href={href({ confirmed: confirmed === option ? "all" : option })}
+            className={cn(
+              "rounded-full border px-3 py-1",
+              confirmed === option
+                ? "border-primary bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted",
+            )}
+          >
+            {CONFIRMED_LABELS[option]}
+          </a>
+        ))}
+        {PROVENANCES.map((option) => (
+          <a
+            key={option}
+            href={href({ provenance: provenance === option ? "all" : option })}
+            className={cn(
+              "rounded-full border px-3 py-1",
+              provenance === option
+                ? "border-primary bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted",
+            )}
+          >
+            {PROVENANCE_LABELS[option]}
+          </a>
+        ))}
       </nav>
 
       {rows.length === 0 ? (
