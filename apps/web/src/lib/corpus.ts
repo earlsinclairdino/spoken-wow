@@ -99,3 +99,27 @@ export function lineIndex(): Map<string, CorpusLine[]> {
   if (!holder[indexKey]) holder[indexKey] = buildLineIndex(loadCorpus());
   return holder[indexKey]!;
 }
+
+/**
+ * What the corpus already knows about an NPC, or null for one it has never carried.
+ *
+ * The corpus is the exact answer where it has one: it was built from the same display data the
+ * game uses, including the flavor that no client API exposes.
+ *
+ * A linear scan, not a new memoised index: lineIndex groups by lineId, and one lineId is shared
+ * by every NPC with the same gossip line, so it cannot answer "what does this one NPC carry"
+ * without a second index carrying its own cache-invalidation story alongside it. This runs once
+ * per contribution resolved, not per request, so the scan is the honest cost here.
+ */
+export function npcVoiceFromCorpus(
+  npcType: string,
+  npcId: number,
+): { race: string; gender: string; flavor: string | null; npcName: string } | null {
+  const wanted = `${npcType}:${npcId}`;
+  for (const line of loadCorpus().lines) {
+    if (npcKey(line) === wanted) {
+      return { race: line.race, gender: line.gender, flavor: line.flavor, npcName: line.npcName };
+    }
+  }
+  return null;
+}
