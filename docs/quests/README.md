@@ -811,6 +811,63 @@ row. That count is the triage priority at `/contributions`, the contribution que
 contribution becomes corpus text and a regeneration job the same deliberate way a report
 becomes a fix, by a person reading it first.
 
+#### Who is speaking
+
+A line still needs a voice, and a voice name is `race-gender-flavor`. The corpus answers that
+for every NPC it carries. For one it has never seen, the answer has to come from somewhere, and
+the client can supply two thirds of it.
+
+The addon reports what it can see and nothing more: `kind` (creature or gameobject), `model` —
+the model file id a `PlayerModel` frame answers for the unit — `sex` from `UnitSex`, and
+`creature` from `UnitCreatureType`. It carries no race table. `apps/web/src/lib/npc/models.ts`
+holds that instead, 81 character models across 32 races, and maps `122055` to
+`character/tauren/male/taurenmale.m2`, which is a tauren and male. The table lives on the site
+deliberately: a race added upstream, or an id that turns out to mean something else, is
+corrected in one deploy, while a table shipped inside the addon waits for every player to take
+an update, and the legacy-client players install their zips by hand.
+
+`resolveNpc` then answers in order, stopping at the first that knows:
+
+1. **A moderator's answer.** Somebody looked, and they may know something no data source does.
+2. **The corpus**, for an NPC it already carries. Exact, and the only one of the three that
+   supplies a real flavor.
+3. **The client's model id**, mapped to a race and a gender, with the flavor defaulted to the
+   race-gender's standard and the row left **unconfirmed**.
+4. **Nothing.** A murloc, a dragon or an elemental is drawn with a creature model rather than a
+   character one, and resolves to no race at all. That is a normal outcome, not a failure:
+   `narrator-male` has always been the pseudo-race for things that do not have one.
+
+**The flavor cannot be detected in game, and it is worth knowing why before going looking.**
+`tts_cli/flavors.py` recovers it by reading SoundEntries names like
+`DwarfFemaleMaternalNPCGreetings`. No client API exposes a creature's `NPCSoundID`, nor the
+sound the game chose to play when the gossip frame opened, and the modern client's data has no
+`SoundKitName` table at all. So for a new NPC the flavor is defaulted and flagged, and a
+moderator is the only thing that can improve it.
+
+An envelope carrying no `kind` resolves to nothing rather than being assumed a creature.
+`ReportButton:TargetForGUID` accepts any GUID `Enums.GUID:CanHaveID` allows, which includes
+`GameObject` — the sound packs ship `object_name_lookups.lua` for exactly those quest givers —
+and such an envelope carries no `model` either, so the best row it could produce is a name we
+already have. Filing a gameobject under a creature id would merge two id spaces that overlap:
+creature 68 is a Stormwind City Guard, gameobject 68 is a Wanted Poster.
+
+The answer is stored once per NPC, keyed on the kind *and* the id for that same reason, so one
+correction fixes every line that NPC speaks. `npc_resolution` also keeps what the client
+reported even when a moderator overrules it — evidence about the NPC is worth more than the
+guess it produced — along with the client build, since model ids are per-build data.
+
+Precedence is enforced in the SQL rather than by whoever calls it: `moderator` outranks
+`corpus`, which outranks `client`, which outranks `none`, and a write only lands when it ranks
+at least as high as what is already there. A submission carrying less information can never
+erase one carrying more — the case that matters is a player on an older addon, whose envelope
+has no model at all, submitting for an NPC somebody else already resolved.
+
+`/contributions` shows the result with its provenance and says plainly which rows are guesses;
+the override there writes `moderator` and is collaborator-only, like everything else that
+changes a row. A race with no voice yet needs nothing special: `/voices` derives its roster
+from the corpus, so an accepted contribution makes the slot appear by itself, marked as not
+existing in the account until it is cloned.
+
 ## Addon Install
 
 ```bash
