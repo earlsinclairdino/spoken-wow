@@ -12,13 +12,18 @@
  * An NPC that answers to none of them resolves to no race, which is a normal outcome rather
  * than a failure: the corpus already carries `narrator-male` for things that are not a race.
  */
-import { npcVoiceFromCorpus } from "@/lib/corpus";
+import { defaultFlavorFor, npcVoiceFromCorpus } from "@/lib/corpus";
 
 import { raceForModel } from "./models";
-import { getResolution, upsertResolution, type NpcKind, type NpcResolution } from "./store";
+import { getResolution, NPC_KINDS, upsertResolution, type NpcKind, type NpcResolution } from "./store";
 
-/** The flavor every race-gender has, and the one the pipeline itself falls back to. */
-const DEFAULT_FLAVOR = "standard";
+// The three integer columns npc_resolution and contribution both ultimately feed from an
+// unauthenticated envelope: an id this large is still "a digit run ending at a space" as far
+// as checkEnvelope is concerned, but Postgres's `integer` tops out at 2147483647, and a value
+// past that 500s every reader of the row (the triage page's Promise.all, the export's
+// unnest($::int[])) rather than merely failing to resolve. Bounding it here, at the one place
+// both consumers get npcId/modelFileId/sex from, means neither has to know this rule exists.
+const INT32_MAX = 2147483647;
 
 export type Observed = {
   npcKind: NpcKind | null;
@@ -32,14 +37,31 @@ export type Observed = {
 
 const DIGITS = /^\d+$/;
 
+// npcId, modelFileId and sex all land in an `integer` column (migration 0030), and all three
+// come straight from an unauthenticated envelope: checkEnvelope only requires a digit run, with
+// no magnitude bound. Past 2147483647 Postgres rejects the insert, but that only protects the
+// npc_resolution row -- the contribution itself already stored, permanently, with the
+// oversized value in its meta. Bounding here, before either column is ever written, is what
+// keeps a single out-of-range paste from turning into a row that 500s every reader of it: the
+// triage page's Promise.all (page.tsx) and the export's unnest($::int[]) (export/route.ts) both
+// go through this function to get there.
 function digits(value: string | undefined): number | null {
-  return value && DIGITS.test(value) ? Number(value) : null;
+  if (!value || !DIGITS.test(value)) return null;
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n <= INT32_MAX ? n : null;
 }
 
 export function observedFrom(meta: Record<string, string>): Observed {
   // `npc` is "<id> <name>" -- the id, then whatever the client called them.
   const npc = meta.npc?.match(/^(\d+)(?:\s+(.*))?$/);
-  const kind = meta.kind === "gameobject" ? "gameobject" : meta.kind === "creature" ? "creature" : null;
+  const kind = (NPC_KINDS as readonly string[]).includes(meta.kind ?? "")
+    ? (meta.kind as NpcKind)
+    : null;
+  // Through the same bound as modelFileId and sex, not a bare Number(): the regex only proves
+  // digits, not that they fit in `integer`, and npcId is the one of the three that gets used as
+  // a lookup key rather than merely stored, so an unbounded value here is the one that reaches
+  // getResolution/upsertResolution at all.
+  const npcId = digits(npc?.[1]);
 
   return {
     // No default for an absent `kind`: the pre-kind envelope came from `TargetForGUID`, which
@@ -47,7 +69,7 @@ export function observedFrom(meta: Record<string, string>): Observed {
     // are real and reachable this way. Guessing "creature" would risk filing one under the
     // creature id space, exactly the collision npcKey's namespacing exists to prevent.
     npcKind: npc ? kind : null,
-    npcId: npc ? Number(npc[1]) : null,
+    npcId,
     npcName: npc?.[2]?.trim() || null,
     modelFileId: digits(meta.model),
     sex: digits(meta.sex),
@@ -95,15 +117,22 @@ export async function resolveNpc(observed: Observed): Promise<NpcResolution | nu
   }
 
   const fromModel = raceForModel(observed.modelFileId);
+  // A flavor nobody has confirmed, derived the way tts_cli/flavors.py's fallback_flavors
+  // derives its own: "standard" where the race-gender has it, otherwise its busiest flavor,
+  // from the corpus rather than a constant. A constant would leave four race-genders
+  // (dwarf-female, goblin-female, goblin-male, tauren-male) pointing at a voice that does not
+  // exist -- this branch's own flagship case, model 122055/tauren-male, used to emit
+  // "tauren-male-standard", which nothing can produce. defaultFlavorFor answers null for a race
+  // the corpus has never carried a flavored line for at all, and null is left alone rather than
+  // guessed at: the row is unconfirmed regardless, and a moderator or the pipeline can decide.
+  const flavor = fromModel ? defaultFlavorFor(fromModel.race, fromModel.gender) : null;
   return upsertResolution({
     npcKind,
     npcId,
     npcName: observed.npcName,
     race: fromModel?.race ?? null,
     gender: fromModel?.gender ?? null,
-    // A flavor nobody has confirmed. The pipeline defaults the same way when the game data
-    // does not answer, so this is the existing behaviour written down rather than a new guess.
-    flavor: fromModel ? DEFAULT_FLAVOR : null,
+    flavor,
     provenance: fromModel ? "client" : "none",
     confirmed: false,
     modelFileId: observed.modelFileId,

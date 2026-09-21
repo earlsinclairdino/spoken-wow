@@ -821,18 +821,26 @@ The addon reports what it can see and nothing more: `kind` (creature or gameobje
 the model file id a `PlayerModel` frame answers for the unit — `sex` from `UnitSex`, and
 `creature` from `UnitCreatureType`. It carries no race table. `apps/web/src/lib/npc/models.ts`
 holds that instead, 81 character models across 32 races, and maps `122055` to
-`character/tauren/male/taurenmale.m2`, which is a tauren and male. The table lives on the site
-deliberately: a race added upstream, or an id that turns out to mean something else, is
-corrected in one deploy, while a table shipped inside the addon waits for every player to take
-an update, and the legacy-client players install their zips by hand.
+`{race: "tauren", gender: "male"}`. The path a race and gender resolve to on disk —
+`character/tauren/male/taurenmale.m2` — lives in the community listfile, not in this repo; the
+model table only ever needs the race and the gender an id names, never the path itself. The
+table lives on the site deliberately: a race added upstream, or an id that turns out to mean
+something else, is corrected in one deploy, while a table shipped inside the addon waits for
+every player to take an update, and the legacy-client players install their zips by hand.
 
 `resolveNpc` then answers in order, stopping at the first that knows:
 
 1. **A moderator's answer.** Somebody looked, and they may know something no data source does.
 2. **The corpus**, for an NPC it already carries. Exact, and the only one of the three that
    supplies a real flavor.
-3. **The client's model id**, mapped to a race and a gender, with the flavor defaulted to the
-   race-gender's standard and the row left **unconfirmed**.
+3. **The client's model id**, mapped to a race and a gender, with the flavor defaulted and the
+   row left **unconfirmed**. The default is not a constant: `lib/corpus.ts:defaultFlavorFor`
+   mirrors `tts_cli/flavors.py`'s own `fallback_flavors` — "standard" where that race-gender has
+   it, otherwise its busiest flavor, from the corpus rather than a hardcoded name. Four
+   race-genders (dwarf-female, goblin-female, goblin-male, tauren-male) have no standard voice
+   in the game at all, so a constant would leave them pointing at nothing; tauren-male defaults
+   to `warrior`, its busiest, not `standard`. A race-gender the corpus has never carried a
+   flavored line for at all defaults to no flavor rather than a guess.
 4. **Nothing.** A murloc, a dragon or an elemental is drawn with a creature model rather than a
    character one, and resolves to no race at all. That is a normal outcome, not a failure:
    `narrator-male` has always been the pseudo-race for things that do not have one.

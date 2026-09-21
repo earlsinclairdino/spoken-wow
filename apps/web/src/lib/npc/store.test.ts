@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { closeDb, db } from "@/lib/db";
 
-import { getResolution, listUnconfirmed, PROVENANCES, upsertResolution } from "./store";
+import { getResolution, PROVENANCES, upsertResolution } from "./store";
 
 // A bucket no other run shares: these ids are the primary key, so a fixed one would collide
 // between concurrent runs against the shared dev database.
@@ -76,15 +76,6 @@ describe("upsertResolution", () => {
 
   it("answers null for an npc nobody has resolved", async () => {
     expect(await getResolution("creature", npcId)).toBe(null);
-  });
-});
-
-describe("listUnconfirmed", () => {
-  it("lists the guesses and not the confirmed ones", async () => {
-    await upsertResolution(resolution());
-    expect((await listUnconfirmed()).some((r) => r.npcId === npcId)).toBe(true);
-    await upsertResolution(resolution({ provenance: "moderator", confirmed: true }));
-    expect((await listUnconfirmed()).some((r) => r.npcId === npcId)).toBe(false);
   });
 });
 

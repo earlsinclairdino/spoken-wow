@@ -7,14 +7,15 @@
  */
 import { db } from "@/lib/db";
 
-export type NpcKind = "creature" | "gameobject";
+// Defined in npc.ts, which is free of node imports -- see its own docstring for why that
+// split exists (ContributionTable.tsx, a client component, needs PROVENANCES as a value, and
+// importing one out of a module that reaches for `@/lib/db` fails the client build). Imported
+// (not just re-exported) so this file can still use them as it always did, and re-exported so
+// every existing import of these from this module keeps working unchanged.
+import { NPC_KINDS, PROVENANCES, isProvenance, type NpcKind, type Provenance } from "./npc";
 
-// A tuple, not a bare type alias, so the union is enumerable at runtime -- the rank test below
-// walks PROVENANCES rather than listing the four values by hand, which is what makes a fifth
-// value added here without a matching rank in provenanceRank fail loudly instead of silently
-// sorting as the lowest rank. Follows lib/contributions/contributions.ts's STATUSES pattern.
-export const PROVENANCES = ["corpus", "client", "moderator", "none"] as const;
-export type Provenance = (typeof PROVENANCES)[number];
+export { NPC_KINDS, PROVENANCES, isProvenance };
+export type { NpcKind, Provenance };
 
 export type NpcResolution = {
   npcKind: NpcKind;
@@ -149,13 +150,4 @@ export async function getResolutions(
     [keys.map((key) => key.npcKind), keys.map((key) => key.npcId)],
   );
   return new Map(rows.map((row) => [resolutionKey(row.npcKind, row.npcId), row]));
-}
-
-export async function listUnconfirmed(): Promise<NpcResolution[]> {
-  const { rows } = await db().query<NpcResolution>(
-    `select ${COLUMNS} from "npc_resolution"
-      where "confirmed" = false
-      order by "updatedAt" desc`,
-  );
-  return rows;
 }
