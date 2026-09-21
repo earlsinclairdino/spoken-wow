@@ -8,7 +8,13 @@
 import { db } from "@/lib/db";
 
 export type NpcKind = "creature" | "gameobject";
-export type Provenance = "corpus" | "client" | "moderator" | "none";
+
+// A tuple, not a bare type alias, so the union is enumerable at runtime -- the rank test below
+// walks PROVENANCES rather than listing the four values by hand, which is what makes a fifth
+// value added here without a matching rank in provenanceRank fail loudly instead of silently
+// sorting as the lowest rank. Follows lib/contributions/contributions.ts's STATUSES pattern.
+export const PROVENANCES = ["corpus", "client", "moderator", "none"] as const;
+export type Provenance = (typeof PROVENANCES)[number];
 
 export type NpcResolution = {
   npcKind: NpcKind;
@@ -47,12 +53,22 @@ export async function getResolution(kind: NpcKind, npcId: number): Promise<NpcRe
 // where a bare envelope is none at all. This CASE is inlined into the upsert's `where` twice
 // (once for the stored row, once for the incoming one) so the comparison lives in the one
 // place both sides of a write pass through, rather than in whichever caller happens to be last.
+//
+// This list and the npc_resolution_provenance_check constraint in the migration must change
+// together: a provenance added to one and not the other either can never be written (rejected
+// by the constraint) or falls through to `else` here. The `else` is -1, one below `none`'s own
+// 0, on purpose -- an unranked value must not tie `none`, or it would silently win every write
+// over an unresolved row while still losing every write to anything already resolved, and only
+// the second half of that would ever be noticed. Ranked strictly below everything, a forgotten
+// rank can never land at all, so store.test.ts's PROVENANCES-driven test (every real provenance
+// must beat a `none` row) goes red immediately, naming the value, instead of shipping quietly.
 function provenanceRank(column: string): string {
   return `case ${column}
     when 'moderator' then 3
     when 'corpus' then 2
     when 'client' then 1
-    else 0
+    when 'none' then 0
+    else -1
   end`;
 }
 

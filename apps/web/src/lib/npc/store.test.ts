@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { closeDb, db } from "@/lib/db";
 
-import { getResolution, listUnconfirmed, upsertResolution } from "./store";
+import { getResolution, listUnconfirmed, PROVENANCES, upsertResolution } from "./store";
 
 // A bucket no other run shares: these ids are the primary key, so a fixed one would collide
 // between concurrent runs against the shared dev database.
@@ -170,6 +170,22 @@ describe("upsertResolution provenance precedence", () => {
     );
     expect(result.npcName).toBe("Boarton the Elder");
     expect((await getResolution("creature", npcId))?.npcName).toBe("Boarton the Elder");
+  });
+});
+
+// Derived from PROVENANCES rather than listing the values by hand: a fifth provenance added to
+// the tuple without a matching branch in provenanceRank falls through to the sentinel below
+// `none`, so a write of it can never land here either, and this test names exactly which value
+// broke instead of relying on a reviewer to notice a missing `case` line in a different file.
+describe("upsertResolution ranks every real provenance above 'none'", () => {
+  it.each(PROVENANCES.filter((p) => p !== "none"))("%s beats a 'none' row", async (provenance) => {
+    await upsertResolution(
+      resolution({ race: null, gender: null, flavor: null, provenance: "none" }),
+    );
+    const result = await upsertResolution(resolution({ race: "tauren", provenance }));
+    expect(result.provenance).toBe(provenance);
+    expect(result.race).toBe("tauren");
+    expect((await getResolution("creature", npcId))?.provenance).toBe(provenance);
   });
 });
 
