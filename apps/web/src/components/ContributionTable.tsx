@@ -83,9 +83,17 @@ function speaker(npc: NpcSummary): string {
  * A row's speaker column must never read as a confident answer when it isn't one: `confirmed`
  * is the one column resolveNpc and the override route agree means "trust this", so it -- not
  * provenance alone -- is what this table shows plainly versus flags.
+ *
+ * A confirmed row with every field null is still a decision, not an absence -- a moderator (or
+ * the corpus, for a narrator-style pseudo-race) looked and there is no race to assign. Left
+ * unlabelled, "?-?-?" next to a "moderator" badge would be one small badge away from looking
+ * identical to a genuinely unresolved "?-?-?"/"none" row, which defeats the point of this column
+ * being a skimmable "still needs a human" signal.
  */
 function speakerNote(npc: NpcSummary): string | null {
-  if (npc.confirmed) return null;
+  if (npc.confirmed) {
+    return npc.race || npc.gender || npc.flavor ? null : "confirmed: no race";
+  }
   if (npc.provenance === "client") return "guessed from the model the client reported";
   return "not identified";
 }

@@ -32,7 +32,10 @@ export async function POST(request: Request) {
   const npcKind = typeof body.npcKind === "string" && KINDS.has(body.npcKind) ? body.npcKind : null;
   const npcId = Number(body.npcId);
   if (!npcKind) return Response.json({ error: "unknown kind" }, { status: 400 });
-  if (!Number.isInteger(npcId) || npcId <= 0) {
+  // `< 0`, not `<= 0`: id 0 is a real NPC id (resolve.ts's own observedFrom/resolveNpc treat it
+  // that way, with an explicit "not a truthiness check" note), and a moderator must be able to
+  // correct it exactly like any other id the intake path resolved automatically.
+  if (!Number.isInteger(npcId) || npcId < 0) {
     return Response.json({ error: "unknown npc" }, { status: 400 });
   }
 

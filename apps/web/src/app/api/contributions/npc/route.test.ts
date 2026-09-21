@@ -32,7 +32,7 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
-  await db().query(`delete from "npc_resolution" where "npcId" = $1`, [npcId]);
+  await db().query(`delete from "npc_resolution" where "npcId" in ($1, 0)`, [npcId]);
 });
 
 afterAll(async () => {
@@ -70,8 +70,18 @@ describe("POST /api/contributions/npc", () => {
     expect((await POST(post({ npcKind: "item", npcId, race: "tauren" }))).status).toBe(400);
   });
 
-  it("refuses an id that is not a positive integer", async () => {
+  it("refuses a negative id", async () => {
     expect((await POST(post({ npcKind: "creature", npcId: -1 }))).status).toBe(400);
+  });
+
+  it("accepts id 0, a real npc id resolve.ts's own observedFrom treats as one", async () => {
+    // A route that rejected 0 as "not positive" would silently make an NPC the intake path can
+    // resolve automatically one a moderator could never correct by hand -- exactly the id-0
+    // truthiness class of bug this branch already fixed once in resolve.ts/store.ts.
+    const response = await POST(post({ npcKind: "creature", npcId: 0, race: "tauren" }));
+    expect(response.status).toBe(200);
+    const row = await getResolution("creature", 0);
+    expect(row).toMatchObject({ race: "tauren", provenance: "moderator", confirmed: true });
   });
 
   it("keeps what the client reported when a moderator overrules the race", async () => {
