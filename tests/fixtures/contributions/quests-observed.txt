@@ -1,0 +1,16 @@
+!SPOKEN1 quests
+addon=SpokenQuests/2.0.4
+build=1.60.1/69913
+locale=enUS
+quest=76156
+event=progress
+npc=9123 Boarton Shadetotem
+kind=creature
+model=122055
+sex=2
+creature=Humanoid
+title=Stalk With The Earthmother
+text<<
+We'll need to work on your stealth skills, druid.
+>>
+sum=45849527

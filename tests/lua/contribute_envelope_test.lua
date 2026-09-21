@@ -189,6 +189,16 @@ if os.getenv("SPOKEN_WRITE_FIXTURES") then
         { "addon", "SpokenQuests/1.4.2" }, { "build", "1.12.1/5875" }, { "locale", "enUS" },
         { "quest", "1" }, { "event", "accept" },
     }, "before\n>>\nafter"))
+
+    -- Carries the observation fields a modern client sends and an old one does not: kind,
+    -- model, sex, creature. model=122055 maps to tauren/male in character-models.json, which
+    -- is what pins the route test's client-provenance resolution to a known answer.
+    Write("quests-observed.txt", C:Envelope("quests", {
+        { "addon", "SpokenQuests/2.0.4" }, { "build", "1.60.1/69913" }, { "locale", "enUS" },
+        { "quest", "76156" }, { "event", "progress" }, { "npc", "9123 Boarton Shadetotem" },
+        { "kind", "creature" }, { "model", "122055" }, { "sex", "2" }, { "creature", "Humanoid" },
+        { "title", "Stalk With The Earthmother" },
+    }, "We'll need to work on your stealth skills, druid."))
 end
 
 os.exit(Failures() == 0 and 0 or 1)

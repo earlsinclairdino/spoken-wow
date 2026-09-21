@@ -16,6 +16,14 @@ import { closeDb, db } from "@/lib/db";
 
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: async () => null } } }));
+// Wrapped rather than replaced, so every test but the one below still resolves for real --
+// this only needs a way to make resolution throw on demand.
+vi.mock("@/lib/npc/resolve", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/npc/resolve")>();
+  return { ...actual, resolveNpc: vi.fn(actual.resolveNpc) };
+});
+
+import { resolveNpc } from "@/lib/npc/resolve";
 
 import { POST } from "./route";
 
@@ -26,6 +34,10 @@ import { POST } from "./route";
 const ip = `203.0.113.${Math.floor(Math.random() * 200) + 20}`;
 const envelope = readFileSync(
   new URL("../../../../../../tests/fixtures/contributions/quests-accept.txt", import.meta.url),
+  "utf8",
+);
+const observedEnvelope = readFileSync(
+  new URL("../../../../../../tests/fixtures/contributions/quests-observed.txt", import.meta.url),
   "utf8",
 );
 
@@ -40,6 +52,8 @@ function post(body: unknown): Request {
 afterEach(async () => {
   await db().query(`delete from "contribution" where "ip" = $1`, [ip]);
   await db().query(`delete from "contribution_hit" where "ip" = $1`, [ip]);
+  // The observed-npc test resolves npc 9123 into a row this database does not otherwise carry.
+  await db().query(`delete from "npc_resolution" where "npcId" = $1`, [9123]);
 });
 
 afterAll(async () => {
@@ -96,6 +110,33 @@ describe("POST /api/contributions", () => {
       expect((await POST(post({ envelope }))).status).toBe(200);
     }
     expect((await POST(post({ envelope }))).status).toBe(429);
+  });
+
+  // The fixture's npc (9123) is not in the corpus, so this is the client-reported path: its
+  // model id (122055) maps to tauren/male in character-models.json.
+  it("works out who is speaking as the contribution lands", async () => {
+    expect((await POST(post({ envelope: observedEnvelope }))).status).toBe(200);
+
+    const { rows } = await db().query<{ race: string; provenance: string; confirmed: boolean }>(
+      `select "race", "provenance", "confirmed" from "npc_resolution" where "npcId" = $1`,
+      [9123],
+    );
+    expect(rows[0]).toMatchObject({ race: "tauren", provenance: "client", confirmed: false });
+  });
+
+  // The text is the thing worth keeping; an NPC resolution error must not cost the contribution.
+  it("stores the contribution even when npc resolution throws", async () => {
+    vi.mocked(resolveNpc).mockImplementationOnce(() => {
+      throw new Error("boom");
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect((await POST(post({ envelope: observedEnvelope }))).status).toBe(200);
+    const { rows } = await db().query(`select 1 from "contribution" where "ip" = $1`, [ip]);
+    expect(rows).toHaveLength(1);
+    expect(consoleError).toHaveBeenCalled();
+
+    consoleError.mockRestore();
   });
 
   it("never queues generation", async () => {
