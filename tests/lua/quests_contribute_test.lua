@@ -268,6 +268,36 @@ Expect("the model is read at click time, with no second refresh and no callback 
 Expect("...without ever calling SetUnit again to get it",
     (stub.SetUnitCount and stub.SetUnitCount() or 0), clickSetUnitBefore + 1)
 
+---------------------------------------------------------- an early click must not poison the guid
+-- A click quick enough to beat the load is not the same thing as a load that has genuinely
+-- finished with nothing to show: reading nothing here must leave the guid exactly as it was,
+-- not cache a permanent miss that forecloses the callback or the next poll from ever
+-- resolving it. modelStillLoading is what lets the stub represent "shown, but not answering
+-- yet" at all -- without it GetModelFileID always answers immediately once shown, which is
+-- why an early-click race was never once exercised before this existed.
+world.npcGUID = "Creature-0-0-0-0-90011-0"
+world.npcName = "Too Quick"
+world.modelFileID = 778899
+world.modelStillLoading = true
+local earlyClickSetUnitBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
+Expect("priming this NPC is a gap", VoiceOver.Contribute:HasGap(), true)
+Expect("priming calls SetUnit once",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), earlyClickSetUnitBefore + 1)
+
+local tooEarly = VoiceOver.Contribute:Capture()
+Expect("clicking before the model has loaded omits the field, not a permanent miss",
+    tooEarly:match("\nmodel=") == nil, true)
+Expect("...and does not spend the only SetUnit this guid gets",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), earlyClickSetUnitBefore + 1)
+
+-- The model finishes loading after the early click; the callback still resolves the same
+-- guid, which the failed early read must not have foreclosed.
+world.modelStillLoading = false
+stub.FinishModelLoad()
+local afterLoad = VoiceOver.Contribute:Capture()
+Expect("the same guid still resolves once the model actually loads",
+    afterLoad:match("\nmodel=778899\n") ~= nil, true)
+
 ---------------------------------------------------------- retargeting mid-load
 -- Switching to a different NPC before the current one's load resolves is ordinary play, not
 -- an edge case -- quickly glancing between two quest givers. The abandoned guid must still be

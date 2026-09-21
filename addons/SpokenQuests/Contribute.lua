@@ -211,15 +211,29 @@ end
 --- on almost every gossip contribution. But SetUnit happened when the panel opened, seconds
 --- before this click, and live-client evidence says that is enough: read the probe (never
 --- SetUnit it again -- that would be asking a second time, which PrimeModelCache already
---- guards against), cache whatever comes back, and finalise exactly as a poll or the callback
---- would.
+--- guards against).
+---
+--- Only a successful read finalises anything here. A click quick enough to beat the load --
+--- distinct from a load that has genuinely finished with nothing to show -- must not write
+--- `false`: doing so would clear loadingGUID and cache a permanent miss, foreclosing the
+--- callback or the next poll from ever resolving this guid for the rest of the session. Only
+--- PollLoadingGUID's MAX_LOAD_REFRESHES bound is allowed to give up for real; this is not
+--- that, so an empty read here simply leaves the guid exactly as it was and omits the field
+--- for this one capture.
 local function CachedModelFileID()
     local guid = Utils:GetNPCGUID()
     if not guid then
         return nil
     end
     if modelCache[guid] == nil and loadingGUID == guid then
-        FinishModelLoad(guid)
+        local probe = modelProbe
+        local ok, id = false, nil
+        if probe then
+            ok, id = pcall(probe.GetModelFileID, probe)
+        end
+        if ok and type(id) == "number" and id > 0 then
+            FinishModelLoad(guid)
+        end
     end
     return modelCache[guid] or nil
 end

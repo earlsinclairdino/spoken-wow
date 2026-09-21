@@ -15,6 +15,11 @@ local world = {
     npcName = "Innkeeper Test",
     npcGUID = "Creature-0-0-0-0-1234-0",
     modelFileID = nil,    -- what a loaded PlayerModel answers for the unit on screen
+    -- True between SetUnit and the model actually finishing loading: makes GetModelFileID
+    -- answer nil even though the probe is shown, the way a real model does for however long
+    -- the load takes. Without this the stub always answers immediately once shown, which is
+    -- why an early-click read racing the load was never once exercised before this existed.
+    modelStillLoading = false,
     unitSex = 2,          -- UnitSex: 1 unknown, 2 male, 3 female
     creatureType = "Humanoid",
     panels = {},
@@ -390,7 +395,10 @@ function _G.CreateFrame(kind, name, parent)
     if kind == "PlayerModel" then
         M.playerModel = f
         function f:SetUnit(unit) self.unit = unit; setUnitCount = setUnitCount + 1 end
-        function f:GetModelFileID() return self.shown and world.modelFileID or nil end
+        function f:GetModelFileID()
+            if not self.shown or world.modelStillLoading then return nil end
+            return world.modelFileID
+        end
         -- Set at call time, not frame-creation time, so a test can flip M.modelCallbackDisabled
         -- after the probe already exists (it is built once and kept for the addon's whole
         -- lifetime) and still simulate a client that has never once called the handler it was
