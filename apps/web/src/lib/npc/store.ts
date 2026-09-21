@@ -122,6 +122,35 @@ export async function upsertResolution(
   return existing;
 }
 
+/** The map key getResolutions returns rows under -- the same pair getResolution takes, joined. */
+export function resolutionKey(npcKind: NpcKind, npcId: number): string {
+  return `${npcKind}:${npcId}`;
+}
+
+/**
+ * getResolution, batched.
+ *
+ * The export walks every accepted row and each one may name an NPC, so a caller that looked
+ * each one up individually would issue one round trip per row rather than one for the whole
+ * export. The parallel-unnest join is what buys that: two arrays in, matched pairwise against
+ * the table's own two-column key, in a single query.
+ */
+export async function getResolutions(
+  keys: { npcKind: NpcKind; npcId: number }[],
+): Promise<Map<string, NpcResolution>> {
+  if (keys.length === 0) return new Map();
+
+  const { rows } = await db().query<NpcResolution>(
+    `select ${COLUMNS} from "npc_resolution" r
+      where exists (
+        select 1 from unnest($1::text[], $2::int[]) as pairs("npcKind", "npcId")
+         where r."npcKind" = pairs."npcKind" and r."npcId" = pairs."npcId"
+      )`,
+    [keys.map((key) => key.npcKind), keys.map((key) => key.npcId)],
+  );
+  return new Map(rows.map((row) => [resolutionKey(row.npcKind, row.npcId), row]));
+}
+
 export async function listUnconfirmed(): Promise<NpcResolution[]> {
   const { rows } = await db().query<NpcResolution>(
     `select ${COLUMNS} from "npc_resolution"
