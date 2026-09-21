@@ -213,13 +213,15 @@ local setUnitBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
 Expect("there is a gap to prime the model for", VoiceOver.Contribute:HasGap(), true)
 Expect("priming a fresh NPC calls SetUnit once",
     (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitBefore + 1)
+Expect("the probe is shown while the load is pending",
+    stub.playerModel and stub.playerModel.shown, true)
 
-local beforeLoad = VoiceOver.Contribute:Capture()
-Expect("nothing cached yet is omitted, not sent as 0", beforeLoad:match("\nmodel=") == nil, true)
-Expect("...and the envelope is still sent", beforeLoad:match("^!SPOKEN1 quests\n") ~= nil, true)
-
--- OnModelLoaded firing (the fast path) resolves the guid without waiting for another refresh.
+-- OnModelLoaded firing (the fast path) resolves and hides the probe immediately, before any
+-- click ever reads it -- checked without an intervening Capture(), since Capture's own
+-- click-time read (below) would otherwise resolve this guid regardless of the callback.
 stub.FinishModelLoad()
+Expect("firing the callback hides the probe immediately, before any click",
+    stub.playerModel and stub.playerModel.shown, false)
 
 local seen = VoiceOver.Contribute:Capture()
 Expect("the model file id is reported once the load has fired", seen:match("\nmodel=122055\n") ~= nil, true)
@@ -233,12 +235,38 @@ Expect("still a gap once cached", VoiceOver.Contribute:HasGap(), true)
 Expect("...and no further SetUnit once the guid is cached",
     (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitBefore + 1)
 
--- A different NPC is a different guid, and is worth asking about once of its own.
+-- A different NPC is a different guid, and is worth asking about once of its own. Left
+-- mid-load deliberately (never resolved here) -- the next scenario switches away from it
+-- again, which is exactly the retargeting case that follows.
 world.npcGUID = "Creature-0-0-0-0-90002-0"
 world.npcName = "Someone Else"
 Expect("a different NPC is still a gap", VoiceOver.Contribute:HasGap(), true)
 Expect("...and does call SetUnit once, for the new guid",
     (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitBefore + 2)
+
+---------------------------------------------------------- reading at click time on a miss
+-- The gossip case that made this whole design wrong the first time around: a gossip
+-- interaction fires exactly one refresh (GOSSIP_SHOW) before the player reads the text and
+-- clicks Contribute. There is never a second refresh for PollLoadingGUID to run on, so
+-- without this, the model would be omitted on almost every gossip contribution -- the poll
+-- and its bound never get the chance they assume. SetUnit ran once when the panel opened,
+-- seconds before this click; live-client evidence says that is enough time to have loaded.
+world.npcGUID = "Creature-0-0-0-0-90010-0"
+world.npcName = "Read And Click"
+world.modelFileID = 445566
+local clickSetUnitBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
+Expect("priming on the one refresh a gossip interaction fires is a gap",
+    VoiceOver.Contribute:HasGap(), true)
+Expect("priming calls SetUnit once",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), clickSetUnitBefore + 1)
+
+-- No second HasGap(), no stub.FinishModelLoad(): Capture is the very first thing that reads
+-- this guid again, exactly the way a player who reads and clicks does it.
+local clicked = VoiceOver.Contribute:Capture()
+Expect("the model is read at click time, with no second refresh and no callback ever firing",
+    clicked:match("\nmodel=445566\n") ~= nil, true)
+Expect("...without ever calling SetUnit again to get it",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), clickSetUnitBefore + 1)
 
 ---------------------------------------------------------- retargeting mid-load
 -- Switching to a different NPC before the current one's load resolves is ordinary play, not
@@ -279,7 +307,9 @@ Expect("the probe ends up hidden once nothing is left loading",
 
 -- A guid whose model does load, just with nothing ever announcing it: the second refresh,
 -- still mid-load, must not call SetUnit again, and reading the still-shown probe directly
--- resolves it anyway.
+-- resolves it anyway. Checked via the probe's own shown state rather than an intervening
+-- Capture() -- Capture's click-time read would otherwise resolve this guid on the very first
+-- call and the poll would never get a chance to be the thing that resolved it.
 world.npcGUID = "Creature-0-0-0-0-90003-0"
 world.npcName = "Never Announces"
 world.modelFileID = 987654
@@ -287,15 +317,17 @@ local pollSetUnitBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
 Expect("priming this NPC is still a gap", VoiceOver.Contribute:HasGap(), true)
 Expect("priming calls SetUnit once",
     (stub.SetUnitCount and stub.SetUnitCount() or 0), pollSetUnitBefore + 1)
-local stillLoading = VoiceOver.Contribute:Capture()
-Expect("nothing cached on the priming refresh itself", stillLoading:match("\nmodel=") == nil, true)
+Expect("the probe is shown while the load is pending",
+    stub.playerModel and stub.playerModel.shown, true)
 
 Expect("a second refresh, with no callback ever firing, is still a gap",
     VoiceOver.Contribute:HasGap(), true)
 Expect("...and does not call SetUnit again while still loading",
     (stub.SetUnitCount and stub.SetUnitCount() or 0), pollSetUnitBefore + 1)
+Expect("...but the poll alone, with no click involved, has already resolved and hidden it",
+    stub.playerModel and stub.playerModel.shown, false)
 local polled = VoiceOver.Contribute:Capture()
-Expect("the callback never firing still resolves the model by the second refresh",
+Expect("the model the poll resolved is what Capture reports",
     polled:match("\nmodel=987654\n") ~= nil, true)
 
 -- A guid whose model never loads at all: polling gives up after a couple of refreshes rather

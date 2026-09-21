@@ -202,13 +202,26 @@ local function PrimeModelCache(guid)
     end
 end
 
---- What the model probe has cached for the NPC on screen, or nil if nothing has resolved yet.
---- Pure table lookup -- Capture must never touch the probe itself, only read what the refresh
---- path already primed.
+--- What the model probe has cached for the NPC on screen, reading it directly as a last
+--- resort on a miss for the guid that is still loading.
+---
+--- A gossip interaction fires exactly one refresh (GOSSIP_SHOW) before the player reads and
+--- clicks -- there is no second refresh for PollLoadingGUID to ever run on, so the poll bound
+--- is never reached by click time, and a cache built only from refreshes would omit the model
+--- on almost every gossip contribution. But SetUnit happened when the panel opened, seconds
+--- before this click, and live-client evidence says that is enough: read the probe (never
+--- SetUnit it again -- that would be asking a second time, which PrimeModelCache already
+--- guards against), cache whatever comes back, and finalise exactly as a poll or the callback
+--- would.
 local function CachedModelFileID()
     local guid = Utils:GetNPCGUID()
-    local cached = guid and modelCache[guid]
-    return cached or nil
+    if not guid then
+        return nil
+    end
+    if modelCache[guid] == nil and loadingGUID == guid then
+        FinishModelLoad(guid)
+    end
+    return modelCache[guid] or nil
 end
 
 --- What the client can see about who is speaking. The site decides what it means.
