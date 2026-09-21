@@ -391,7 +391,47 @@ Expect("asking again for an already-resolved NPC builds no model frame",
 Expect("...and calls SetUnit no further times",
     (stub.SetUnitCount and stub.SetUnitCount() or 0), setUnitCallsBefore)
 
--- With nothing on screen at all, HasGap must not reach the model probe even to look.
+---------------------------------------------------------- closing a dialog mid-load
+-- The exposure this fix closes: no click and no retarget, just the player closing the dialog
+-- (or a pack picking up the line) while the probe is still mid-load. Before this fix nothing
+-- hid the probe in that case -- HasGap only ever primed on an actual gap -- and a PlayerModel
+-- left shown keeps driving a 3D draw for as long as the addon runs, on a client that has hung
+-- its GPU on model rendering before.
+stub.ShowPanel("QuestFrameDetailPanel")
+world.npcGUID = "Creature-0-0-0-0-90005-0"
+world.npcName = "Closed Before Loading"
+world.modelFileID = nil
+world.modelStillLoading = true
+local closeSetUnitBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
+Expect("priming this NPC is a gap", VoiceOver.Contribute:HasGap(), true)
+Expect("priming calls SetUnit once",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), closeSetUnitBefore + 1)
+Expect("the probe is shown while the load is pending",
+    stub.playerModel and stub.playerModel.shown, true)
+
+stub.HidePanels()
+Expect("closing with nothing left to send is not a gap", VoiceOver.Contribute:HasGap(), false)
+Expect("...and the probe is put away even though nothing ever resolved it",
+    stub.playerModel and stub.playerModel.shown, false)
+Expect("...without spending a SetUnit to do it",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), closeSetUnitBefore + 1)
+
+-- Abandoned, not resolved: the old rule (only MAX_LOAD_REFRESHES's give-up caches a miss)
+-- still holds, so coming back to the same NPC primes it again -- one extra SetUnit -- rather
+-- than reading a cached "no model" that this guid was never actually given the chance to earn.
+stub.ShowPanel("QuestFrameDetailPanel")
+world.modelStillLoading = false
+world.modelFileID = 334455
+Expect("returning to the abandoned NPC is a gap again, not a cached miss",
+    VoiceOver.Contribute:HasGap(), true)
+Expect("...costing exactly one more SetUnit, the price this fix accepts",
+    (stub.SetUnitCount and stub.SetUnitCount() or 0), closeSetUnitBefore + 2)
+local reopened = VoiceOver.Contribute:Capture()
+Expect("the model resolves normally once given the chance to actually load",
+    reopened:match("\nmodel=334455\n") ~= nil, true)
+
+-- With nothing on screen at all and nothing loading, HasGap must not reach the model probe
+-- even to look.
 stub.HidePanels()
 local idleSetUnitBefore = stub.SetUnitCount and stub.SetUnitCount() or 0
 VoiceOver.Contribute:HasGap()

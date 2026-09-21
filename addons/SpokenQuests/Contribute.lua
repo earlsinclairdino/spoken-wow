@@ -124,7 +124,13 @@ end
 --- OnModelLoaded callback (the fast path), or PollLoadingGUID reading the probe directly
 --- (the fallback that does not depend on that callback ever firing).
 local function FinishModelLoad(guid)
+    -- First act, not last: ClearModel below can itself fire OnModelLoaded on some clients, and
+    -- that callback is this same function closed over this same guid. Clearing the script
+    -- before touching the model at all means a re-entrant call has nothing left to run.
     local probe = modelProbe
+    if probe and probe.SetScript then
+        pcall(probe.SetScript, probe, "OnModelLoaded", nil)
+    end
     -- Not `probe and pcall(...)`: `and` truncates pcall's two return values down to one, so
     -- `id` would be nil even on a successful read. Separate statements keep both.
     local ok, id = false, nil
@@ -132,7 +138,10 @@ local function FinishModelLoad(guid)
         ok, id = pcall(probe.GetModelFileID, probe)
     end
     if probe then
-        if probe.ClearModel then probe:ClearModel() end
+        -- pcall'd like every other probe call here: ClearModel is exactly the kind of call
+        -- that can itself trigger a client callback, and one client's blowup on it must not
+        -- skip the Hide beneath it.
+        if probe.ClearModel then pcall(probe.ClearModel, probe) end
         if probe.Hide then probe:Hide() end
     end
     if loadingGUID == guid then
@@ -141,6 +150,27 @@ local function FinishModelLoad(guid)
     -- Absent rather than zero: the site reads a missing model as "race unknown", and 0 is a
     -- file id that would mean something.
     modelCache[guid] = (ok and type(id) == "number" and id > 0) and id or false
+end
+
+--- Put the probe away without deciding anything about `guid` -- the difference between this
+--- and FinishModelLoad is exactly that it never writes modelCache. Used when there is simply
+--- nothing left on screen to keep the probe up for: the player closed the dialog, or clicked
+--- away, with no retarget to another NPC to trigger the guard PrimeModelCache already has.
+--- Left uncached, a guid abandoned this way is primed again (one more SetUnit) the next time
+--- it is a gap, rather than permanently remembered as a miss it never actually resolved to --
+--- only PollLoadingGUID's MAX_LOAD_REFRESHES bound is allowed to decide that.
+local function AbandonModelLoad(guid)
+    local probe = modelProbe
+    if probe and probe.SetScript then
+        pcall(probe.SetScript, probe, "OnModelLoaded", nil)
+    end
+    if probe then
+        if probe.ClearModel then pcall(probe.ClearModel, probe) end
+        if probe.Hide then probe:Hide() end
+    end
+    if loadingGUID == guid then
+        loadingGUID, loadingRefreshes = nil, nil
+    end
 end
 
 --- A refresh for a guid that is still loading, with no cached answer yet: OnModelLoaded may
@@ -191,15 +221,19 @@ local function PrimeModelCache(guid)
     loadingGUID = guid
     loadingRefreshes = 0
     if probe.Show then probe:Show() end
-    pcall(probe.SetUnit, probe, "npc")
-    -- A fast path, not a requirement: PollLoadingGUID above reads the probe directly on the
-    -- next refresh regardless of whether this ever fires, so correctness here never depends
-    -- on this client generation supporting the script at all, only on how many refreshes it
-    -- costs before the fallback notices. SetScript on an unrecognised script type is a Lua
-    -- error on a real client, which is what the pcall is for.
+    -- Before SetUnit, not after: SetUnit can itself deliver the model synchronously enough on
+    -- some clients (or fire OnModelLoaded off the same tick) that a script installed afterward
+    -- would miss it, and every refresh in between would then still find a stale closure from
+    -- whatever guid this probe last loaded, briefly live for the wrong NPC. A fast path, not a
+    -- requirement either way: PollLoadingGUID below reads the probe directly on the next
+    -- refresh regardless of whether this ever fires, so correctness here never depends on this
+    -- client generation supporting the script at all, only on how many refreshes it costs
+    -- before the fallback notices. SetScript on an unrecognised script type is a Lua error on a
+    -- real client, which is what the pcall is for.
     if probe.SetScript then
         pcall(probe.SetScript, probe, "OnModelLoaded", function() FinishModelLoad(guid) end)
     end
+    pcall(probe.SetUnit, probe, "npc")
 end
 
 --- What the model probe has cached for the NPC on screen, reading it directly as a last
@@ -377,6 +411,14 @@ function Contribute:HasGap()
     local gap = HasSomethingToSend() and not HasSoundForCurrent()
     if gap then
         PrimeModelCache(Utils:GetNPCGUID())
+    elseif loadingGUID then
+        -- No gap, but a load is still in flight for whatever NPC started it: the player closed
+        -- the dialog, or a pack picked up the line, with no click and no retarget to trigger
+        -- PrimeModelCache's own guid-switch guard. Left alone, this is unbounded exposure --
+        -- the PlayerModel keeps driving a 3D draw until the next gap NPC, which this session
+        -- may never show, and this client has hung its GPU on model rendering before. Put the
+        -- probe away without caching anything: this is not a resolution, just a stop.
+        AbandonModelLoad(loadingGUID)
     end
     return gap
 end
