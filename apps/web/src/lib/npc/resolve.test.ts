@@ -24,10 +24,11 @@ describe("observedFrom", () => {
     });
   });
 
-  // An older addon sends none of it, and that has to stay submittable.
+  // An older addon sends none of it -- no `kind` either, and a gameobject quest-giver is
+  // reachable through this same kind-less envelope, so guessing "creature" is not safe.
   it("reads an envelope with no observations at all", () => {
     expect(observedFrom({ npc: "205729 Boarton Shadetotem" })).toEqual({
-      npcKind: "creature",
+      npcKind: null,
       npcId: 205729,
       npcName: "Boarton Shadetotem",
       modelFileId: null,
@@ -107,5 +108,23 @@ describe("resolveNpc", () => {
 
   it("does nothing at all for an envelope with no npc", async () => {
     expect(await resolveNpc({ ...observed, npcId: null })).toBe(null);
+  });
+
+  it("does not mistake npc id 0 for no npc at all", async () => {
+    vi.mocked(getResolution).mockResolvedValue(null);
+    vi.mocked(npcVoiceFromCorpus).mockReturnValue(null);
+    const row = await resolveNpc({ ...observed, npcId: 0 });
+    expect(row).not.toBe(null);
+    expect(getResolution).toHaveBeenCalledWith(observed.npcKind, 0);
+  });
+
+  // A kind-less envelope can be a gameobject wearing the old creature-shaped envelope, so
+  // resolving it (or writing a row for it) would risk merging the two id spaces.
+  it("does nothing for a kind-less envelope, and touches neither the store nor the contribution", async () => {
+    vi.mocked(getResolution).mockClear();
+    vi.mocked(upsertResolution).mockClear();
+    expect(await resolveNpc({ ...observed, npcKind: null })).toBe(null);
+    expect(getResolution).not.toHaveBeenCalled();
+    expect(upsertResolution).not.toHaveBeenCalled();
   });
 });

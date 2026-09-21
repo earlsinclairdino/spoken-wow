@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildLineIndex, lineIndex, loadCorpus, npcKey } from "./corpus";
+import { buildLineIndex, lineIndex, loadCorpus, npcKey, npcVoiceFromCorpus } from "./corpus";
 
 describe("corpus", () => {
   const corpus = loadCorpus();
@@ -29,6 +29,23 @@ describe("corpus", () => {
 
   it("memoises, so repeated loads do not re-parse", () => {
     expect(loadCorpus()).toBe(corpus);
+  });
+});
+
+describe("npcVoiceFromCorpus", () => {
+  it("carries the exact race, gender and flavor for an npc the corpus knows", () => {
+    // Jitters, npcId 288, from q:5:accept above -- real values, not just "not null", so a
+    // swapped race/gender or a wrong key format fails this rather than shipping quietly.
+    expect(npcVoiceFromCorpus("creature", 288)).toEqual({
+      race: "human",
+      gender: "male",
+      flavor: "standard",
+      npcName: "Jitters",
+    });
+  });
+
+  it("is null for an npc the corpus has never carried", () => {
+    expect(npcVoiceFromCorpus("creature", 999_999_999)).toBe(null);
   });
 });
 

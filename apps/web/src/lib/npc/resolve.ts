@@ -42,8 +42,11 @@ export function observedFrom(meta: Record<string, string>): Observed {
   const kind = meta.kind === "gameobject" ? "gameobject" : meta.kind === "creature" ? "creature" : null;
 
   return {
-    // Absent `kind` means an addon that predates it, and those only ever sent creatures.
-    npcKind: npc ? (kind ?? "creature") : null,
+    // No default for an absent `kind`: the pre-kind envelope came from `TargetForGUID`, which
+    // resolves any GUID `CanHaveID` covers, including GameObject -- gameobject quest-givers
+    // are real and reachable this way. Guessing "creature" would risk filing one under the
+    // creature id space, exactly the collision npcKey's namespacing exists to prevent.
+    npcKind: npc ? kind : null,
     npcId: npc ? Number(npc[1]) : null,
     npcName: npc?.[2]?.trim() || null,
     modelFileId: digits(meta.model),
@@ -55,7 +58,14 @@ export function observedFrom(meta: Record<string, string>): Observed {
 
 export async function resolveNpc(observed: Observed): Promise<NpcResolution | null> {
   const { npcKind, npcId } = observed;
-  if (!npcKind || !npcId) return null;
+  // `npcId === null`, not a truthiness check: id 0 is a real id and must not be mistaken for
+  // "no npc at all". A kind-less envelope (see observedFrom) also fails here since npcKind is
+  // null in that case -- an envelope old enough to lack `kind` also lacks `model`, so the best
+  // row it could ever produce is `provenance: "none"` with no race, gender or flavor: a row
+  // whose entire content is a name the contribution itself already carries. Not worth risking
+  // a gameobject filed under a creature id. The player's next submission, after an addon
+  // update, resolves properly.
+  if (!npcKind || npcId === null) return null;
 
   const existing = await getResolution(npcKind, npcId);
   // The store's upsert already ranks provenance and would refuse a lower-ranked write on its
