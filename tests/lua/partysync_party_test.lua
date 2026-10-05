@@ -127,6 +127,63 @@ zone:Enqueue(H.Clip({ key = "z:1411" }))
 Expect("zone lore queued here is announced", P.Last("LN", LALA) and P.Last("LN", LALA).fields[3], "z")
 Expect("...without words, which every client has", P.Last("TX", LALA), nil)
 
+---------------------------------------------------------------- the debug log
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+VO.Player:Enqueue({ event = 1, questID = 101, name = "Giver", title = "Quest 101", unitGUID = "Creature-0-0-0-0-1234-0" })
+stub.Advance(0.6)
+local function Logged(pattern)
+	for _, line in ipairs(ns:DB().log) do
+		if line:find(pattern, 1, true) then return true end
+	end
+	return false
+end
+Expect("the log starts each session", Logged("session start: Tata Throwaway"), true)
+Expect("...records a line driven from here", Logged("sync drive 101-accept"), true)
+Expect("...when it was told to start", Logged("sync go 101-accept"), true)
+Expect("...the player's own view of it", Logged("player started 101-accept [quests driver/"), true)
+Expect("...and the messages sent", Logged("msg -> WHISPER \"Lala Throwaway\" LN 101-accept"), true)
+Expect("each line carries the time", ns:DB().log[#ns:DB().log]:match("^%d+%.%d%d%d ") ~= nil, true)
+
+-- A member asks for this client's log: it goes back in pieces, paced, with this clock's reading.
+local total = #ns:DB().log
+P.Clear()
+P.Receive(stub, LALA, "LQ", "t1", 5)
+local header = P.Last("LH", LALA)
+Expect("asked for a log, the last lines are offered", header and header.fields[3], "5")
+Expect("...with this client's clock", tonumber(header.fields[4]) ~= nil, true)
+stub.Advance(3)
+local pieces = P.Sent("LL", LALA)
+Expect("...and all of them arrive", #pieces, 5)
+Expect("...the newest last, as written", ns.Comm.Unescape(pieces[5].fields[4]):find("^%d+%.%d+ ") ~= nil, true)
+P.Clear()
+P.Receive(stub, "Bob Stranger", "LQ", "t2", 5)
+Expect("someone outside the party gets nothing", P.Last("LH"), nil)
+
+-- This client asks: her lines come back and are laid on this client's clock.
+P.Clear()
+Expect("pulling asks every member online", ns.LogBook:Pull(50), 1)
+local ask = P.Last("LQ", LALA)
+Expect("...for the lines asked", ask and ask.fields[3], "50")
+local token = ask.fields[2]
+local now = stub.world.time
+P.Receive(stub, LALA, "LH", token, 2, string.format("%.3f", now - 100), "0.2.0")
+P.Receive(stub, LALA, "LL", token, 1, ns.Comm.Escape(string.format("%.3f sync go 101-accept from tata throwaway: start in 0 ms", now - 101)))
+P.Receive(stub, LALA, "LL", token, 2, ns.Comm.Escape(string.format("%.3f player started 101-accept", now - 100.5)))
+local hers = ns:DB().collected["lala throwaway"]
+Expect("her log is kept", hers and #hers.lines, 2)
+-- Her clock is 100 s behind; her header took half the default round trip to come.
+Expect("...with the offset onto this clock", hers and string.format("%.1f", hers.offset), "99.5")
+local merged = ns.LogBook:Merged()
+local found
+for _, line in ipairs(merged) do if line:find("Lala Throwaway", 1, true) and line:find("player started", 1, true) then found = line end end
+Expect("the merged log has her lines, named", found ~= nil, true)
+Expect("...on this client's clock", found and tonumber(found:match("^%s*([%d%.]+)")) ~= nil
+	and math.abs(tonumber(found:match("^%s*([%d%.]+)")) - (now - 1)) < 0.01, true)
+Expect("the logs open in a box to copy from", ns.LogBook:Show() > 0, true)
+ns.LogBook:Clear()
+Expect("clearing empties the log and the collected ones", #ns:DB().log == 0 and next(ns:DB().collected) == nil, true)
+
 ---------------------------------------------------------------- the window, the page, the commands
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
@@ -151,7 +208,8 @@ Expect("...and it goes a little after the problem does", window.shown, false)
 Expect("the settings page is built", ns.optionsPanel ~= nil, true)
 
 for _, command in ipairs({ "", "api", "members", "status", "sync", "lead", "room", "room me", "room auto",
-	"test 101", "test 31337", "ping", "log", "log", "window", "window", "invite", "remove Nobody" }) do
+	"test 101", "test 31337", "ping", "log", "log", "window", "window", "invite", "remove Nobody",
+	"logs", "logs 20", "logs pull 30", "logs clear" }) do
 	local ok, err = pcall(SlashCmdList.SPOKENPARTYSYNC, command)
 	Expect("/sps " .. command .. " runs", ok and true or tostring(err), true)
 end

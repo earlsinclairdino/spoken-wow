@@ -63,6 +63,10 @@ local function Spoken()
 	return _G.Spoken
 end
 
+local function Trace(message, ...)
+	PartySync:Trace("sync", message, ...)
+end
+
 local function MyKey()
 	return PartySync:MyKey()
 end
@@ -226,6 +230,8 @@ function Sync:Release(entry, gen)
 	end
 	entry.state = "released"
 	entry.releasedAt = GetTime()
+	Trace("release %s (%s), planned start %s", entry.id, entry.role,
+		entry.goAt and format("%+d ms", (GetTime() - entry.goAt) * 1000) or "none")
 	RecheckGates()
 	PartySync:Changed()
 end
@@ -242,6 +248,11 @@ function Sync:Go(entry)
 		Send(key, "GO", entry.id, math.max(0, math.floor(delay - Peers:Rtt(key) / 2)))
 	end
 	entry.goAt = GetTime() + delay / 1000
+	local told = {}
+	for _, key in ipairs(members) do
+		told[#told + 1] = format("%s %d ms (rtt %d)", key, math.max(0, math.floor(delay - Peers:Rtt(key) / 2)), Peers:Rtt(key))
+	end
+	Trace("go %s: start here in %d ms; told %s", entry.id, delay, table.concat(told, ", "))
 	if delay <= 0 then
 		self:Release(entry)
 		return
@@ -257,9 +268,11 @@ function Sync:AwaitGo(entry)
 		return
 	end
 	entry.awaiting = GetTime()
+	Trace("next: %s, waiting for %s to say go", entry.id, tostring(entry.driver))
 	local gen = entry.gen
 	C_Timer.After(GO_TIMEOUT, function()
 		if entry.state == "waiting" and entry.gen == gen then
+			Trace("no go for %s from %s after %d s: playing alone", entry.id, tostring(entry.driver), GO_TIMEOUT)
 			PartySync:Problem("go:" .. entry.id, format(L.PROBLEM_NO_GO_FMT, Short(entry.driver), LabelOf(entry)))
 			Sync:Release(entry)
 		end
@@ -310,6 +323,7 @@ function Sync:PresenceChanged()
 			local orphan = entry.role == "follower" and not (Peers.list[entry.driver]
 				and Peers.list[entry.driver].state == "online")
 			if orphan or (entry.role == "driver" and not live) then
+				Trace("release %s: %s", entry.id, orphan and "its driver is gone" or "nobody online")
 				entry.state = "released"
 				released = true
 			end
@@ -334,6 +348,8 @@ local function Announce(entry, d)
 		if budget and #parts > budget then parts = {} end
 	end
 	local fields = Lines:Encode(d, #parts)
+	Trace("drive %s (%s): announced to %s, %d text piece(s)", d.id, LabelOf(entry),
+		table.concat(Peers:OnlineMembers(), ", "), #parts)
 	for _, key in ipairs(Peers:OnlineMembers()) do
 		Send(key, "LN", unpack(fields))
 		for i, part in ipairs(parts) do
@@ -381,6 +397,7 @@ function Sync:Wins(a, b)
 end
 
 local function Yield(entry, driver)
+	Trace("yield %s to %s (was %s)", entry.id, tostring(driver), entry.state)
 	entry.gen = entry.gen + 1
 	entry.role = "follower"
 	entry.driver = driver
@@ -393,7 +410,9 @@ end
 local function Enqueue(entry, clip, source, why)
 	clip.partySync = entry
 	entry.clip = clip
-	local added = source:Enqueue(clip)
+	local added, reason = source:Enqueue(clip)
+	Trace("follow %s from %s: %s%s", entry.id, tostring(entry.driver), added and ("queued as " .. tostring(clip.key)) or
+		("not queued: " .. tostring(reason)), why == "missing" and " (no file here: captions over silence)" or "")
 	if not added then
 		Ended(entry, "dropped")
 		Ack(entry, "dropped")
@@ -414,6 +433,7 @@ local function Build(entry)
 		entry.state = "text"
 		return
 	end
+	Trace("follow %s from %s: cannot play it here (%s)", entry.id, tostring(entry.driver), tostring(why))
 	Ended(entry, "missing")
 	Ack(entry, "missing")
 	if why == "old" then
@@ -455,6 +475,7 @@ Comm:On("LN", function(sender, channel, ...)
 	-- online, say: that copy follows, rather than a second one being refused as a duplicate.
 	for _, clip in ipairs(Spoken():GetQueue()) do
 		if not clip.partySync and not Spoken():IsPlaying(clip) and Lines:Id(clip) == d.id then
+			Trace("follow %s from %s: the copy already queued here follows", d.id, key)
 			clip.partySync = entry
 			entry.clip = clip
 			Ack(entry, "queued")
@@ -509,6 +530,7 @@ Comm:On("GO", function(sender, channel, id, startIn)
 	end
 	local delay = math.max(0, tonumber(startIn) or 0) / 1000
 	entry.goAt = GetTime() + delay
+	Trace("go %s from %s: start in %d ms (was %s)", entry.id, key, delay * 1000, entry.state)
 	PartySync:Resolve("go:" .. entry.id)
 	if delay <= 0 then
 		Sync:Release(entry)
@@ -526,6 +548,7 @@ Comm:On("AK", function(sender, channel, id, state, ms)
 		return
 	end
 	entry.peers[key] = { state = state, ms = tonumber(ms), at = GetTime() }
+	Trace("ack %s from %s: %s%s", entry.id, key, tostring(state), ms and ms ~= "" and (" " .. ms .. " ms") or "")
 	PartySync:Resolve("answer:" .. key)
 	if state == "missing" then
 		PartySync:Problem("missing:" .. key, format(L.PROBLEM_MISSING_FMT, Short(key), LabelOf(entry)))
@@ -555,6 +578,7 @@ function Sync:AcceptsControl(sender)
 end
 
 local function Remotely(fn)
+	Trace("applying a control from the party")
 	applyingRemote = true
 	local ok, err = pcall(fn)
 	applyingRemote = false
@@ -591,6 +615,8 @@ local function OnStarted(clip)
 	if not entry then return end
 	entry.state = "playing"
 	entry.startedAt = GetTime()
+	Trace("playing %s (%s), %s", entry.id, entry.role,
+		entry.goAt and format("%+d ms from the planned start", (GetTime() - entry.goAt) * 1000) or "no planned start")
 	if entry.role == "follower" then
 		Sync.recent[entry.id] = GetTime()
 		local late = entry.goAt and math.max(0, (GetTime() - entry.goAt) * 1000) or nil
@@ -612,6 +638,7 @@ local function OnStopped(clip, finished)
 		Ended(entry, "stopped")
 		Ack(entry, "dropped")
 		if not applyingRemote and Sync:Live() and Sync:CanControl() then
+			Trace("skip %s: sent to the party", entry.id)
 			SendAll("SK", entry.id)
 		end
 	end
@@ -635,6 +662,7 @@ end
 local function OnAudioChanged()
 	local paused = Spoken():IsPaused()
 	if lastPaused ~= nil and paused ~= lastPaused and not applyingRemote and Sync:Live() and Sync:CanControl() then
+		Trace("%s: sent to the party", paused and "pause" or "resume")
 		SendAll(paused and "PZ" or "RS")
 	end
 	lastPaused = paused
@@ -656,12 +684,14 @@ local function Wrap(key, source)
 		if not clip.partySync then
 			local id = Lines:IdFor(key, clip.key)
 			if Sync:PlayedTogether(id) then
+				Trace("refused %s from this client: just played together", tostring(id))
 				return false, L.ADMIT_PLAYED_TOGETHER
 			end
 			local questID = key == "quests" and tonumber(clip.event) == 1 and tonumber(clip.questID)
 			local until_ = questID and Sync.expected[questID]
 			if until_ and GetTime() <= until_ then
 				Sync.expected[questID] = nil
+				Trace("refused quest %d's accept line: the shared quest's line was just played", questID)
 				return false, L.ADMIT_PLAYED_TOGETHER
 			end
 		end

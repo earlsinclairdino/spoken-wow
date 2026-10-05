@@ -91,10 +91,10 @@ end
 function PartySync:ResetOptions()
 	local db = SpokenPartySyncDB
 	if not db then return end
-	local members = db.members
+	local members, log, collected = db.members, db.log, db.collected
 	for key in pairs(db) do db[key] = nil end
 	Fill(db, Defaults())
-	db.members = members or {}
+	db.members, db.log, db.collected = members or {}, log, collected
 	self:Changed()
 end
 
@@ -108,8 +108,16 @@ function PartySync:Print(message, ...)
 	DEFAULT_CHAT_FRAME:AddMessage("|cff80c0ffSpoken Party Sync|r: " .. text)
 end
 
---- Printed only while traffic logging is on.
+--- One line in the debug log (Log.lua), under `category`.
+function PartySync:Trace(category, message, ...)
+	if self.LogBook then
+		self.LogBook:Add(category, message, ...)
+	end
+end
+
+--- A message in or out: always in the debug log, and in chat while traffic logging is on.
 function PartySync:Log(message, ...)
+	self:Trace("msg", message, ...)
 	if self:DB().logTraffic then
 		self:Print("|cff999999" .. message .. "|r", ...)
 	end
@@ -146,7 +154,7 @@ function PartySync:Problem(key, text)
 		end
 	end
 	table.insert(self.problems, { key = key, text = text, at = now })
-	self:Log("problem: %s", text)
+	self:Trace("problem", "%s", text)
 	self:Changed()
 end
 

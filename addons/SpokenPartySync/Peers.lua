@@ -72,6 +72,7 @@ function Peers:Seen(sender, version)
 		peer.version = version
 	end
 	if isNew then
+		PartySync:Trace("party", "%s online", key)
 		PartySync:Resolve("presence:" .. key)
 		Changed()
 	end
@@ -87,6 +88,7 @@ function Peers:MarkOffline(name)
 	self.list[key] = peer
 	local was = peer.state
 	peer.state = "offline"
+	if was ~= "offline" then PartySync:Trace("party", "%s offline (was %s)", key, tostring(was)) end
 	if was ~= "offline" then
 		if self:IsMember(key) and was == "online" then
 			PartySync:Problem("presence:" .. key, format(L.PROBLEM_OFFLINE_FMT, peer.name))
@@ -598,6 +600,7 @@ function Peers:Tick()
 		if peer.state == "online" then
 			if now - (peer.lastSeen or 0) > LOST_SECONDS then
 				peer.state = "lost"
+				PartySync:Trace("party", "%s lost: not heard from for %d s", key, LOST_SECONDS)
 				if self:IsMember(key) then
 					PartySync:Problem("presence:" .. key, format(L.PROBLEM_LOST_FMT, peer.name))
 				end

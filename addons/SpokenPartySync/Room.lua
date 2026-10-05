@@ -63,6 +63,7 @@ function Room:Update()
 	local silent = self:IsSilent()
 	if silent ~= applied then
 		local was = applied
+		PartySync:Trace("room", "captions only here: %s (sound on %s)", tostring(silent), tostring(self:Speaker() or "every computer"))
 		-- Set first: the override fires the player's AUDIO_CHANGED, which comes back here.
 		applied = silent
 		Spoken:SetCaptionsOnlyOverride(silent)

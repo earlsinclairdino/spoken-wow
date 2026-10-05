@@ -204,6 +204,8 @@ function PartySync:SetupOptions()
 
 	layout:Section(L.OPT_SECTION_DIAGNOSTICS)
 	layout:Button(L.OPT_PING, nil, function() Peers:PingMembers() end, L.OPT_PING_TIP)
+	layout:Button(L.OPT_LOGS_PULL, nil, function() PartySync.LogBook:Pull() end, L.OPT_LOGS_PULL_TIP)
+	layout:Button(L.OPT_LOGS_SHOW, nil, function() PartySync.LogBook:Show() end, L.OPT_LOGS_SHOW_TIP)
 	layout:Checkbox(L.OPT_LOG, L.OPT_LOG_TIP,
 		function() return DB().logTraffic end, function(value) DB().logTraffic = value and true or false end)
 	layout:Note(L.OPT_COMMANDS)

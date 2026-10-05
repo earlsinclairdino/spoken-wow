@@ -65,6 +65,7 @@ end
 local started = false
 
 local function Start()
+	PartySync.LogBook:Setup()
 	Comm:Register()
 	Comm:FilterChat()
 	Peers:Setup()

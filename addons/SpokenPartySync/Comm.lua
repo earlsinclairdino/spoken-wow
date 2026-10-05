@@ -32,6 +32,9 @@ local C = C_ChatInfo
 
 local handlers = {}
 
+-- Not logged one by one: a log being sent is hundreds of these, and a burst test is a test.
+local QUIET = { LL = true, BU = true }
+
 --- Every API the transport needs, by name, and whether the client has it. For `/sps api`.
 function Comm:Probe()
 	return {
@@ -219,8 +222,12 @@ SendNow = function(channel, target, message, kind)
 	if channel == "WHISPER" and sent then
 		Comm:WatchWhisper(target)
 	end
-	PartySync:Log("-> %s%s %s [%s, %s]", channel, target and format(" %q", target) or "",
-		kind, answer, Comm:Context())
+	if not QUIET[kind] then
+		-- The fields after the kind say which line a message was about; cut, they stay readable.
+		local detail = message:sub(#kind + 2, #kind + 61):gsub("\t", " ")
+		PartySync:Log("-> %s%s %s %s [%s, %s]", channel, target and format(" %q", target) or "",
+			kind, detail, answer, Comm:Context())
+	end
 	if channel == "WHISPER" and not sent and tostring(answer):find("TargetOffline", 1, true) and PartySync.Peers then
 		-- Clients from 11.1 on answer TargetOffline up front instead of printing a message.
 		PartySync.Peers:MarkOffline(target)
@@ -311,7 +318,9 @@ function Comm:Receive(prefix, text, channel, sender)
 	end
 	local fields = Split(text)
 	local kind = fields[1]
-	PartySync:Log("<- %s %q %s", channel, sender, kind)
+	if not QUIET[kind] then
+		PartySync:Log("<- %s %q %s %s", channel, sender, kind, (text:sub(#kind + 2, #kind + 61):gsub("\t", " ")))
+	end
 	local handler = handlers[kind]
 	if handler then
 		local ok, err = pcall(handler, sender, channel, unpack(fields, 2))

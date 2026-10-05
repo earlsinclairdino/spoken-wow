@@ -16,6 +16,7 @@ Core.lua
 Names.lua
 Comm.lua
 Peers.lua
+Log.lua
 Lines.lua
 Sync.lua
 Accept.lua

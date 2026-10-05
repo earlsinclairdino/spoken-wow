@@ -45,6 +45,8 @@ function Accept:QUEST_DETAIL()
 	local questID = GetQuestID and GetQuestID() or 0
 	local fromPlayer, offerer = Offerer()
 	lastDetail = { questID = questID, fromPlayer = fromPlayer, at = GetTime() }
+	PartySync:Trace("quests", "dialog for quest %s, offered by %s%s", tostring(questID), tostring(offerer),
+		fromPlayer and " (a player)" or "")
 	if not (fromPlayer and PartySync:DB().autoAccept and Peers:IsMember(offerer)) then
 		return
 	end
@@ -57,6 +59,7 @@ function Accept:QUEST_DETAIL()
 		if (GetQuestID and GetQuestID() or 0) ~= questID then
 			return
 		end
+		PartySync:Trace("quests", "accepting quest %s, shared by %s", tostring(questID), tostring(offerer))
 		if QuestGetAutoAccept and QuestGetAutoAccept() and AcknowledgeAutoAcceptQuest then
 			AcknowledgeAutoAcceptQuest()
 		else
@@ -130,6 +133,7 @@ function Accept:Share(questID)
 	if C_QuestLog and C_QuestLog.SetSelectedQuest then
 		C_QuestLog.SetSelectedQuest(questID)
 	end
+	PartySync:Trace("quests", "sharing quest %d (log index %d)", questID, index)
 	QuestLogPushQuest(index)
 	PartySync:Print("shared %s with the party", QuestTitle(questID))
 	return true
