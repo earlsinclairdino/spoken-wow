@@ -13,6 +13,14 @@ Spoken Player until 3.0.0, when it became Spoken and took its modules into one d
   [DEBUG-LOG.md](DEBUG-LOG.md).
 - For feature addons: `Spoken:Log`, `AddDiagnostics`, `AddDeveloperSettings`, `AddLogSource`
   and the rest, all doing nothing without the module.
+- **Captions Only, No Sound** (Audio settings, `/spoken captionsonly`): every line is shown in
+  the player with its captions and timed as usual, and nothing is played. For two players in
+  one room, where both reading the same line is an echo. Muting the volume instead used to hide
+  the player and its captions altogether.
+- For feature addons: `Spoken:IsCaptionsOnly`, `SetCaptionsOnly` and a session-only
+  `SetCaptionsOnlyOverride`; `Spoken:RecheckGates`, to start what a player-wide gate held as
+  soon as it opens; and a source's optional `rebuild(fields)`, which re-creates one of its clips
+  from another client's description.
 
 ## 3.1.0 — 2026-10-06
 

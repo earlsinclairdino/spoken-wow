@@ -115,7 +115,9 @@ function SoundQueue:SetPaused(value)
 end
 
 function SoundQueue:CanBePaused()
-    return not self:IsPlaying() or self:GetCurrentSound().handle ~= nil
+    -- A silent head (captions only) has no sound to stop, so nothing stands in the way.
+    local head = self:GetCurrentSound()
+    return not self:IsPlaying() or head.handle ~= nil or head.silent == true
 end
 
 local function CountFor(source)
@@ -352,6 +354,48 @@ function SoundQueue:MuteGameDialogue(speakingOn, cut)
     SoundUtils:MuteChannel("Dialog", speakingOn ~= nil and speakingOn ~= "Dialog", not cut)
 end
 
+--- Captions only: every line is admitted, shown, captioned and timed as usual, and no sound
+--- is played. For two players in one room, where both speakers reading the same line is an
+--- echo: one client speaks, the other reads along. The obvious workaround -- muting the
+--- channel Spoken speaks on -- does not do this, because a line on a channel that cannot be
+--- heard is refused at the door and the player never opens.
+---
+--- Either the player's own setting or a feature addon's override for this session turns it
+--- on (Spoken:SetCaptionsOnlyOverride): a party addon that knows another client in the room
+--- is speaking switches this one quiet without touching what the player chose.
+---
+--- Not on 1.12, which has no captions to read.
+function SoundQueue:IsCaptionsOnly()
+    return (Addon.db.profile.Audio.CaptionsOnly == true or self.captionsOnlyOverride == true)
+        and not Transcript.unavailable
+end
+
+-- A line already speaking goes quiet at once and its captions run on to the end. Turned off,
+-- the line stays silent until the next one: the client cannot start a sound partway.
+local function CaptionsOnlyChanged(self, was)
+    local now = self:IsCaptionsOnly()
+    local head = self:GetNowPlaying()
+    if now and not was and head and head.nextSoundTimer then
+        SoundUtils:StopSound(head)
+        head.silent = true
+        self:MuteGameDialogue("")
+    end
+    Callbacks:Fire("AUDIO_CHANGED")
+end
+
+function SoundQueue:SetCaptionsOnly(on)
+    local was = self:IsCaptionsOnly()
+    Addon.db.profile.Audio.CaptionsOnly = on and true or false
+    CaptionsOnlyChanged(self, was)
+end
+
+--- Never saved: it lasts the session, and the addon that set it lifts it.
+function SoundQueue:SetCaptionsOnlyOverride(on)
+    local was = self:IsCaptionsOnly()
+    self.captionsOnlyOverride = on and true or nil
+    CaptionsOnlyChanged(self, was)
+end
+
 -- How long a mute taken ahead of a line holds with nothing queued. Quest lines are read
 -- once the dialog's globals have held still for 0.4s, gossip 0.1s after its event; past
 -- this nothing is coming, and the next NPC's greeting should be heard.
@@ -403,16 +447,22 @@ end
 ---@param clip SpokenClip
 function SoundQueue:PlaySound(clip)
     local channel = clip.source:GetChannel()
-    -- Whatever we muted, we cannot speak on. Lifted first, so a clip on the very channel
-    -- the last line silenced is heard.
-    if SoundUtils:IsMutedByPlayer(channel) then
-        SoundUtils:MuteChannel(channel, false)
-    end
-    local willPlay = SoundUtils:PlaySound(clip, channel)
-    if not willPlay then
-        Discard(clip, "missing")
-        self:Advance()
-        return
+    -- Captions only, there is nothing to start: the timer below ends the clip, as it always
+    -- does, and the captions follow it as they always do. Marked silent, so Pause, Skip and
+    -- Stop, which ask whether there is a sound they can stop, know there is none to stop.
+    clip.silent = self:IsCaptionsOnly() or nil
+    if not clip.silent then
+        -- Whatever we muted, we cannot speak on. Lifted first, so a clip on the very channel
+        -- the last line silenced is heard.
+        if SoundUtils:IsMutedByPlayer(channel) then
+            SoundUtils:MuteChannel(channel, false)
+        end
+        local willPlay = SoundUtils:PlaySound(clip, channel)
+        if not willPlay then
+            Discard(clip, "missing")
+            self:Advance()
+            return
+        end
     end
 
     -- A line read off an NPC's window cuts its voice; one starting elsewhere (a zone's story) fades it.
@@ -548,7 +598,8 @@ function SoundQueue:Add(clip, source, front)
     end
 
     local inaudible = SoundUtils:WhyInaudible(source:GetChannel())
-    if inaudible and not SoundUtils:IsMutedByPlayer(source:GetChannel()) then
+    local captionsOnly = self:IsCaptionsOnly()
+    if inaudible and not SoundUtils:IsMutedByPlayer(source:GetChannel()) and not captionsOnly then
         return nil, inaudible
     end
 
@@ -561,7 +612,11 @@ function SoundQueue:Add(clip, source, front)
         end
     end
 
-    if source.testBeforeQueue and not SoundUtils:TestSound(clip, source:GetChannel()) then
+    -- The probe plays the file to learn whether it exists, and on a muted channel the client
+    -- refuses every file alike. Captions only on such a channel, it would call every line
+    -- missing, so it is skipped and the line is shown on the data module's word.
+    if source.testBeforeQueue and not (captionsOnly and inaudible)
+        and not SoundUtils:TestSound(clip, source:GetChannel()) then
         return nil, "missing"
     end
 
@@ -616,7 +671,7 @@ function SoundQueue:PlayNow(clip, source)
     end
 
     local inaudible = SoundUtils:WhyInaudible(source:GetChannel())
-    if inaudible and not SoundUtils:IsMutedByPlayer(source:GetChannel()) then
+    if inaudible and not SoundUtils:IsMutedByPlayer(source:GetChannel()) and not self:IsCaptionsOnly() then
         return false, inaudible
     end
 

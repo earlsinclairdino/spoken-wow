@@ -37,6 +37,7 @@ local METHODS = {
     "GetCurrent", "GetNowPlaying", "GetQueue", "GetQueueSize", "GetWaitingCount",
     "IsPlaying", "IsPaused", "GetHeldReason",
     "Pause", "Resume", "TogglePause", "Skip", "StopAll", "AddGate", "MuteChannel", "MuteGameDialogueAhead",
+    "RecheckGates", "IsCaptionsOnly", "SetCaptionsOnly", "SetCaptionsOnlyOverride",
     -- callbacks
     "RegisterCallback", "UnregisterCallback",
     -- packs
@@ -101,6 +102,33 @@ Expect("TogglePause", Spoken:IsPaused(), true)
 Spoken:StopAll()
 Expect("StopAll empties", Spoken:GetQueueSize(), 0)
 Expect("...and unpauses", Spoken:IsPaused(), false)
+
+-- A gate that opens says so, and what it held starts then, not at the next retry tick.
+local shut = true
+Spoken:AddGate(function() return shut and "shut" or nil end)
+local waiting = H.Clip()
+src:Enqueue(waiting)
+Expect("a player-wide gate holds the clip", Spoken:IsPlaying(waiting), false)
+shut = false
+Spoken:RecheckGates()
+Expect("RecheckGates starts it as soon as the gate opens", Spoken:IsPlaying(waiting), true)
+Spoken:StopAll()
+
+-- The override lasts the session and leaves the player's own setting alone.
+Spoken:SetCaptionsOnlyOverride(true)
+Expect("an override turns captions only on", Spoken:IsCaptionsOnly(), true)
+Spoken:SetCaptionsOnlyOverride(false)
+Expect("...and lifting it turns it off", Spoken:IsCaptionsOnly(), false)
+Spoken:SetCaptionsOnly(true)
+Spoken:SetCaptionsOnlyOverride(false)
+Expect("lifting an override leaves the player's own setting on", Spoken:IsCaptionsOnly(), true)
+Spoken:SetCaptionsOnly(false)
+
+-- A source may say how to rebuild one of its clips from another client's description.
+local rebuilt = Spoken:RegisterSource("contract-rebuild", { title = "Rebuild", addon = "X", order = 2,
+    rebuild = function(fields) return H.Clip({ key = fields.key }) end })
+Expect("a source carries its rebuild", rebuilt.rebuild and rebuilt.rebuild({ key = "r:1" }).key, "r:1")
+Expect("...and one without has none", src.rebuild, nil)
 
 Spoken:AddGate(function() return "held by the player" end)
 local held = H.Clip()

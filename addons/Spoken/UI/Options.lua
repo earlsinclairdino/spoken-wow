@@ -529,6 +529,12 @@ local function Build(canvas)
         function(code) return code == "none" and L.OPT_FALLBACK_NONE or Native(code) end)
 
     layout:Section(L.OPT_AUDIO_TITLE)
+    -- No captions on 1.12, so nothing to show in place of the sound.
+    if not Transcript.unavailable then
+        layout:Checkbox(L.OPT_CAPTIONS_ONLY, L.OPT_CAPTIONS_ONLY_TIP,
+            function() return audio().CaptionsOnly end,
+            function(v) SoundQueue:SetCaptionsOnly(v) end)
+    end
     if audio().AutoToggleDialog ~= nil then
         layout:Checkbox(L.OPT_MUTE_DIALOGUE,
             Version.IsLegacyVanilla and L.OPT_MUTE_DIALOGUE_TIP_VANILLA or L.OPT_MUTE_DIALOGUE_TIP,

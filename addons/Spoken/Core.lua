@@ -48,6 +48,9 @@ Defaults = {
             -- Seconds of quiet between one line and the next, on top of each module's own short
             -- gap: back to back, a new line started before the last had settled.
             LineGap = 1,
+            -- Show and caption every line without playing it: two players in one room, one
+            -- speaker. SoundQueue:IsCaptionsOnly says why muting the channel is not the same.
+            CaptionsOnly = false,
             -- The client speaks its own NPC barks on the Dialog channel, over the top of a
             -- line being read. Muting it while we speak belongs to the player: any addon's
             -- clip is the one being talked over. Not on clients without the channel, where
@@ -311,6 +314,15 @@ function Addon:Enable()
             SoundQueue:RemoveAllSoundsFromQueue()
         elseif command == "skip" then
             SoundQueue:Skip()
+        elseif command == "captionsonly" or command == "captionsonly on" or command == "captionsonly off" then
+            if Transcript.unavailable then
+                print("Spoken: this client has no captions, so captions only is unavailable")
+            else
+                local on = command == "captionsonly on" or (command == "captionsonly" and not Addon.db.profile.Audio.CaptionsOnly)
+                SoundQueue:SetCaptionsOnly(on)
+                print(on and "Spoken: captions only -- lines are shown and captioned, not played"
+                    or "Spoken: lines are played again")
+            end
         elseif command == "transcript" then
             Transcript:SetEnabled(not Addon.db.profile.Transcript.Enabled)
         elseif command == "transcript on" then
@@ -350,8 +362,9 @@ function Addon:Enable()
                 print("Spoken: the debug log comes with the Spoken Developer module, which is not installed")
             end
         elseif command == "diagnostics" then
-            print(format("Spoken %s, API %d, %d queued, %s", AddonVersion, Spoken.API_VERSION,
-                SoundQueue:GetQueueSize(), SoundQueue:IsPaused() and "paused" or "playing"))
+            print(format("Spoken %s, API %d, %d queued, %s%s", AddonVersion, Spoken.API_VERSION,
+                SoundQueue:GetQueueSize(), SoundQueue:IsPaused() and "paused" or "playing",
+                SoundQueue:IsCaptionsOnly() and ", captions only" or ""))
             print("  " .. (Developer:Call("Describe") or "debug log: no Spoken Developer module"))
             for key, source in Sources:Iterate() do
                 print(format("  source %s (%s)", key, source.addon or "?"))
@@ -361,7 +374,7 @@ function Addon:Enable()
             print("  " .. DialogueUITheme:Describe())
             for _, err in ipairs(Callbacks.errors) do print("  callback error: " .. err) end
         else
-            print("Spoken: /spoken play | stop | skip | player [minimal|classic|dialogueui|subtitle|none] | transcript [on|off|1|2|reset] | log | options | reset | diagnostics")
+            print("Spoken: /spoken play | stop | skip | player [minimal|classic|dialogueui|subtitle|none] | transcript [on|off|1|2|reset] | captionsonly [on|off] | log | options | reset | diagnostics")
         end
     end
 end

@@ -23,6 +23,7 @@ SourceMethods.__index = SourceMethods
 ---@field onQueueEnter? fun()
 ---@field onQueueEmpty? fun()
 ---@field packs? fun():string[] -- the voice packs this source found installed, by name
+---@field rebuild? fun(fields:table):table|nil -- a clip from another client's description; see API.lua
 
 ---@param key string
 ---@param info SpokenSourceInfo
@@ -41,6 +42,7 @@ function Sources:Register(key, info)
         continuous = info.continuous,
         channel = info.channel,
         admit = info.admit,
+        rebuild = info.rebuild,
         testBeforeQueue = info.testBeforeQueue,
         onQueueEnter = info.onQueueEnter,
         onQueueEmpty = info.onQueueEmpty,
@@ -161,6 +163,10 @@ end
 ---@return boolean audible
 ---@return string|nil reason
 function SourceMethods:CanPlay()
+    -- Captions only, a muted channel stops nothing: the line is shown without being played.
+    if SoundQueue:IsCaptionsOnly() then
+        return true, nil
+    end
     local reason = SoundUtils:WhyInaudible(self:GetChannel())
     return reason == nil, reason
 end

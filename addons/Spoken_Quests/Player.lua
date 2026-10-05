@@ -382,6 +382,45 @@ function Player:RefreshConfig()
 end
 
 --------------------------------------------------------------------------------
+-- Rebuilding another client's line
+--------------------------------------------------------------------------------
+
+--- A line another client queued, rebuilt here from what it sent: the source's `rebuild`
+--- (Spoken:RegisterSource). `fields.key` is that client's file name; its m-/f- prefix is
+--- its player's gender, not ours, so it is dropped and ResolveSoundFile tries this player's
+--- own first, then the plain name, through this client's languages and packs -- what
+--- Followup.lua does with a file name it already knows. Nil when no pack here holds it.
+---@return SoundData|nil
+function Player:Rebuild(fields)
+    local event = tonumber(fields.event)
+    local fileName = type(fields.key) == "string" and string.gsub(fields.key, "^[mf]%-", "") or nil
+    if not (event and Enums.SoundEvent:GetName(event) and fileName and fileName ~= "") then
+        return nil
+    end
+    local npcID = tonumber(fields.npcID)
+    local guid = nil
+    if npcID and Utils.MakeGUID then
+        local ok, made = pcall(Utils.MakeGUID, Utils, Enums.GUID.Creature, npcID)
+        guid = ok and made or nil
+    end
+    ---@type SoundData
+    local soundData = {
+        event = event,
+        fileName = fileName,
+        questID = tonumber(fields.questID),
+        name = fields.name ~= "" and fields.name or (npcID and DataModules:GetObjectName(Enums.GUID.Creature, npcID)) or "",
+        title = fields.title ~= "" and fields.title or nil,
+        text = fields.text ~= "" and fields.text or nil,
+        unitGUID = guid,
+        unitIsObjectOrItem = not npcID,
+    }
+    if not DataModules:ResolveSoundFile(soundData) then
+        return nil
+    end
+    return self:Prepare(soundData)
+end
+
+--------------------------------------------------------------------------------
 -- Registration
 --------------------------------------------------------------------------------
 
@@ -403,6 +442,8 @@ function Player:Setup()
         interClipGap = 0.55,
         -- Play-and-stop the file before admitting it, as the queue always did here.
         testBeforeQueue = true,
+        -- Another client's line, played here too (Spoken Party Sync).
+        rebuild = function(fields) return Player:Rebuild(fields) end,
         -- Its settings follow the profile chosen in Spoken's own settings.
         profiles = function() return Addon.db end,
         -- What Spoken's settings show on this part's card: which voice packs are installed.
