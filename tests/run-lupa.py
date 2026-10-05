@@ -38,7 +38,9 @@ def run(path, args, verbose):
         "if ok then return 0 end "
         "if type(err) == 'table' then return err.exit == nil and 0 or err.exit end "
         "return 'error: ' .. tostring(err)" % path)
-    return result in (0, True, None), result
+    # Not `result in (0, None)`: 1 == True in Python, and an exit code of 1 must not pass.
+    ok = result is None or (type(result) in (int, float) and result == 0)
+    return ok, result
 
 
 def main():

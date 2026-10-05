@@ -293,6 +293,12 @@ local probed = env.Sources:Register("probed", { title = "Probed", addon = "Spoke
 local p = H.Clip()
 Expect("a probed source admits a file that exists", probed:Enqueue(p) ~= nil, true)
 Expect("...probing it on the source's channel", world.playedChannels[1], "Master")
+-- A duplicate of the clip speaking is refused before the probe: playing and stopping its file
+-- can cut the one speaking short.
+local plays, stops = #world.played, #world.stopped
+local again, why = probed:Enqueue(H.Clip({ key = p.key }))
+Expect("a duplicate of a probed clip is refused", why, "duplicate")
+Expect("...without its file being played or stopped", #world.played == plays and #world.stopped == stops, true)
 
 ---------------------------------------------------------------- captions only
 -- Two players in one room: one client speaks, the other shows the line without playing it.

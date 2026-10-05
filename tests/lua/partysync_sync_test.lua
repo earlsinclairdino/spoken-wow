@@ -133,6 +133,49 @@ P.Receive(stub, LALA, "TX", "102-accept", 1, 2, "Late, ")
 P.Receive(stub, LALA, "TX", "102-accept", 2, 2, "but here.")
 Expect("words arriving after the start reach the captions", env.Transcript.text, "Late, but here.")
 
+-- Her words and her start arriving before the line itself, as they did on 2026-10-05
+-- ("Delicate Instruments"): kept, and applied when it comes.
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+P.Receive(stub, LALA, "TX", "102-accept", 2, 2, "second half.")
+P.Receive(stub, LALA, "GO", "102-accept", 0)
+Expect("a start before its line queues nothing", Spoken:GetQueueSize(), 0)
+P.Receive(stub, LALA, "LN", "102-accept", "q", 1, 102, 1234, "2.00", "", 2, "Giver", "Quest 102")
+P.Receive(stub, LALA, "TX", "102-accept", 1, 2, "First half, ")
+Expect("the line that follows uses the start that came first", P.started[1], "102-accept")
+Expect("...and the words that came first", env.Transcript.text, "First half, second half.")
+
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+P.Receive(stub, LALA, "GO", "102-accept", 300)
+stub.Advance(0.2)
+P.Receive(stub, LALA, "LN", "102-accept", "q", 1, 102, 1234, "2.00", "", 0, "Giver", "Quest 102")
+Expect("an early start's wait counts from when it came", P.started[1], nil)
+stub.Advance(0.15)
+Expect("...not from when the line did", P.started[1], "102-accept")
+stub.Advance(6)
+P.Receive(stub, LALA, "GO", "103-accept", 0)
+stub.Advance(6)
+P.Receive(stub, LALA, "LN", "103-accept", "q", 1, 103, 1234, "2.00", "", 0, "Giver", "Quest 103")
+stub.Advance(1)
+Expect("a start kept too long is forgotten", P.started[2], nil)
+
+-- Announced again while it plays here (her copy ended first and she started it again): the
+-- copy here plays on, and is not probed, refused and cut short by a second one.
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+P.Receive(stub, LALA, "LN", "102-accept", "q", 1, 102, 1234, "2.00", "", 0, "Giver", "Quest 102")
+P.Receive(stub, LALA, "GO", "102-accept", 0)
+local playing = Spoken:GetCurrent()
+local plays, stops = #world.played, #world.stopped
+P.Clear()
+P.Receive(stub, LALA, "LN", "102-accept", "q", 1, 102, 1234, "2.00", "", 1, "Giver", "Quest 102")
+P.Receive(stub, LALA, "TX", "102-accept", 1, 1, "Again.")
+P.Receive(stub, LALA, "GO", "102-accept", 0)
+Expect("a line announced again while it plays keeps playing", Spoken:IsPlaying(playing), true)
+Expect("...nothing is played or stopped for it", #world.played == plays and #world.stopped == stops, true)
+Expect("...and she is not told it was dropped", P.Last("AK", LALA), nil)
+
 -- The words are the player's: male driver, female follower, each hears their own take.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 world.unitSex = 3

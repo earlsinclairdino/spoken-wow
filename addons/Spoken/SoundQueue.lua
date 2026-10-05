@@ -612,18 +612,21 @@ function SoundQueue:Add(clip, source, front)
         end
     end
 
+    -- Before the probe: a duplicate of the line speaking would have its file played and stopped
+    -- to be refused anyway, and stopping it can cut the one speaking short (Spoken Party Sync,
+    -- 2026-10-05: a line announced again while it played went silent, its captions running on).
+    for _, queued in ipairs(self.sounds) do
+        if queued.key == clip.key then
+            return nil, "duplicate"
+        end
+    end
+
     -- The probe plays the file to learn whether it exists, and on a muted channel the client
     -- refuses every file alike. Captions only on such a channel, it would call every line
     -- missing, so it is skipped and the line is shown on the data module's word.
     if source.testBeforeQueue and not (captionsOnly and inaudible)
         and not SoundUtils:TestSound(clip, source:GetChannel()) then
         return nil, "missing"
-    end
-
-    for _, queued in ipairs(self.sounds) do
-        if queued.key == clip.key then
-            return nil, "duplicate"
-        end
     end
 
     if IsLow(clip) then

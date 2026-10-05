@@ -462,6 +462,80 @@ local function Build(entry)
 	end
 end
 
+-- Messages about a line that arrive before the line itself. Whispers handled in one frame are
+-- not always handled in the order they were sent: on 2026-10-05 a line's words and its start
+-- came before its announcement and were thrown away, so the line waited for a start that had
+-- already come, and for words it had already been sent. Kept a few seconds, by line and
+-- sender, and applied when the announcement arrives.
+local EARLY_SECONDS = 5
+local early = {}
+
+local function Early(id, key)
+	local now = GetTime()
+	for k, pending in pairs(early) do
+		if now - pending.at > EARLY_SECONDS then early[k] = nil end
+	end
+	local k = id .. "|" .. key
+	early[k] = early[k] or { at = now, parts = {} }
+	return early[k]
+end
+
+local function TakeEarly(id, key)
+	local k = id .. "|" .. key
+	local pending = early[k]
+	early[k] = nil
+	if pending and GetTime() - pending.at <= EARLY_SECONDS then
+		return pending
+	end
+	return nil
+end
+
+--- A piece of a line's words, and what follows once the last one is in.
+local function AddText(entry, seq, total, piece)
+	if seq then entry.parts[seq] = piece or "" end
+	if not total then return end
+	for i = 1, total do
+		if not entry.parts[i] then return end
+	end
+	local text = Comm.Unescape(table.concat(entry.parts, "", 1, total))
+	entry.parts = nil
+	entry.desc.text = text
+	Trace("words for %s: %d pieces, %d characters (%s)", entry.id, total, #text, entry.state)
+	if entry.state == "text" then
+		entry.state = "waiting"
+		Build(entry)
+	else
+		Lines:SetText(entry.clip, text)
+		-- Too late for the captions to have read them as the line started: they read again.
+		if entry.clip and entry.state == "playing" then
+			Lines:RefreshCaption(entry.clip)
+		end
+		if entry.clip and Spoken():GetCurrent() == entry.clip and Spoken().RefreshPlayer then
+			Spoken():RefreshPlayer()
+		end
+		-- A start held for these words goes now, if its time has come.
+		if entry.textWaitFrom and Waiting(entry) and (not entry.goAt or GetTime() >= entry.goAt) then
+			Sync:Release(entry, entry.gen)
+		end
+	end
+	PartySync:Changed()
+end
+
+--- The driver's start, received at `receivedAt`: whatever of the wait has passed is not waited.
+local function ApplyGo(entry, key, startIn, receivedAt)
+	local delay = math.max(0, (tonumber(startIn) or 0) / 1000 - (GetTime() - (receivedAt or GetTime())))
+	entry.goAt = GetTime() + delay
+	Trace("go %s from %s: start in %d ms (was %s)", entry.id, key, delay * 1000, entry.state)
+	PartySync:Resolve("go:" .. entry.id)
+	if delay <= 0 then
+		Sync:Release(entry)
+		return
+	end
+	entry.state = "go"
+	local gen = entry.gen
+	C_Timer.After(delay, function() Sync:Release(entry, gen) end)
+end
+
 Comm:On("LN", function(sender, channel, ...)
 	if not (Sync.ready and Peers:IsMember(sender)) then
 		return
@@ -485,90 +559,101 @@ Comm:On("LN", function(sender, channel, ...)
 		end
 		return
 	end
-	if entry and entry.role == "follower" and Waiting(entry) and InQueue(entry.clip) then
-		-- Announced again, as the same driver's copy: nothing changes here.
+	-- Already here as a copy, waiting or playing: announced again because it was started again
+	-- over there. A second copy would be refused as a duplicate, and nothing is gained by trying.
+	if entry and entry.role == "follower" and entry.clip and InQueue(entry.clip) then
+		Trace("line %s from %s: already here (%s), announced again", d.id, key, entry.state)
 		return
 	end
 	entry = NewEntry(d.id, "follower", key, nil)
 	entry.desc = d
 	entry.parts = {}
+	local pending = TakeEarly(d.id, key)
+	if pending then
+		for seq, piece in pairs(pending.parts) do entry.parts[seq] = piece end
+		Trace("line %s from %s: its words (%d piece(s))%s came before it", d.id, key, (function()
+			local n = 0
+			for _ in pairs(pending.parts) do n = n + 1 end
+			return n
+		end)(), pending.startIn and " and its start" or "")
+	end
 	-- The same line already queued here and not announced -- queued before the party was
 	-- online, say: that copy follows, rather than a second one being refused as a duplicate.
+	local adopted = false
 	for _, clip in ipairs(Spoken():GetQueue()) do
-		if not clip.partySync and not Spoken():IsPlaying(clip) and Lines:Id(clip) == d.id then
+		if not clip.partySync and Lines:Id(clip) == d.id then
+			if Spoken():IsPlaying(clip) then
+				Trace("line %s from %s: already playing here, not queued again", d.id, key)
+				Ended(entry, "dropped")
+				Ack(entry, "dropped")
+				return
+			end
 			Trace("follow %s from %s: the copy already queued here follows", d.id, key)
 			clip.partySync = entry
 			entry.clip = clip
 			Ack(entry, "queued")
-			PartySync:Changed()
-			return
+			adopted = true
+			break
 		end
 	end
-	Build(entry)
+	if not adopted then
+		Build(entry)
+	end
+	if pending and pending.total and entry.parts then
+		AddText(entry, nil, pending.total)
+	end
+	if pending and pending.startIn and Waiting(entry) then
+		ApplyGo(entry, key, pending.startIn, pending.goAt)
+	end
 	PartySync:Changed()
 end)
 
 Comm:On("TX", function(sender, channel, id, seq, total, piece)
-	local entry = id and Sync.lines[id]
-	local key = PartySync:NameKey(sender)
-	if not (entry and entry.role == "follower" and entry.driver == key and entry.parts) then
+	if not (id and Peers:IsMember(sender)) then
 		return
 	end
+	local entry = Sync.lines[id]
+	local key = PartySync:NameKey(sender)
 	seq, total = tonumber(seq), tonumber(total)
 	if not (seq and total) then return end
-	entry.parts[seq] = piece or ""
-	for i = 1, total do
-		if not entry.parts[i] then return end
-	end
-	local text = Comm.Unescape(table.concat(entry.parts, "", 1, total))
-	entry.parts = nil
-	entry.desc.text = text
-	Trace("words for %s: %d pieces, %d characters (%s)", entry.id, total, #text, entry.state)
-	if entry.state == "text" then
-		entry.state = "waiting"
-		Build(entry)
-	else
-		Lines:SetText(entry.clip, text)
-		-- Too late for the captions to have read them as the line started: they read again.
-		if entry.clip and entry.state == "playing" then
-			Lines:RefreshCaption(entry.clip)
+	if entry and entry.role == "follower" and entry.driver == key then
+		if entry.parts then
+			AddText(entry, seq, total, piece)
+			return
 		end
-		if entry.clip and Spoken():GetCurrent() == entry.clip and Spoken().RefreshPlayer then
-			Spoken():RefreshPlayer()
-		end
-		-- A start held for these words goes now, if its time has come.
-		if entry.textWaitFrom and entry.state == "go" and (not entry.goAt or GetTime() >= entry.goAt) then
-			Sync:Release(entry, entry.gen)
+		-- Words this copy already has: the line was announced again.
+		if entry.clip and InQueue(entry.clip) then
+			return
 		end
 	end
-	PartySync:Changed()
+	-- Before its announcement, or for a line that will be announced again: kept for it.
+	local pending = Early(id, key)
+	pending.parts[seq] = piece or ""
+	pending.total = total
 end)
 
 Comm:On("GO", function(sender, channel, id, startIn)
-	local entry = id and Sync.lines[id]
-	local key = PartySync:NameKey(sender)
-	if not (entry and Peers:IsMember(sender)) then
+	if not (id and Peers:IsMember(sender)) then
 		return
 	end
-	if entry.role == "driver" then
+	local entry = Sync.lines[id]
+	local key = PartySync:NameKey(sender)
+	if entry and entry.role == "driver" and InQueue(entry.clip) then
 		-- Both started this line and their GO overtook their LN: settled as the LN would be.
 		if not (Waiting(entry) and Sync:Wins(key, MyKey())) then return end
 		Yield(entry, key)
 	end
-	if entry.driver ~= key or not Waiting(entry) then
+	if entry and entry.role == "follower" and entry.driver == key and entry.clip and InQueue(entry.clip) then
+		if Waiting(entry) then
+			ApplyGo(entry, key, startIn, GetTime())
+		end
+		-- Otherwise it is already playing here: a start for the same line started again.
 		return
 	end
-	local delay = math.max(0, tonumber(startIn) or 0) / 1000
-	entry.goAt = GetTime() + delay
-	Trace("go %s from %s: start in %d ms (was %s)", entry.id, key, delay * 1000, entry.state)
-	PartySync:Resolve("go:" .. entry.id)
-	if delay <= 0 then
-		Sync:Release(entry)
-		return
-	end
-	entry.state = "go"
-	local gen = entry.gen
-	C_Timer.After(delay, function() Sync:Release(entry, gen) end)
+	-- Before its announcement: kept, with when it came, so the wait it asks for counts from then.
+	Trace("go %s from %s before its announcement: kept for it", id, key)
+	local pending = Early(id, key)
+	pending.startIn, pending.goAt = startIn, GetTime()
 end)
 
 Comm:On("AK", function(sender, channel, id, state, ms)
