@@ -15,6 +15,8 @@
 --   LH  token, total, now, version  the answer's header: how many lines follow, the sender's
 --                                   GetTime() as it sent this, its addon version
 --   LL  token, seq, line            one line, escaped
+--   LC                              clear your log: a new session starts for the whole party
+--   LK                              cleared
 
 local _, PartySync = ...
 
@@ -59,17 +61,45 @@ end
 
 --- The start of a session, with what a reader needs to place it: who, which client, and the
 --- wall clock that goes with this GetTime(), so two computers' logs can be laid side by side.
-function LogBook:Session()
+function LogBook:Session(how)
 	local _, build = GetBuildInfo()
-	self:Add("session", "start: %s, Spoken Party Sync %s, client build %s, wall clock %s at GetTime %.3f",
-		tostring(PartySync:UnitChatName("player")), PartySync.version, tostring(build),
+	self:Add("session", "%s: %s, Spoken Party Sync %s, client build %s, wall clock %s at GetTime %.3f",
+		how or "start", tostring(PartySync:UnitChatName("player")), PartySync.version, tostring(build),
 		date and date("%Y-%m-%d %H:%M:%S") or "?", GetTime())
 end
 
-function LogBook:Clear()
+--- Empty this client's log and the logs collected here, and start it again with a session line,
+--- so what follows reads as a test session of its own.
+function LogBook:Clear(how)
 	PartySync:DB().log = {}
 	PartySync:DB().collected = {}
+	self:Session(how or "cleared")
 end
+
+--- Clear this log and ask every member online to clear theirs: one new session for everyone.
+--- Returns how many members were asked.
+function LogBook:ClearParty()
+	self:Clear("cleared, with the party's")
+	local members = Peers:OnlineMembers()
+	for _, key in ipairs(members) do
+		Comm:Whisper(Peers:MemberName(key), "LC")
+	end
+	return #members
+end
+
+Comm:On("LC", function(sender)
+	-- Only the party: a stranger has no business emptying anyone's log.
+	if not Peers:IsMember(sender) then return end
+	LogBook:Clear(format("cleared at %s's request", PartySync:ShortName(sender)))
+	PartySync:Print("%s cleared the Party Sync debug logs: a new session starts", PartySync:ShortName(sender))
+	Comm:Whisper(sender, "LK")
+end)
+
+Comm:On("LK", function(sender)
+	if not Peers:IsMember(sender) then return end
+	LogBook:Add("logs", "%s cleared their log", PartySync:ShortName(sender))
+	PartySync:Print("%s's debug log is cleared", PartySync:ShortName(sender))
+end)
 
 --------------------------------------------------------------------------------
 -- The player's queue, as the player reports it

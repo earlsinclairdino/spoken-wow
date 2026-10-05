@@ -56,7 +56,8 @@ Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 | `/sps window`, `/sps settings`, `/sps log` | the window, the settings, every message in chat |
 | `/sps logs [count]` | the debug log, this computer's and the party's collected ones on one timeline, to copy |
 | `/sps logs pull [count]` | ask every member online for their last lines (400 by default) |
-| `/sps logs clear` | empty this computer's log and the collected ones |
+| `/sps logs clear` | empty this computer's log and the collected ones; a new session starts |
+| `/sps logs clear all` | the same, and every member online clears theirs: one new session for the party |
 | `/sps api` | what this client supports, and which modules can play the party's lines |
 | `/sps ping [name\|group]`, `/sps latency [name]` | round trips, by whisper and by party |
 | `/sps probe [name]` | which way of writing a name a whisper reaches (grouped) |
@@ -80,6 +81,7 @@ two parts and no realm: a whisper goes to the bare "First Last". The prefix is
 | `PZ` / `RS` | | pause, resume |
 | `LQ` | token, count | ask a member for their debug log |
 | `LH` / `LL` | token, total, now, version / token, seq, line | the log's header (with the sender's clock) and its lines, paced |
+| `LC` / `LK` | | clear your log / cleared |
 | `PI` / `PO`, `BU` / `BR`, `PQ` / `PA` | | ping, burst and probe tests |
 
 Inside instances the client allows ten messages per prefix and one more each second; messages

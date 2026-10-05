@@ -182,7 +182,25 @@ Expect("...on this client's clock", found and tonumber(found:match("^%s*([%d%.]+
 	and math.abs(tonumber(found:match("^%s*([%d%.]+)")) - (now - 1)) < 0.01, true)
 Expect("the logs open in a box to copy from", ns.LogBook:Show() > 0, true)
 ns.LogBook:Clear()
-Expect("clearing empties the log and the collected ones", #ns:DB().log == 0 and next(ns:DB().collected) == nil, true)
+Expect("clearing empties the collected logs", next(ns:DB().collected) == nil, true)
+Expect("...and starts the log again with a session line", #ns:DB().log == 1 and ns:DB().log[1]:find("session cleared:", 1, true) ~= nil, true)
+
+-- Clearing for the party: this log, and every member online asked to clear theirs.
+P.Clear()
+Expect("clearing the party's logs asks each member online", ns.LogBook:ClearParty(), 1)
+Expect("...by whisper", P.Last("LC", LALA) ~= nil, true)
+Expect("...and clears this one, starting it again", ns:DB().log[1]:find("session cleared, with the party's:", 1, true) ~= nil, true)
+P.Receive(stub, LALA, "LK")
+Expect("her answer is noted in the new log", ns:DB().log[#ns:DB().log]:find("cleared their log", 1, true) ~= nil, true)
+ns.LogBook:Add("sync", "something from before")
+P.Clear()
+P.Receive(stub, LALA, "LC")
+Expect("asked by a member, this client clears its log", Logged("something from before"), false)
+Expect("...saying who asked", ns:DB().log[1]:find("cleared at Lala Throwaway's request", 1, true) ~= nil, true)
+Expect("...and answers", P.Last("LK", LALA) ~= nil, true)
+ns.LogBook:Add("sync", "kept")
+P.Receive(stub, "Bob Stranger", "LC")
+Expect("someone outside the party cannot clear it", Logged("sync kept"), true)
 
 ---------------------------------------------------------------- the window, the page, the commands
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
@@ -209,7 +227,7 @@ Expect("the settings page is built", ns.optionsPanel ~= nil, true)
 
 for _, command in ipairs({ "", "api", "members", "status", "sync", "lead", "room", "room me", "room auto",
 	"test 101", "test 31337", "ping", "log", "log", "window", "window", "invite", "remove Nobody",
-	"logs", "logs 20", "logs pull 30", "logs clear" }) do
+	"logs", "logs 20", "logs pull 30", "logs clear", "logs clear all", "logs clearall" }) do
 	local ok, err = pcall(SlashCmdList.SPOKENPARTYSYNC, command)
 	Expect("/sps " .. command .. " runs", ok and true or tostring(err), true)
 end

@@ -102,7 +102,7 @@ local function Help()
 	PartySync:Print("party: /sps invite <name> | remove <name> | members | lead [auto|me|follow] | room [auto|me|none|<name>]")
 	PartySync:Print("lines: /sps sync (what played together) | test <questID> (queue a quest's accept line here)")
 	PartySync:Print("window and settings: /sps window | settings | log (messages in chat)")
-	PartySync:Print("debug log: /sps logs [count] (yours and the party's, to copy) | logs pull [count] | logs clear")
+	PartySync:Print("debug log: /sps logs [count] (yours and the party's, to copy) | logs pull [count] | logs clear (yours) | logs clear all (the party's too)")
 	PartySync:Print("connection tests: /sps api | ping [name|group] | latency [name] | probe [name] | hello | burst [count] [name] | status")
 end
 
@@ -205,13 +205,17 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 		PartySync:Print("hello to the members, and to %s: %s (%s)", tostring(Comm:GroupChannel() or "no group"),
 			sent and "sent" or "NOT sent", tostring(answer))
 	elseif cmd == "logs" then
-		local action, count = rest:match("^(%a*)%s*(%d*)$")
-		action = (action or ""):lower()
+		local action, more = rest:match("^(%S*)%s*(.-)$")
+		action, more = (action or ""):lower(), (more or ""):lower()
+		local count = more:match("^(%d+)$")
 		if action == "pull" then
 			PartySync.LogBook:Pull(tonumber(count))
+		elseif (action == "clear" and (more == "all" or more == "party")) or action == "clearall" then
+			local asked = PartySync.LogBook:ClearParty()
+			PartySync:Print("debug log cleared here; asked %d member%s online to clear theirs", asked, asked == 1 and "" or "s")
 		elseif action == "clear" then
 			PartySync.LogBook:Clear()
-			PartySync:Print("debug log cleared, and the party's logs collected here")
+			PartySync:Print("debug log cleared here, with the party's logs collected here; a new session starts")
 		else
 			local shown = PartySync.LogBook:Show(tonumber(count) or tonumber(action))
 			PartySync:Print("%d log lines shown; they are also in WTF\\...\\SavedVariables\\SpokenPartySync.lua after a /reload", shown)
