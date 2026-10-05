@@ -207,6 +207,24 @@ function Lines:Rebuild(d)
 	return nil, "missing"
 end
 
+--- The captions of a line already speaking read its words again, keeping their place in time.
+--- The player has no public call for this: it reads a line's words once, as it starts. Through
+--- its environment, guarded, for the late case only (Sync waits for the words first).
+function Lines:RefreshCaption(clip)
+	local env = rawget(_G, "SpokenEnv")
+	local transcript = env and rawget(env, "Transcript")
+	if not (transcript and transcript.clip == clip and transcript.SetClip) then
+		return false
+	end
+	local ok = pcall(function()
+		local startedAt, elapsed, started = transcript.startedAt, transcript.elapsed, transcript.hasStarted
+		transcript:SetClip(clip)
+		transcript.startedAt, transcript.elapsed, transcript.hasStarted = startedAt, elapsed, started
+		if transcript.Update then transcript:Update() end
+	end)
+	return ok
+end
+
 --- Words that arrived after the clip was built: a quest line's captions are the dialog's, not
 --- whatever this client found in its own quest log.
 function Lines:SetText(clip, text)

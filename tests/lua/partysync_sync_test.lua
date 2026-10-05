@@ -109,6 +109,30 @@ Expect("the same line from this client right after is refused", VO.Player:Enqueu
 stub.Advance(25)
 Expect("...but not much later", VO.Player:Enqueue(QuestLine(VO, 102)), true)
 
+-- Her start overtaking her words, as messages handled in one frame can (2026-10-05, "Mirror
+-- Lake": the line played with an empty caption): the start waits for the words.
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+P.Receive(stub, LALA, "LN", "102-accept", "q", 1, 102, 1234, "2.00", "", 2, "Giver", "Quest 102")
+P.Receive(stub, LALA, "TX", "102-accept", 1, 2, "First half, ")
+P.Receive(stub, LALA, "GO", "102-accept", 0)
+stub.Advance(0.2)
+Expect("a start that overtook the words waits for them", P.started[1], nil)
+P.Receive(stub, LALA, "TX", "102-accept", 2, 2, "second half.")
+stub.Advance(0.1)
+Expect("...and goes once they are in", P.started[1], "102-accept")
+Expect("...so the captions have them from the first word", env.Transcript.text, "First half, second half.")
+
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+P.Receive(stub, LALA, "LN", "102-accept", "q", 1, 102, 1234, "2.00", "", 2, "Giver", "Quest 102")
+P.Receive(stub, LALA, "GO", "102-accept", 0)
+stub.Advance(2.1)
+Expect("words that never come hold the start only a moment", P.started[1], "102-accept")
+P.Receive(stub, LALA, "TX", "102-accept", 1, 2, "Late, ")
+P.Receive(stub, LALA, "TX", "102-accept", 2, 2, "but here.")
+Expect("words arriving after the start reach the captions", env.Transcript.text, "Late, but here.")
+
 -- The words are the player's: male driver, female follower, each hears their own take.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 world.unitSex = 3

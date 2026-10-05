@@ -55,6 +55,10 @@ local RECENT_SECONDS = 20
 local ANSWER_GRACE = 2
 -- How long a line that is over is kept for `/sps sync`.
 local KEEP_SECONDS = 60
+-- How long a follower's start waits for the words still on their way. They are sent before
+-- the start, but messages arriving in one frame are not always handled in the order sent, and
+-- the captions read a line's words once, as it starts (2026-10-05, "Mirror Lake").
+local TEXT_WAIT = 2
 
 local applyingRemote = false
 local lastPaused
@@ -224,9 +228,26 @@ local function Gate(clip)
 	return nil
 end
 
+local function TextPending(entry)
+	return entry.role == "follower" and entry.parts ~= nil and entry.desc and (entry.desc.textParts or 0) > 0
+end
+
 function Sync:Release(entry, gen)
 	if not Waiting(entry) or (gen and gen ~= entry.gen) then
 		return
+	end
+	if TextPending(entry) then
+		entry.textWaitFrom = entry.textWaitFrom or GetTime()
+		if GetTime() - entry.textWaitFrom < TEXT_WAIT then
+			if not entry.textWaitLogged then
+				entry.textWaitLogged = true
+				Trace("hold %s: its words are not all here yet", entry.id)
+			end
+			local current = entry.gen
+			C_Timer.After(0.05, function() Sync:Release(entry, current) end)
+			return
+		end
+		Trace("release %s without all its words: waited %d s", entry.id, TEXT_WAIT)
 	end
 	entry.state = "released"
 	entry.releasedAt = GetTime()
@@ -502,13 +523,22 @@ Comm:On("TX", function(sender, channel, id, seq, total, piece)
 	local text = Comm.Unescape(table.concat(entry.parts, "", 1, total))
 	entry.parts = nil
 	entry.desc.text = text
+	Trace("words for %s: %d pieces, %d characters (%s)", entry.id, total, #text, entry.state)
 	if entry.state == "text" then
 		entry.state = "waiting"
 		Build(entry)
 	else
 		Lines:SetText(entry.clip, text)
+		-- Too late for the captions to have read them as the line started: they read again.
+		if entry.clip and entry.state == "playing" then
+			Lines:RefreshCaption(entry.clip)
+		end
 		if entry.clip and Spoken():GetCurrent() == entry.clip and Spoken().RefreshPlayer then
 			Spoken():RefreshPlayer()
+		end
+		-- A start held for these words goes now, if its time has come.
+		if entry.textWaitFrom and entry.state == "go" and (not entry.goAt or GetTime() >= entry.goAt) then
+			Sync:Release(entry, entry.gen)
 		end
 	end
 	PartySync:Changed()

@@ -243,20 +243,28 @@ end)
 --- headed by whose it is. `count` limits it to the newest lines.
 function LogBook:Merged(count)
 	local rows = {}
-	local function AddAll(lines, who, offset)
-		for _, line in ipairs(lines) do
+	-- `n` keeps lines with the same time in the order they were written: many happen in one
+	-- frame, and their order is often the very thing being looked for.
+	local function AddAll(lines, who, offset, source)
+		for i, line in ipairs(lines) do
 			local t, rest = line:match("^(%-?[%d%.]+) (.*)$")
 			t = tonumber(t)
 			if t then
-				rows[#rows + 1] = { t = t + (offset or 0), who = who, text = rest }
+				rows[#rows + 1] = { t = t + (offset or 0), who = who, text = rest, source = source, n = i }
 			end
 		end
 	end
-	AddAll(Store(), PartySync:ShortName(PartySync:UnitChatName("player")), 0)
+	AddAll(Store(), PartySync:ShortName(PartySync:UnitChatName("player")), 0, 0)
+	local source = 0
 	for _, log in pairs(Collected()) do
-		AddAll(log.lines or {}, PartySync:ShortName(log.name), log.offset or 0)
+		source = source + 1
+		AddAll(log.lines or {}, PartySync:ShortName(log.name), log.offset or 0, source)
 	end
-	table.sort(rows, function(a, b) return a.t < b.t end)
+	table.sort(rows, function(a, b)
+		if a.t ~= b.t then return a.t < b.t end
+		if a.source ~= b.source then return a.source < b.source end
+		return a.n < b.n
+	end)
 	local first = count and math.max(1, #rows - count + 1) or 1
 	local out = {}
 	for i = first, #rows do
