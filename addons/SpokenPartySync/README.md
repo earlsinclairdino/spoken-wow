@@ -53,7 +53,7 @@ Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 | `/sps room auto\|me\|none\|<name>` | which computer plays the sound |
 | `/sps sync` | the lines played together this session, and each member's state |
 | `/sps test <questID>` | queue a quest's accept line here, to try the sync without its NPC |
-| `/sps window`, `/sps settings`, `/sps log` | the window, the settings, every message in chat |
+| `/sps window`, `/sps settings` | the window, the settings |
 | `/sps logs [count]` | the debug log, this computer's and the party's collected ones on one timeline, to copy |
 | `/sps logs pull [count]` | ask every member online for their last lines (400 by default) |
 | `/sps logs clear` | empty this computer's log and the collected ones; a new session starts |

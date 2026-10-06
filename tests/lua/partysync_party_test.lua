@@ -226,7 +226,7 @@ Expect("...and it goes a little after the problem does", window.shown, false)
 Expect("the settings page is built", ns.optionsPanel ~= nil, true)
 
 for _, command in ipairs({ "", "api", "members", "status", "sync", "lead", "room", "room me", "room auto",
-	"test 101", "test 31337", "ping", "log", "log", "window", "window", "invite", "remove Nobody",
+	"test 101", "test 31337", "ping", "window", "window", "invite", "remove Nobody",
 	"logs", "logs 20", "logs pull 30", "logs clear", "logs clear all", "logs clearall" }) do
 	local ok, err = pcall(SlashCmdList.SPOKENPARTYSYNC, command)
 	Expect("/sps " .. command .. " runs", ok and true or tostring(err), true)

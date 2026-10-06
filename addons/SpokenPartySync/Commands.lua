@@ -101,7 +101,7 @@ local ROOM_WORDS = { auto = "", me = "me", none = "none", off = "none" }
 local function Help()
 	PartySync:Print("party: /sps invite <name> | remove <name> | members | lead [auto|me|follow] | room [auto|me|none|<name>]")
 	PartySync:Print("lines: /sps sync (what played together) | test <questID> (queue a quest's accept line here)")
-	PartySync:Print("window and settings: /sps window | settings | log (messages in chat)")
+	PartySync:Print("window and settings: /sps window | settings")
 	PartySync:Print("debug log: /sps logs [count] (yours and the party's, to copy) | logs pull [count] | logs clear (yours) | logs clear all (the party's too)")
 	PartySync:Print("connection tests: /sps api | ping [name|group] | latency [name] | probe [name] | hello | burst [count] [name] | status")
 end
@@ -224,10 +224,6 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 		Status()
 	elseif cmd == "window" then
 		PartySync:ToggleWindow()
-	elseif cmd == "log" then
-		local db = PartySync:DB()
-		db.logTraffic = not db.logTraffic
-		PartySync:Print("message log %s", db.logTraffic and "on" or "off")
 	elseif cmd == "settings" or cmd == "options" then
 		PartySync:OpenOptions()
 	else

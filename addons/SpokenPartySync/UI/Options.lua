@@ -214,8 +214,6 @@ function PartySync:SetupOptions()
 		local asked = PartySync.LogBook:ClearParty()
 		PartySync:Print("debug log cleared here; asked %d member%s online to clear theirs", asked, asked == 1 and "" or "s")
 	end, L.OPT_LOGS_CLEAR_ALL_TIP)
-	layout:Checkbox(L.OPT_LOG, L.OPT_LOG_TIP,
-		function() return DB().logTraffic end, function(value) DB().logTraffic = value and true or false end)
 	layout:Note(L.OPT_COMMANDS)
 
 	layout:StartOver(L.OPT_SECTION_START_OVER, L.OPT_RESET_PAGE, function()

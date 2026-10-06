@@ -51,8 +51,6 @@ local function Defaults()
 		-- "none" plays it everywhere, a member's NameKey plays it there and only captions here.
 		roomSpeaker = "",
 		window = { show = "problems", scale = 1 },
-		-- Every message in and out, in chat. For finding out why something did not arrive.
-		logTraffic = false,
 	}
 end
 PartySync.Defaults = Defaults
@@ -115,12 +113,9 @@ function PartySync:Trace(category, message, ...)
 	end
 end
 
---- A message in or out: always in the debug log, and in chat while traffic logging is on.
+--- A message in or out, in the debug log.
 function PartySync:Log(message, ...)
 	self:Trace("msg", message, ...)
-	if self:DB().logTraffic then
-		self:Print("|cff999999" .. message .. "|r", ...)
-	end
 end
 
 function PartySync:PlayerAvailable()
