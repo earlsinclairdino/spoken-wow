@@ -337,8 +337,8 @@ end)
 --
 -- Every client works this out for itself from the same facts -- each member's lead setting,
 -- carried in its hello, and the group's leader -- so they agree without a vote. The leader's
--- Pause, Skip and Stop reach everyone, it shares the quests it accepts, and when two of the
--- party start the same line at once, the leader's copy is the one played.
+-- Stop, Replay, Skip and Stop All reach everyone, it shares the quests it accepts, and when two
+-- of the party start the same line at once, the leader's copy is the one played.
 
 local function IsGroupLeader(key)
 	if not UnitIsGroupLeader then

@@ -1,7 +1,7 @@
 -- Spoken Party Sync's engine, against the real Spoken queue and the real Spoken Quests: a line
 -- queued here is announced and started together; a line announced by the other member is
 -- rebuilt, held and started on their word; the same line from both is settled one way; skips
--- and pauses follow the leader; one computer in the room plays the sound. Run with
+-- and Stop and Replay follow the leader; one computer in the room plays the sound. Run with
 -- `make test-player`.
 local here = arg[0]:match("^(.*)/[^/]*$") or "."
 package.path = here .. "/?.lua;" .. package.path

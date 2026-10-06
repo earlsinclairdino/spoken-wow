@@ -18,7 +18,7 @@
 --   GO  id, startInMs       start it in this many ms.
 --   AK  id, state, ms       queued | missing | started | finished | dropped | yielded
 --   SK  id                  this line was skipped or stopped: remove it here too.
---   PZ / RS                 pause / resume.
+--   PZ / RS                 stop / replay (Spoken:Pause / Resume).
 --
 -- A line waiting to start together holds everything queued behind it, so both queues keep
 -- the same order: the player's own rule that a held line is stepped over would otherwise let
@@ -675,7 +675,7 @@ end)
 -- Controls
 --------------------------------------------------------------------------------
 
---- Whether this client's Pause, Skip and Stop go to the others.
+--- Whether this client's Stop, Replay, Skip and Stop All go to the others.
 function Sync:CanControl()
 	local policy = PartySync:DB().controls
 	if policy == "anyone" then return true end

@@ -31,9 +31,9 @@ raid, or questing apart.
   and the captions without sound.
 - **Never twice.** Talking to the same NPC right after the other did does not replay the line.
 - **The leader.** One member leads: whoever leads the group, or whoever chose to in the
-  settings, or else the first name. The leader's Pause, Skip and Stop reach everyone (or
-  everyone's, or nobody's: a setting). When two of you start the same line at once, the
-  leader's copy is played.
+  settings, or else the first name. The leader's Stop, Replay, Skip and Stop All reach
+  everyone (or everyone's, or nobody's: a setting). When two of you start the same line at
+  once, the leader's copy is played.
 - **Quests.** The leader shares a quest it accepts from an NPC with the party; a quest a member
   shares is accepted for you, without its line being read again. Both are settings.
 - **Same room.** Choose which computer plays the sound. The others switch Spoken to captions
@@ -78,7 +78,7 @@ two parts and no realm: a whisper goes to the bare "First Last". The prefix is
 | `GO` | id, startInMs | start it |
 | `AK` | id, state, ms | queued, missing, started (and how late), finished, dropped, yielded |
 | `SK` | id | skipped or stopped: remove it |
-| `PZ` / `RS` | | pause, resume |
+| `PZ` / `RS` | | stop, replay (`Spoken:Pause`, `Resume`) |
 | `LQ` | token, count | ask a member for their debug log |
 | `LH` / `LL` | token, total, now, version / token, seq, line | the log's header (with the sender's clock) and its lines, paced |
 | `LC` / `LK` | | clear your log / cleared |

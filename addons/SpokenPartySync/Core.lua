@@ -10,7 +10,7 @@
 --   Comm.lua    addon messages, the only wire there is.
 --   Peers.lua   the party: its members, who is online, how far away, who leads, invites.
 --   Lines.lua   a line as a description another client can rebuild, and the rebuild.
---   Sync.lua    the engine: announce, hold, start together, acknowledge, skip and pause.
+--   Sync.lua    the engine: announce, hold, start together, acknowledge, skip, stop and replay.
 --   Accept.lua  quests shared and accepted for the party.
 --   Room.lua    two computers in one room: one plays the voice, the others show captions.
 --   UI/         the settings page, the sync window and the portrait menu.
@@ -45,7 +45,7 @@ local function Defaults()
 		sync = { quests = true, gossip = true, zones = true, books = true },
 		autoShare = true,
 		autoAccept = true,
-		-- Whose Pause, Skip and Stop act everywhere: "leader", "anyone" or "nobody".
+		-- Whose Stop, Replay, Skip and Stop All act everywhere: "leader", "anyone" or "nobody".
 		controls = "leader",
 		-- Two computers in one room: "" follows what the others chose, "me" plays the sound here,
 		-- "none" plays it everywhere, a member's NameKey plays it there and only captions here.

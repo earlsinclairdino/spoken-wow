@@ -86,7 +86,7 @@ local function Create()
 		frame.dismissed = true
 	end)
 
-	-- The player's own round buttons, where it offers them: the same Skip and Pause.
+	-- The player's own round button, where it offers one: the same Stop and Replay.
 	local Spoken = _G.Spoken
 	if Spoken and Spoken.CreateRoundButton then
 		local pause = Spoken:CreateRoundButton(frame, "play")
