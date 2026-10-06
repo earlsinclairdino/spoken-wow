@@ -46,56 +46,31 @@ local function Api()
 		and ((C_QuestLog and C_QuestLog.IsPushableQuest) or GetQuestLogPushable) ~= nil))
 end
 
+local Diagnostics = PartySync.Diagnostics
+
 local function Members()
-	local any = false
-	local leader = Peers:Leader()
-	for key in Peers:Members() do
-		any = true
-		local peer = Peers.list[key]
-		PartySync:Print("  %s: %s%s%s%s", Peers:MemberName(key), peer and peer.state or "not heard from",
-			peer and peer.rtt and format(", %d ms", math.floor(peer.rtt + 0.5)) or "",
-			peer and peer.version and (", v" .. peer.version) or "",
-			key == leader and ", leads" or "")
-	end
-	if not any then
+	local lines = Diagnostics:MemberLines()
+	for _, line in ipairs(lines) do PartySync:Print("  %s", line) end
+	if not lines[1] then
 		PartySync:Print("  nobody yet: /sps invite <name>, or right-click their portrait")
 	end
-	PartySync:Print("  leader: %s; sound: %s", leader and PartySync:ShortName(Peers:MemberName(leader)) or "?",
-		Room:Speaker() and PartySync:ShortName(Peers:MemberName(Room:Speaker())) or "every computer")
+	local leader, why = Peers:Leader()
+	PartySync:Print("  leader: %s (%s); sound: %s", leader and PartySync:ShortName(Peers:MemberName(leader)) or "?",
+		tostring(why), Room:Speaker() and PartySync:ShortName(Peers:MemberName(Room:Speaker())) or "every computer")
 end
 
+--- What /spoken diagnostics and the debug log's snapshots hold for the party, in chat.
 local function Status()
-	PartySync:Print("group: %s; %s", tostring(Comm:GroupChannel() or "none"), Comm:Context())
-	PartySync:Print("debug log: %s", not PartySync.LogBook:Available() and "no Spoken Developer module"
-		or PartySync.LogBook:IsOn() and "on" or "off (Spoken > Developer, or /spoken log on)")
-	Members()
-	local others = false
-	for key, peer in pairs(Peers.list) do
-		if not Peers:IsMember(key) then
-			if not others then PartySync:Print("others running the addon:") end
-			others = true
-			PartySync:Print("  %s: %s", peer.name or key, tostring(peer.state))
-		end
-	end
+	for _, line in ipairs(Diagnostics:Lines(false)) do PartySync:Print("%s", line) end
 end
 
 local function Lines()
-	local list = Sync:Entries()
-	if not list[1] then
+	local lines = Diagnostics:EntryLines()
+	if not lines[1] then
 		PartySync:Print("no line played together this session yet")
 		return
 	end
-	for i, entry in ipairs(list) do
-		if i > 10 then break end
-		local peers = {}
-		for key, peer in pairs(entry.peers) do
-			table.insert(peers, format("%s %s%s", PartySync:ShortName(Peers:MemberName(key)), tostring(peer.state),
-				peer.ms and format(" +%d ms", peer.ms) or ""))
-		end
-		PartySync:Print("  %s (%s, %s%s): %s%s", Sync.LabelOf(entry), entry.id, entry.role,
-			entry.role == "follower" and (" of " .. PartySync:ShortName(Peers:MemberName(entry.driver))) or "",
-			entry.state, peers[1] and (" -- " .. table.concat(peers, ", ")) or "")
-	end
+	for _, line in ipairs(lines) do PartySync:Print("  %s", line) end
 end
 
 local ROOM_WORDS = { auto = "", me = "me", none = "none", off = "none" }

@@ -273,6 +273,15 @@ stub.Advance(0.55)
 Expect("...and plays on its own start", P.started[1] ~= nil, true)
 
 ---------------------------------------------------------------- controls
+-- Who stopped, replayed or skipped what goes into the debug log, where Spoken keeps one.
+local function Logged(text)
+	if not (Spoken.HasLog and Spoken:HasLog()) then return true end
+	for _, line in ipairs(Spoken:LogLines()) do
+		if line:find(text, 1, true) then return true end
+	end
+	return false
+end
+
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 ns:DB().lead = "me"
 P.Party(stub, ns)
@@ -281,13 +290,16 @@ stub.Advance(0.55)
 P.Clear()
 Spoken:Skip()
 Expect("the leader's skip of a line played together goes to her", P.Last("SK", LALA) and P.Last("SK", LALA).fields[2], "101-accept")
+Expect("...and the log says so", Logged("sync skip 101-accept (") and Logged("here: told lala throwaway"), true)
 VO.Player:Enqueue(QuestLine(VO, 102))
 stub.Advance(0.55)
 P.Clear()
 Spoken:Pause()
 Expect("...and its pause", P.Last("PZ", LALA) ~= nil, true)
+Expect("...logged with the line it stopped", Logged("sync stop here (102-accept ("), true)
 Spoken:Resume()
 Expect("...and its resume", P.Last("RS", LALA) ~= nil, true)
+Expect("...logged too", Logged("sync replay here (102-accept ("), true)
 
 -- Following, with the leader's controls: hers act here, this side's stay here.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
@@ -297,11 +309,14 @@ P.Receive(stub, LALA, "GO", "102-accept", 0)
 P.Clear()
 P.Receive(stub, LALA, "PZ")
 Expect("the leader's pause pauses here", Spoken:IsPaused(), true)
+Expect("...and the log says whose, and what it stopped", Logged("sync stop from lala throwaway: stopping 102-accept ("), true)
 Expect("...without being sent back", P.Last("PZ"), nil)
 P.Receive(stub, LALA, "RS")
 Expect("...and her resume resumes", Spoken:IsPaused(), false)
+Expect("...logged", Logged("sync replay from lala throwaway: replaying 102-accept"), true)
 P.Receive(stub, LALA, "SK", "102-accept")
 Expect("her skip removes the line here", Spoken:GetCurrent(), nil)
+Expect("...logged with the line", Logged("sync skip from lala throwaway: removing 102-accept ("), true)
 Expect("...without being sent back", P.Last("SK"), nil)
 P.Receive(stub, LALA, "LN", "103-accept", "q", 1, 103, 1234, "2.00", "", 0, "Giver", "Quest 103")
 P.Receive(stub, LALA, "GO", "103-accept", 0)
@@ -309,9 +324,13 @@ P.Clear()
 Spoken:Skip()
 Expect("a follower's own skip stays here", P.Last("SK"), nil)
 Expect("...but she hears it was dropped", P.Last("AK", LALA) and P.Last("AK", LALA).fields[3], "dropped")
+Expect("...and the log says why it stayed", Logged("here: kept here, the controls are the leader's, lala throwaway's"), true)
 ns:DB().controls = "nobody"
 P.Receive(stub, LALA, "PZ")
 Expect("with nobody's controls shared, hers do nothing here", Spoken:IsPaused(), false)
+Expect("...and the log says why", Logged("sync stop from lala throwaway ignored: the controls are not shared here"), true)
+P.Receive(stub, "Bob Stranger", "RS")
+Expect("a stranger's replay is logged as ignored", Logged("replay from bob stranger ignored: not in the party"), true)
 
 ---------------------------------------------------------------- settings
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)

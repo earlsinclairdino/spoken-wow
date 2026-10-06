@@ -74,7 +74,7 @@ L.OPT_LOGS_PULL = "Collect the Party's Logs"
 L.OPT_LOGS_PULL_TIP = "Asks everyone in your Spoken party who is online for their debug log. Show the Log, above, then shows theirs with yours on one timeline. Takes a few seconds."
 L.OPT_LOGS_CLEAR_ALL = "Clear the Party's Logs"
 L.OPT_LOGS_CLEAR_ALL_TIP = "Clears this computer's debug log and the logs collected here, and asks everyone in your Spoken party who is online to clear theirs: one new session for all of you."
-L.OPT_LOGS_NOTE = "Each member's own Keep a Debug Log must be on for theirs to hold anything. /sps logs pull, /sps logs and /sps logs clear all do the same from chat."
+L.OPT_LOGS_NOTE = "Each member's own Enable Debug Log Recording must be on for theirs to hold anything. /sps logs pull, /sps logs and /sps logs clear all do the same from chat."
 L.OPT_COMMANDS = "/sps lists the commands, including the connection tests (api, ping, latency, probe, burst) and the party's debug logs (logs, logs pull, logs clear all), which are on Spoken's Developer page too."
 
 L.OPT_SECTION_START_OVER = "Start Over"

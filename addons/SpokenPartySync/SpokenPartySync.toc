@@ -3,11 +3,12 @@
 ## Notes: Plays Spoken's lines together for players who quest together: started at once, skipped at once, and one voice in the room.
 ## Version: 0.2.0
 ## SavedVariables: SpokenPartySyncDB
-## OptionalDeps: Spoken, Spoken_Quests, Spoken_Zones, Spoken_Books
+## OptionalDeps: Spoken, Spoken_Quests, Spoken_Zones, Spoken_Books, Spoken_Developer
 # Spoken is required at runtime and its modules are what there is to sync, but all four are
 # optional here as they are for the modules themselves: an install missing the player loads,
 # says what is missing, and does nothing, rather than failing to load at all. Listing them
 # also makes them load first, so their sources are registered by the time this one looks.
+# Spoken_Developer, where installed, keeps the debug log Party Sync writes into.
 ## IconTexture: Interface\AddOns\Spoken\icon.tga
 ## Group: Spoken
 
@@ -21,6 +22,7 @@ Lines.lua
 Sync.lua
 Accept.lua
 Room.lua
+Diagnostics.lua
 UI\Layout.lua
 UI\Options.lua
 UI\Window.lua

@@ -163,6 +163,7 @@ function Peers:RemoveMember(name, quiet)
 		return false
 	end
 	local who = self:MemberName(key)
+	PartySync:Trace("party", "%s left the party%s", key, quiet and ", by their choice" or ", removed here")
 	PartySync:DB().members[key] = nil
 	if not quiet then
 		Comm:Whisper(who, "ID")
@@ -201,6 +202,8 @@ end
 --- A setting the others read has changed: tell the members who are online.
 function Peers:Announce()
 	local lead, room = Settings()
+	PartySync:Trace("party", "lead %s, room %s: told %s", lead, room ~= "" and room or "as chosen elsewhere",
+		self:OnlineMembers()[1] and table.concat(self:OnlineMembers(), ", ") or "nobody online")
 	for _, key in ipairs(self:OnlineMembers()) do
 		Comm:Whisper(self:MemberName(key), "HI", PartySync.version, 1, lead, room)
 	end
@@ -253,10 +256,12 @@ function Peers:Invite(name)
 	end
 	invited[key] = GetTime()
 	local sent, answer = Comm:Whisper(name, "IV", PartySync.version)
+	PartySync:Trace("party", "invited %s: %s", key, sent and "sent" or tostring(answer))
 	return sent, answer
 end
 
 local function Join(name)
+	PartySync:Trace("party", "%s joined the party", tostring(PartySync:NameKey(name)))
 	Peers:AddMember(name)
 	Peers:Seen(name)
 	PartySync:Print("%s is in your Spoken party", PartySync:ShortName(name))
@@ -323,6 +328,7 @@ Comm:On("ID", function(sender)
 	local key = PartySync:NameKey(sender)
 	if invited[key] then
 		invited[key] = nil
+		PartySync:Trace("party", "%s declined the invitation", tostring(key))
 		PartySync:Print("%s declined", PartySync:ShortName(sender))
 	end
 	if Peers:IsMember(sender) then
@@ -351,7 +357,8 @@ local function IsGroupLeader(key)
 	return unit ~= nil and UnitIsGroupLeader(unit) and true or false
 end
 
---- The leader's key, this character's included; nil only before the name is known.
+--- The leader's key, this character's included, and why it leads; nil only before the name is
+--- known.
 function Peers:Leader()
 	local me = PartySync:MyKey()
 	if not me then
@@ -365,15 +372,26 @@ function Peers:Leader()
 	for key in pairs(wishes) do table.insert(keys, key) end
 	table.sort(keys)
 	for _, key in ipairs(keys) do
-		if wishes[key] == "me" then return key end
+		if wishes[key] == "me" then return key, "asked to lead" end
 	end
 	for _, key in ipairs(keys) do
-		if wishes[key] ~= "follow" and IsGroupLeader(key) then return key end
+		if wishes[key] ~= "follow" and IsGroupLeader(key) then return key, "leads the group" end
 	end
 	for _, key in ipairs(keys) do
-		if wishes[key] ~= "follow" then return key end
+		if wishes[key] ~= "follow" then return key, "first by name" end
 	end
-	return keys[1]
+	return keys[1], "everyone follows: first by name"
+end
+
+local lastLeader
+
+--- Writes the leader in the log whenever it changes, and why it is them.
+function Peers:CheckLeader()
+	local leader, why = self:Leader()
+	if leader ~= lastLeader then
+		PartySync:Trace("party", "leader: %s (%s), was %s", tostring(leader), tostring(why), tostring(lastLeader or "nobody"))
+		lastLeader = leader
+	end
 end
 
 function Peers:IsLeader(key)

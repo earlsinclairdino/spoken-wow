@@ -66,6 +66,7 @@ local started = false
 
 local function Start()
 	PartySync.LogBook:Setup()
+	PartySync.Diagnostics:Setup()
 	Comm:Register()
 	Comm:FilterChat()
 	Peers:Setup()
@@ -91,6 +92,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
 	elseif event == "GROUP_ROSTER_UPDATE" then
 		QueueHello()
 	elseif event == "PARTY_LEADER_CHANGED" then
+		-- Changed() writes the new leader in the debug log, where it moved.
 		PartySync:Changed()
 	elseif event == "QUEST_DETAIL" then
 		Accept:QUEST_DETAIL(...)

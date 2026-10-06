@@ -131,7 +131,7 @@ local SHOW = { always = L.SHOW_ALWAYS, syncing = L.SHOW_SYNCING, problems = L.SH
 local function SyncBox(kind, label, tooltip)
 	layout:Checkbox(label, tooltip,
 		function() return DB().sync[kind] ~= false end,
-		function(value) DB().sync[kind] = value and true or false end)
+		function(value) DB().sync[kind] = value and true or false; PartySync:TraceSetting("play together " .. kind, DB().sync[kind]) end)
 end
 
 function PartySync:SetupOptions()
@@ -178,13 +178,15 @@ function PartySync:SetupOptions()
 
 	layout:Section(L.OPT_SECTION_QUESTS)
 	layout:Checkbox(L.OPT_AUTO_SHARE, L.OPT_AUTO_SHARE_TIP,
-		function() return DB().autoShare end, function(value) DB().autoShare = value and true or false end)
+		function() return DB().autoShare end,
+		function(value) DB().autoShare = value and true or false; PartySync:TraceSetting("auto share", DB().autoShare) end)
 	layout:Checkbox(L.OPT_AUTO_ACCEPT, L.OPT_AUTO_ACCEPT_TIP,
-		function() return DB().autoAccept end, function(value) DB().autoAccept = value and true or false end)
+		function() return DB().autoAccept end,
+		function(value) DB().autoAccept = value and true or false; PartySync:TraceSetting("auto accept", DB().autoAccept) end)
 
 	layout:Section(L.OPT_SECTION_CONTROLS)
 	layout:Dropdown(L.OPT_CONTROLS, L.OPT_CONTROLS_TIP, { "leader", "anyone", "nobody" },
-		function() return DB().controls end, function(value) DB().controls = value end, refresh,
+		function() return DB().controls end, function(value) DB().controls = value; PartySync:TraceSetting("controls", value) end, refresh,
 		function(value) return CONTROLS[value] or value end)
 
 	layout:Section(L.OPT_SECTION_ROOM)

@@ -145,10 +145,13 @@ if not (Spoken.HasLog and Spoken:HasLog()) then
 	Expect("a member asking for it gets no lines", header and header.fields[3], "0")
 	Expect("...and hears it is off", header and header.fields[6], "0")
 else
-	Expect("with Spoken's log off, nothing is kept", #Spoken:LogLines(), 0)
+	-- Spoken Developer turns the log on as it is installed; Party Sync writes into it from the start.
+	Expect("with Spoken Developer installed, Spoken's log is on from the start", Spoken:IsLogOn(), true)
 
 	ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 	P.Party(stub, ns)
+	-- Off and on again, so the session starts here.
+	Spoken:SetLogOn(false)
 	Spoken:SetLogOn(true)
 	VO.Player:Enqueue({ event = 1, questID = 101, name = "Giver", title = "Quest 101", unitGUID = "Creature-0-0-0-0-1234-0" })
 	stub.Advance(0.6)
@@ -238,7 +241,7 @@ else
 	-- The party's buttons sit under Spoken's own on its Developer page.
 	local devLabels = {}
 	for _, text in ipairs(stub.LabelsUnder(_G.SpokenDeveloperOptionsPanel)) do devLabels[text] = true end
-	Expect("Spoken's Developer page has the log", devLabels["Keep a Debug Log"], true)
+	Expect("Spoken's Developer page has the log", devLabels["Enable Debug Log Recording"], true)
 	Expect("...and Party Sync's section", devLabels["Spoken Party Sync"], true)
 	Expect("...collecting the party's logs", devLabels["Collect the Party's Logs"], true)
 	Expect("...and clearing them", devLabels["Clear the Party's Logs"], true)
@@ -266,6 +269,26 @@ ns:RefreshWindow()
 Expect("...and it goes a little after the problem does", window.shown, false)
 
 Expect("the settings page is built", ns.optionsPanel ~= nil, true)
+
+---------------------------------------------------------------- diagnostics
+local function Has(text, list)
+	for _, line in ipairs(list) do
+		if line:find(text, 1, true) then return true end
+	end
+	return false
+end
+local diag = ns.Diagnostics:Lines(true)
+Expect("the party's diagnostics name the addon and the group", Has("Spoken Party Sync " .. ns.version .. "; group: ", diag), true)
+Expect("...the debug log", Has("debug log: ", diag), true)
+Expect("...who leads, and why", Has("leader: Lala Throwaway (first by name); controls: leader", diag), true)
+Expect("...the member, online and leading", Has("Lala Throwaway: online", diag) and Has(", leads", diag), true)
+Expect("...and, detailed, the lines played together", Has("101-accept, driver", diag), true)
+Expect("...but not when brief", Has("101-accept, driver", ns.Diagnostics:Lines(false)), false)
+if Spoken.Diagnostics and Spoken.HasLog and Spoken:HasLog() then
+	local all = Spoken:Diagnostics(true)
+	Expect("Spoken's diagnostics hold the party's", Has("Spoken Party Sync:", all), true)
+	Expect("...with the member", Has("Lala Throwaway: online", all), true)
+end
 
 for _, command in ipairs({ "", "api", "members", "status", "sync", "lead", "room", "room me", "room auto",
 	"test 101", "test 31337", "ping", "window", "window", "invite", "remove Nobody",

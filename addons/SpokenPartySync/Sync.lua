@@ -87,6 +87,21 @@ local function LabelOf(entry)
 end
 Sync.LabelOf = LabelOf
 
+--- The line a Stop or Replay acts on, for the log: its id and title, or the player's own key
+--- for a line not played together.
+local function Describe(clip)
+	if not clip then return "nothing queued" end
+	local entry = clip.partySync
+	if entry then return format("%s (%s)", entry.id, tostring(LabelOf(entry))) end
+	local ok, id = pcall(Lines.Id, Lines, clip)
+	return format("%s, not played together", tostring(ok and id or clip.key))
+end
+
+local function Head()
+	local S = Spoken()
+	return S:GetCurrent() or S:GetQueue()[1]
+end
+
 local function InQueue(clip)
 	if not clip then return false end
 	for _, queued in ipairs(Spoken():GetQueue()) do
@@ -273,7 +288,7 @@ function Sync:Go(entry)
 	for _, key in ipairs(members) do
 		told[#told + 1] = format("%s %d ms (rtt %d)", key, math.max(0, math.floor(delay - Peers:Rtt(key) / 2)), Peers:Rtt(key))
 	end
-	Trace("go %s: start here in %d ms; told %s", entry.id, delay, table.concat(told, ", "))
+	Trace("go %s (%s): start here in %d ms; told %s", entry.id, tostring(LabelOf(entry)), delay, table.concat(told, ", "))
 	if delay <= 0 then
 		self:Release(entry)
 		return
@@ -683,40 +698,90 @@ function Sync:CanControl()
 	return false
 end
 
+--- Why this client's Stop, Replay or Skip stays here, or nil when it goes to the party; false
+--- when there is no party to tell, which is not worth a line in the log.
+function Sync:WhyKept()
+	if not self:Live() then
+		return next(PartySync:DB().members) ~= nil and "nobody in the party online" or false
+	end
+	local policy = PartySync:DB().controls
+	if policy == "anyone" then return nil end
+	if policy == "leader" then
+		if Peers:AmLeader() then return nil end
+		return format("the controls are the leader's, %s's", tostring(Peers:Leader()))
+	end
+	return "the controls are not shared"
+end
+
+--- Why `sender`'s do nothing here, or nil when they do.
+function Sync:WhyRefused(sender)
+	if not Peers:IsMember(sender) then return "not in the party" end
+	local policy = PartySync:DB().controls
+	if policy == "anyone" then return nil end
+	if policy == "leader" then
+		local leader = Peers:Leader()
+		if leader == PartySync:NameKey(sender) then return nil end
+		return format("the controls are the leader's, %s's", tostring(leader))
+	end
+	return "the controls are not shared here"
+end
+
 --- Whether `sender`'s do here.
 function Sync:AcceptsControl(sender)
-	if not Peers:IsMember(sender) then return false end
-	local policy = PartySync:DB().controls
-	if policy == "anyone" then return true end
-	if policy == "leader" then return Peers:IsLeader(PartySync:NameKey(sender)) end
-	return false
+	return self:WhyRefused(sender) == nil
 end
 
 local function Remotely(fn)
-	Trace("applying a control from the party")
 	applyingRemote = true
 	local ok, err = pcall(fn)
 	applyingRemote = false
 	if not ok then PartySync:Print("|cffff6060%s|r", tostring(err)) end
 end
 
+-- Each control received says in the log who sent it, what it did here, or why it did nothing.
 Comm:On("SK", function(sender, channel, id)
-	if not Sync:AcceptsControl(sender) then return end
+	local key = PartySync:NameKey(sender)
 	local entry = id and Sync.lines[id]
+	-- A line's own driver ends it whatever the controls: its copy there never played.
+	local own = entry and entry.role == "follower" and entry.driver == key
+	local why = not own and Sync:WhyRefused(sender)
+	if why then
+		Trace("skip %s from %s ignored: %s", tostring(id), tostring(key), why)
+		return
+	end
 	local clip = entry and entry.clip
 	if clip and clip.source and InQueue(clip) then
+		Trace("skip from %s: removing %s (%s, %s)", key, id, tostring(LabelOf(entry)), tostring(entry.state))
 		Remotely(function() clip.source:Remove(clip) end)
+	elseif entry then
+		Trace("skip from %s: %s is not queued here (%s)", key, tostring(id), tostring(entry.state))
+	else
+		Trace("skip from %s: %s is not here", tostring(key), tostring(id))
 	end
 end)
 
 Comm:On("PZ", function(sender)
-	if Sync:AcceptsControl(sender) and not Spoken():IsPaused() then
+	local key = PartySync:NameKey(sender)
+	local why = Sync:WhyRefused(sender)
+	if why then
+		Trace("stop from %s ignored: %s", tostring(key), why)
+	elseif Spoken():IsPaused() then
+		Trace("stop from %s: already stopped here", key)
+	else
+		Trace("stop from %s: stopping %s", key, Describe(Head()))
 		Remotely(function() Spoken():Pause() end)
 	end
 end)
 
 Comm:On("RS", function(sender)
-	if Sync:AcceptsControl(sender) and Spoken():IsPaused() then
+	local key = PartySync:NameKey(sender)
+	local why = Sync:WhyRefused(sender)
+	if why then
+		Trace("replay from %s ignored: %s", tostring(key), why)
+	elseif not Spoken():IsPaused() then
+		Trace("replay from %s: not stopped here", key)
+	else
+		Trace("replay from %s: replaying %s", key, Describe(Head()))
 		Remotely(function() Spoken():Resume() end)
 	end
 end)
@@ -730,7 +795,7 @@ local function OnStarted(clip)
 	if not entry then return end
 	entry.state = "playing"
 	entry.startedAt = GetTime()
-	Trace("playing %s (%s), %s", entry.id, entry.role,
+	Trace("playing %s (%s, %s), %s", entry.id, tostring(LabelOf(entry)), entry.role,
 		entry.goAt and format("%+d ms from the planned start", (GetTime() - entry.goAt) * 1000) or "no planned start")
 	if entry.role == "follower" then
 		Sync.recent[entry.id] = GetTime()
@@ -752,9 +817,14 @@ local function OnStopped(clip, finished)
 		if InQueue(clip) then return end
 		Ended(entry, "stopped")
 		Ack(entry, "dropped")
-		if not applyingRemote and Sync:Live() and Sync:CanControl() then
-			Trace("skip %s: sent to the party", entry.id)
-			SendAll("SK", entry.id)
+		if not applyingRemote then
+			local kept = Sync:WhyKept()
+			if kept == nil then
+				Trace("skip %s (%s) here: told %s", entry.id, tostring(LabelOf(entry)), table.concat(Peers:OnlineMembers(), ", "))
+				SendAll("SK", entry.id)
+			elseif kept then
+				Trace("skip %s (%s) here: kept here, %s", entry.id, tostring(LabelOf(entry)), kept)
+			end
 		end
 	end
 	PartySync:Changed()
@@ -769,6 +839,8 @@ local function OnDropped(clip, reason)
 	elseif not applyingRemote and Sync:Live() then
 		-- The driver's own copy never played. A file this client refused may well play
 		-- elsewhere, so the others start; anything else -- trimmed, outranked -- ends the line.
+		Trace("dropped %s here (%s): told %s to %s", entry.id, tostring(reason), table.concat(Peers:OnlineMembers(), ", "),
+			reason == "missing" and "start without it" or "skip it")
 		if reason == "missing" then SendAll("GO", entry.id, 0) else SendAll("SK", entry.id) end
 	end
 	PartySync:Changed()
@@ -776,9 +848,15 @@ end
 
 local function OnAudioChanged()
 	local paused = Spoken():IsPaused()
-	if lastPaused ~= nil and paused ~= lastPaused and not applyingRemote and Sync:Live() and Sync:CanControl() then
-		Trace("%s: sent to the party", paused and "pause" or "resume")
-		SendAll(paused and "PZ" or "RS")
+	if lastPaused ~= nil and paused ~= lastPaused and not applyingRemote then
+		local kept = Sync:WhyKept()
+		local what = paused and "stop" or "replay"
+		if kept == nil then
+			Trace("%s here (%s): told %s", what, Describe(Head()), table.concat(Peers:OnlineMembers(), ", "))
+			SendAll(paused and "PZ" or "RS")
+		elseif kept then
+			Trace("%s here (%s): kept here, %s", what, Describe(Head()), kept)
+		end
 	end
 	lastPaused = paused
 	Sync:Tick()

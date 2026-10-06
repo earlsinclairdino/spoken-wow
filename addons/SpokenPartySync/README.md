@@ -58,6 +58,7 @@ Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 | `/sps logs pull [count]` | ask every member online for their last lines (400 by default) |
 | `/sps logs clear` | empty this computer's log and the collected ones; a new session starts |
 | `/sps logs clear all` | the same, and every member online clears theirs: one new session for the party |
+| `/sps status` | the group, the debug log, the leader and why, the controls, the sound, what is played together, and each member; the same lines `/spoken diagnostics` shows |
 | `/sps api` | what this client supports, and which modules can play the party's lines |
 | `/sps ping [name\|group]`, `/sps latency [name]` | round trips, by whisper and by party |
 | `/sps probe [name]` | which way of writing a name a whisper reaches (grouped) |
@@ -95,12 +96,29 @@ source's own, and `Spoken:SetCaptionsOnlyOverride` for the room.
 ## Debug log
 
 The log is Spoken's, kept by the Spoken Developer module (`Spoken:Log`; without the module
-Party Sync keeps none, and `/sps logs` says so). It is off until **Keep a Debug Log** is turned on in
-Spoken > Developer (or `/spoken log on`), on each computer. Party Sync writes into it the
-sync's steps (`sync`), every message in and out (`msg`), the party and the room, beside
-Spoken's own lines for the queue (queued, started, stopped, dropped, and why), each stamped
-with `GetTime()`. Spoken keeps the last 2000 lines in its saved settings, so after a `/reload`
-they are in `WTF\Account\<account>\SavedVariables\Spoken.lua`.
+Party Sync keeps none, and `/sps logs` says so). It is on once the module is installed; **Enable
+Debug Log Recording** in Spoken > Developer (or `/spoken log on|off`) switches it, on each
+computer. Party Sync writes into it, each line stamped with `GetTime()`:
+
+- `sync`: the sync's steps (announced, held, go, started, acknowledged, released), and every
+  control: who stopped, replayed or skipped which line, sent (`stop here (<line>): told <members>`)
+  or kept here and why (`kept here, the controls are the leader's, <name>'s`), received
+  (`skip from <name>: removing <line>`) or ignored and why (`stop from <name> ignored: ...`);
+- `msg`: every message in and out;
+- `party`: members online, lost and offline, the leader and why each time it changes,
+  invitations, the lead and room told to the others, settings changed on the page;
+- `room`: whether this computer plays the sound.
+
+Spoken's own lines for the queue (queued, started, stopped, dropped, and why) are beside them.
+The module keeps the last 2000 lines in its saved variables, written at a reload, so they are in
+`WTF\Account\<account>\SavedVariables\Spoken_Developer.lua`; Report > **Write the Debug Log for an
+AI Agent** reloads for that. `scripts/developer/read-log.py` reads it with the collected logs.
+
+`Diagnostics.lua` adds a **Spoken Party Sync** block to `/spoken diagnostics` and to every
+snapshot the log takes (`/sps status` prints it): the group, the leader and why, the controls,
+which computer plays the sound, what is played together, each member's state, round trip,
+version and last message, and in the detailed snapshot the lines played together lately, the
+open problems and the collected logs.
 
 `/sps logs pull` (or **Collect the Party's Logs**, in Party Sync's section of the Developer
 page) asks every member online for theirs. Each answers with its clock reading, whether its log
@@ -123,6 +141,7 @@ them merged on one timeline in a box to copy from, each line headed by whose it 
 | `Sync.lua` | announcing, holding, starting together, acknowledgements, controls |
 | `Accept.lua` | quests shared and accepted |
 | `Room.lua` | one computer plays the sound |
+| `Diagnostics.lua` | the party's state as lines, for `/sps status` and Spoken's diagnostics |
 | `UI/Window.lua`, `UI/Options.lua`, `UI/UnitMenu.lua` | the window, the settings page, the portrait menu |
 | `UI/Layout.lua` | byte-identical in every Spoken addon |
 | `Events.lua`, `Commands.lua` | wiring, `/sps` |

@@ -119,6 +119,11 @@ function PartySync:Trace(category, message, ...)
 	Spoken:Log(category, text)
 end
 
+--- A setting changed on the page, in the debug log: what the party does depends on them.
+function PartySync:TraceSetting(name, value)
+	self:Trace("party", "setting %s: %s", name, tostring(value))
+end
+
 --- A message in or out, in the debug log.
 function PartySync:Log(message, ...)
 	self:Trace("msg", message, ...)
@@ -131,6 +136,7 @@ end
 --- Something the window, the room and the settings show has changed: who is online, who
 --- leads, a line's state. Cheap; each listener redraws from scratch.
 function PartySync:Changed()
+	if self.Peers and self.Peers.CheckLeader then self.Peers:CheckLeader() end
 	if self.Room and self.Room.Update then self.Room:Update() end
 	if self.RefreshWindow then self:RefreshWindow() end
 	if self.RefreshOptions then self:RefreshOptions() end
