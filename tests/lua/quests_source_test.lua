@@ -100,6 +100,26 @@ do
         and subtitle.activeFrame:GetParent() == subtitle, true)
     _G.UnitGUID, _G.SetPortraitTexture = unitGUID, portrait
 end
+-- A quest-log giver's face is drawn from its creature id through one model for every creature.
+-- One the client has not cached, built over another, can answer the other's appearance: on the
+-- Forever beta a dwarf's line showed the human giver primed before it. Never taken for its own.
+do
+    world.creatureDisplays[7001] = { 111 }
+    world.creatureDisplays[7002] = { 222 }
+    local first = env.StaticPortrait:FromCreature(7001)
+    Expect("a quest-log giver's face comes from its creature's appearance", first and first.texture.display, 111)
+    world.staleCreatures[7002] = true
+    stub.Advance(0.1)
+    Expect("one not cached yet, still answering the last creature's appearance, has no face yet",
+        env.StaticPortrait:FromCreature(7002), nil)
+    stub.Advance(0.1)
+    Expect("...nor when asked again", env.StaticPortrait:FromCreature(7002), nil)
+    world.staleCreatures[7002] = nil
+    stub.Advance(0.1)
+    local second = env.StaticPortrait:FromCreature(7002)
+    Expect("...and its own once the client has it", second and second.texture.display, 222)
+    Expect("the first keeps its own", env.StaticPortrait:FromCreature(7001).texture.display, 111)
+end
 _G.C_Container = {
     GetContainerNumSlots = function(bag) return bag == 1 and 3 or 0 end,
     GetContainerItemInfo = function(bag, slot) return slot == 2 and { iconFileID = 134939, hyperlink = "|cffffffff|Hitem:1307::|h[Gold Pickup Schedule]|h|r" } or nil end,
