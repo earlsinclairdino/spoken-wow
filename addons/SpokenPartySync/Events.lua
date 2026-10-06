@@ -74,6 +74,7 @@ local function Start()
 		PartySync:Print("|cffffcc00Spoken is missing or too old: there is nothing to play together.|r")
 	end
 	PartySync:SetupOptions()
+	PartySync:SetupMinimapEntries()
 	PartySync.UnitMenu:Setup()
 	PartySync:SetupWindow()
 	Room:Update()

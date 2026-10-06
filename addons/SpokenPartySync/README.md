@@ -30,16 +30,21 @@ raid, or questing apart.
   reached plays for everyone, with its words. A computer with no file for it shows the player
   and the captions without sound.
 - **Never twice.** Talking to the same NPC right after the other did does not replay the line.
-- **The leader.** One member leads: whoever leads the group, or whoever chose to in the
-  settings, or else the first name. The leader's Stop, Replay, Skip and Stop All reach
+- **The leader.** One member leads: whoever was chosen with **Lead** (in the window, on the
+  settings page, on their portrait's menu, or `/sps lead <name>`), else whoever leads the
+  group, else the first name. A choice is made for the whole party: every member online is
+  told and saves the same, so the last one made is everyone's. The leader's Stop, Replay, Skip and Stop All reach
   everyone (or everyone's, or nobody's: a setting). When two of you start the same line at
   once, the leader's copy is played.
 - **Quests.** The leader shares a quest it accepts from an NPC with the party; a quest a member
   shares is accepted for you, without its line being read again. Both are settings.
-- **Same room.** Choose which computer plays the sound. The others switch Spoken to captions
-  only for as long as that computer is online, without changing Spoken's own setting.
-- **The window.** The party, every queued line and how far each computer got with it, and what
-  went wrong. By default it only appears when something is wrong; `/sps window` opens it.
+- **Same room.** Choose which computer plays the sound (**Sound**, wherever Lead is), for the
+  whole party. The others switch Spoken to captions only for as long as that computer is
+  online, without changing Spoken's own setting.
+- **The window.** The party, a row per member with Lead and Sound, every queued line and how
+  far each computer got with it, and what went wrong; the gear opens the settings. By default
+  it only appears when something is wrong; Spoken's minimap menu (Open Party Window) and
+  `/sps window` open it.
 
 Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 
@@ -49,8 +54,8 @@ Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 |---|---|
 | `/sps invite <name>` | invite a character; `/sps remove <name>` to leave |
 | `/sps members` | the party, who is online, who leads, which computer has the sound |
-| `/sps lead auto\|me\|follow` | who leads |
-| `/sps room auto\|me\|none\|<name>` | which computer plays the sound |
+| `/sps lead auto\|me\|follow\|<name>` | who leads, for the whole party (`follow`, never this character, only here) |
+| `/sps room auto\|me\|none\|<name>` | which computer plays the sound, for the whole party (`auto`, as chosen elsewhere, only here) |
 | `/sps sync` | the lines played together this session, and each member's state |
 | `/sps test <questID>` | queue a quest's accept line here, to try the sync without its NPC |
 | `/sps window`, `/sps settings` | the window, the settings |
@@ -73,6 +78,7 @@ two parts and no realm: a whisper goes to the bare "First Last". The prefix is
 | Kind | Fields | |
 |---|---|---|
 | `HI` | version, reply, lead, room | hello: at login, when the group changes, and when a setting the others read changes |
+| `CH` | kind, value | a choice for the whole party: `lead` (a member, or `auto`) or `room` (a member, or `none`); a member's own key becomes its `me` |
 | `IV` / `IA` / `ID` | | invite, accepted, declined or removed |
 | `LN` | id, src, event, questID, npcID, length, flags, textParts, name, title | a line queued; `src` is q, z or b |
 | `TX` | id, seq, total, text | its words, in pieces |

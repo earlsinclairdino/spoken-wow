@@ -290,9 +290,107 @@ if Spoken.Diagnostics and Spoken.HasLog and Spoken:HasLog() then
 	Expect("...with the member", Has("Lala Throwaway: online", all), true)
 end
 
+---------------------------------------------------------------- lead and sound, for the whole party
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+local LALA = P.LALA
+local function Fields(message) return message and table.concat(message.fields, "|", 2) or nil end
+Expect("with nobody choosing, the first by name leads", ns.Peers:Leader(), "lala throwaway")
+P.Clear()
+ns.Peers:ChooseLead("me")
+Expect("choosing this character to lead tells her, by this character's key", Fields(P.Last("CH", LALA)), "lead|tata throwaway")
+Expect("...and it leads", ns.Peers:Leader(), "tata throwaway")
+ns:DB().lead = "auto"
+P.Receive(stub, LALA, "HI", "0.3.0", 1, "tata throwaway", "")
+local leader, why = ns.Peers:Leader()
+Expect("named in her hello, this character leads", leader .. ": " .. why, "tata throwaway: named by lala throwaway")
+P.Clear()
+P.Receive(stub, LALA, "CH", "lead", "lala throwaway")
+Expect("her choice of herself is saved here", ns:DB().lead, "lala throwaway")
+Expect("...and this computer's hello says so", P.Last("HI", LALA) and P.Last("HI", LALA).fields[4], "lala throwaway")
+P.Receive(stub, LALA, "CH", "lead", "tata throwaway")
+Expect("her choice of this character becomes its own", ns:DB().lead, "me")
+P.Receive(stub, "Bob Stranger", "CH", "lead", "bob stranger")
+Expect("a stranger's choice is ignored", ns:DB().lead, "me")
+P.Receive(stub, LALA, "CH", "lead", "bob stranger")
+Expect("...and so is one naming someone outside this party", ns:DB().lead, "me")
+P.Clear()
+ns.Peers:ChooseLead("follow")
+Expect("Never This One stays on this computer", P.Last("CH"), nil)
+P.Clear()
+ns.Room:Choose("lala throwaway")
+Expect("choosing her computer for the sound tells her", Fields(P.Last("CH", LALA)), "room|lala throwaway")
+Expect("...and this one shows the captions without sound", Spoken:IsCaptionsOnly(), true)
+P.Receive(stub, LALA, "CH", "room", "none")
+Expect("her choice of every computer is saved here", ns:DB().roomSpeaker, "none")
+Expect("...and the sound comes back", Spoken:IsCaptionsOnly(), false)
+P.Receive(stub, LALA, "CH", "room", "tata throwaway")
+Expect("her choice of this computer becomes its own", ns:DB().roomSpeaker, "me")
+P.Clear()
+ns.Room:Choose("")
+Expect("As Chosen Elsewhere stays on this computer", P.Last("CH"), nil)
+
+-- The window's rows choose the same way.
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+ns:ShowWindow(true)
+local rows = ns.windowRows
+Expect("the window has a row for this character, then one for her",
+	rows and rows[1] and rows[2] and (rows[1].key .. "|" .. rows[2].key), "tata throwaway|lala throwaway")
+Expect("...with her line on it", rows[2].label.text and rows[2].label.text:find("Lala Throwaway", 1, true) ~= nil, true)
+Expect("...and its Lead greyed, as she leads", rows[2].lead:IsEnabled(), false)
+P.Clear()
+rows[1].lead:Click()
+Expect("this character's Lead makes it the leader, for the party", Fields(P.Last("CH", LALA)), "lead|tata throwaway")
+Expect("...and then greys", rows[1].lead:IsEnabled(), false)
+rows[2].sound:Click()
+Expect("her Sound gives her computer the sound, for the party", Fields(P.Last("CH", LALA)), "room|lala throwaway")
+Expect("...and then greys", rows[2].sound:IsEnabled(), false)
+Expect("the window opens the settings too", _G.SpokenPartySyncWindow.settings ~= nil, true)
+ns:ShowWindow(false)
+
+-- And the settings page's Party block.
+ns.optionsPanel:Show()
+ns:RefreshOptions()
+local memberRows = ns.memberRows
+Expect("the page lists this character first, then her",
+	memberRows and memberRows[1].key and (memberRows[1].key .. "|" .. tostring(memberRows[2].key)), "tata throwaway|lala throwaway")
+Expect("...this character with no Remove", memberRows[1].remove:IsShown(), false)
+P.Clear()
+memberRows[2].lead:Click()
+Expect("her Lead on the page makes her the leader", Fields(P.Last("CH", LALA)), "lead|lala throwaway")
+local choices = table.concat(ns.Peers:LeadChoices(), "|")
+Expect("Who Leads offers each member", choices, "auto|me|follow|lala throwaway")
+Expect("...named as they are", ns.Peers:DescribeLead("lala throwaway"), "Lala Throwaway")
+ns.optionsPanel:Hide()
+
+-- Her portrait's menu.
+local offered = {}
+local root = {
+	CreateDivider = function() end,
+	CreateTitle = function() end,
+	CreateButton = function(_, label) table.insert(offered, label) end,
+}
+ns.Room:Choose("none")
+P.menus.MENU_UNIT_PARTY(nil, root, { name = LALA })
+Expect("her portrait offers Sound and Remove, not Lead, which she has", table.concat(offered, "|"),
+	"Play the Sound for the Spoken Party|Remove from Spoken Party")
+ns.Peers:ChooseLead("me")
+offered = {}
+P.menus.MENU_UNIT_PARTY(nil, root, { name = LALA })
+Expect("...and Lead once this character leads", offered[1], "Lead the Spoken Party")
+
+-- Spoken's minimap menu has a section for the party.
+local entries = {}
+for _, entry in ipairs(env.Minimap:BuildMenu()) do
+	if entry.sourceTitle == "Spoken Party Sync" then table.insert(entries, entry.text) end
+end
+Expect("Spoken's minimap menu opens the party window and its settings", table.concat(entries, "|"),
+	"Open Party Window|Party Sync Settings")
+
 for _, command in ipairs({ "", "api", "members", "status", "sync", "lead", "room", "room me", "room auto",
 	"test 101", "test 31337", "ping", "window", "window", "invite", "remove Nobody",
-	"logs", "logs 20", "logs pull 30", "logs clear", "logs clear all", "logs clearall" }) do
+	"lead Lala Throwaway", "lead auto", "logs", "logs 20", "logs pull 30", "logs clear", "logs clear all", "logs clearall" }) do
 	local ok, err = pcall(SlashCmdList.SPOKENPARTYSYNC, command)
 	Expect("/sps " .. command .. " runs", ok and true or tostring(err), true)
 end

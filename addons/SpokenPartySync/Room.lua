@@ -99,3 +99,17 @@ function Room:Set(choice)
 	Peers:Announce()
 	self:Update()
 end
+
+--- Who plays the sound, chosen here: "" (as chosen elsewhere), "me", "none" or a member's key.
+--- All but "", which only says this computer follows the others, are chosen for the whole
+--- party: every member online is told and saves the same.
+function Room:Choose(choice)
+	local me = PartySync:MyKey()
+	choice = choice or ""
+	if choice == me then choice = "me" end
+	PartySync:TraceSetting("room", choice ~= "" and choice or "as chosen elsewhere")
+	if choice ~= "" then
+		Peers:SendChoice("room", choice == "me" and me or choice)
+	end
+	self:Set(choice)
+end

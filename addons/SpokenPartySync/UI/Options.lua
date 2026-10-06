@@ -12,11 +12,13 @@ local Peers, Room, L = PartySync.Peers, PartySync.Room, PartySync.L
 -- The game's settings list sets its rows 25 in from the canvas's left.
 local INDENT = 25
 local ICON = [[Interface\Icons\INV_Misc_GroupNeedMore]]
--- The party block: a row per member, then the name box and Invite. Two or three members is the
--- case this is for; past four the window and /sps members list them all.
+-- The party block: this character's row, a row per member, then the name box and Invite. Two or
+-- three members is the case this is for; past four the window and /sps members list them all.
+-- Each row's Lead and Sound choose for the whole party, as the window's do.
 local MEMBER_ROWS = 4
+local ROWS = MEMBER_ROWS + 1
 local ROW_HEIGHT = 22
-local MEMBERS_HEIGHT = MEMBER_ROWS * ROW_HEIGHT + 34
+local MEMBERS_HEIGHT = ROWS * ROW_HEIGHT + 34
 
 local panel, layout, membersBlock, category
 
@@ -30,27 +32,63 @@ end
 
 local STATE_WORDS = { online = L.STATE_ONLINE, lost = L.STATE_LOST, offline = L.STATE_OFFLINE }
 
+local function SetEnabled(button, enabled)
+	if enabled then button:Enable() else button:Disable() end
+end
+
 local function UpdateMembers()
 	if not membersBlock then return end
 	local keys = {}
 	for key in Peers:Members() do table.insert(keys, key) end
 	table.sort(keys)
 	membersBlock.none:SetShown(keys[1] == nil)
+	-- This character first, as soon as there is anyone to choose between.
+	local me = PartySync:MyKey()
+	if keys[1] and me then table.insert(keys, 1, me) end
+	local speaker = Room:Speaker()
 	for i, row in ipairs(membersBlock.rows) do
 		local key = keys[i]
 		if key then
+			local isMe = key == me
 			local peer = Peers.list[key]
 			local state = peer and peer.state
-			row.key = key
-			row.label:SetText(format("%s  |cff909090%s|r", Peers:MemberName(key), STATE_WORDS[state] or L.STATE_UNKNOWN))
+			row.key, row.isMe = key, isMe
+			if isMe then
+				row.label:SetText(format("%s  |cff909090(%s)|r", PartySync:ShortName(PartySync:UnitChatName("player")), L.TAG_YOU))
+			else
+				row.label:SetText(format("%s  |cff909090%s|r", Peers:MemberName(key), STATE_WORDS[state] or L.STATE_UNKNOWN))
+			end
 			row.label:Show()
-			row.remove:Show()
+			row.lead:Show()
+			row.sound:Show()
+			SetEnabled(row.lead, not Peers:IsLeader(key))
+			SetEnabled(row.sound, speaker ~= key)
+			row.remove:SetShown(not isMe)
 		else
-			row.key = nil
+			row.key, row.isMe = nil, nil
 			row.label:Hide()
+			row.lead:Hide()
+			row.sound:Hide()
 			row.remove:Hide()
 		end
 	end
+end
+
+local function RowButton(block, row, i, x, width, label, tooltip, onClick)
+	local button = CreateFrame("Button", nil, block, "UIPanelButtonTemplate")
+	button:SetSize(width, 20)
+	button:SetPoint("TOPLEFT", x, -(i - 1) * ROW_HEIGHT)
+	button:SetText(label)
+	button:SetScript("OnClick", function() if row.key then onClick(row) end end)
+	if tooltip then
+		button:SetScript("OnEnter", function(self)
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText(tooltip, nil, nil, nil, nil, true)
+			GameTooltip:Show()
+		end)
+		button:SetScript("OnLeave", GameTooltip_Hide)
+	end
+	return button
 end
 
 local function MembersBlock(parent)
@@ -64,28 +102,29 @@ local function MembersBlock(parent)
 	block.none:SetText(L.OPT_MEMBERS_NONE)
 
 	block.rows = {}
-	for i = 1, MEMBER_ROWS do
+	for i = 1, ROWS do
 		local row = {}
 		row.label = block:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		row.label:SetPoint("TOPLEFT", 12, -4 - (i - 1) * ROW_HEIGHT)
-		row.remove = CreateFrame("Button", nil, block, "UIPanelButtonTemplate")
-		row.remove:SetSize(90, 20)
-		row.remove:SetPoint("TOPLEFT", 300, -(i - 1) * ROW_HEIGHT)
-		row.remove:SetText(L.OPT_REMOVE)
-		row.remove:SetScript("OnClick", function()
-			if row.key then
-				local name = Peers:MemberName(row.key)
-				Peers:RemoveMember(row.key)
-				PartySync:Print("%s left your Spoken party", PartySync:ShortName(name))
-				UpdateMembers()
-			end
+		-- "me" for this character's own row: the others are told its key.
+		row.lead = RowButton(block, row, i, 280, 70, L.OPT_LEAD_BTN, L.OPT_LEAD_BTN_TIP, function(r)
+			Peers:ChooseLead(r.isMe and "me" or r.key)
+		end)
+		row.sound = RowButton(block, row, i, 354, 70, L.OPT_SOUND_BTN, L.OPT_SOUND_BTN_TIP, function(r)
+			Room:Choose(r.isMe and "me" or r.key)
+		end)
+		row.remove = RowButton(block, row, i, 428, 90, L.OPT_REMOVE, nil, function(r)
+			local name = Peers:MemberName(r.key)
+			Peers:RemoveMember(r.key)
+			PartySync:Print("%s left your Spoken party", PartySync:ShortName(name))
+			UpdateMembers()
 		end)
 		block.rows[i] = row
 	end
 
 	local box = CreateFrame("EditBox", nil, block, "InputBoxTemplate")
 	box:SetSize(200, 20)
-	box:SetPoint("TOPLEFT", 18, -(MEMBER_ROWS * ROW_HEIGHT) - 6)
+	box:SetPoint("TOPLEFT", 18, -(ROWS * ROW_HEIGHT) - 6)
 	box:SetAutoFocus(false)
 	if box.SetMaxLetters then box:SetMaxLetters(60) end
 	box:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
@@ -124,7 +163,6 @@ end
 -- The page
 --------------------------------------------------------------------------------
 
-local LEAD = { auto = L.LEAD_AUTO, me = L.LEAD_ME, follow = L.LEAD_FOLLOW }
 local CONTROLS = { leader = L.CONTROLS_LEADER, anyone = L.CONTROLS_ANYONE, nobody = L.CONTROLS_NOBODY }
 local SHOW = { always = L.SHOW_ALWAYS, syncing = L.SHOW_SYNCING, problems = L.SHOW_PROBLEMS, never = L.SHOW_NEVER }
 
@@ -164,11 +202,13 @@ function PartySync:SetupOptions()
 
 	layout:Section(L.OPT_SECTION_MEMBERS)
 	membersBlock = MembersBlock(content)
+	-- Reachable from /dump and the tests.
+	self.memberRows = membersBlock.rows
 	layout:Custom(membersBlock, MEMBERS_HEIGHT)
-	layout:Dropdown(L.OPT_LEAD, L.OPT_LEAD_TIP, { "auto", "me", "follow" },
-		function() return DB().lead end,
-		function(value) DB().lead = value; Peers:Announce() end, refresh,
-		function(value) return LEAD[value] or value end)
+	self.leadDropdown = layout:Dropdown(L.OPT_LEAD, L.OPT_LEAD_TIP, function() return Peers:LeadChoices() end,
+		function() return DB().lead or "auto" end,
+		function(value) Peers:ChooseLead(value) end, refresh,
+		function(value) return Peers:DescribeLead(value) end)
 
 	layout:Section(L.OPT_SECTION_SYNC)
 	SyncBox("quests", L.OPT_SYNC_QUESTS, L.OPT_SYNC_QUESTS_TIP)
@@ -190,8 +230,8 @@ function PartySync:SetupOptions()
 		function(value) return CONTROLS[value] or value end)
 
 	layout:Section(L.OPT_SECTION_ROOM)
-	layout:Dropdown(L.OPT_ROOM, L.OPT_ROOM_TIP, function() return Room:Choices() end,
-		function() return DB().roomSpeaker or "" end, function(value) Room:Set(value) end, refresh,
+	self.roomDropdown = layout:Dropdown(L.OPT_ROOM, L.OPT_ROOM_TIP, function() return Room:Choices() end,
+		function() return DB().roomSpeaker or "" end, function(value) Room:Choose(value) end, refresh,
 		function(value) return Room:Describe(value) end)
 
 	layout:Section(L.OPT_SECTION_WINDOW)
@@ -255,6 +295,21 @@ function PartySync:SetupDeveloperRows()
 		end, L.OPT_LOGS_CLEAR_ALL_TIP)
 		page:Note(L.OPT_LOGS_NOTE)
 	end)
+end
+
+--- Under Spoken's minimap button, a section of its own: the window and this page.
+function PartySync:SetupMinimapEntries()
+	local Spoken = _G.Spoken
+	local menu = Spoken and Spoken.Minimap
+	if self.minimapEntries or not (menu and menu.AddSection and menu.AddEntry) then
+		return
+	end
+	self.minimapEntries = true
+	menu:AddSection("partysync", L.TITLE, 10)
+	menu:AddEntry("partysync", { id = "window", text = L.MENU_OPEN_WINDOW, order = 1,
+		onClick = function() PartySync:ShowWindow(true) end })
+	menu:AddEntry("partysync", { id = "settings", text = L.MENU_SETTINGS, order = 2,
+		onClick = function() PartySync:OpenOptions() end })
 end
 
 --- Redraw what may have changed: who is in the party and online. Only while the page shows.

@@ -76,7 +76,7 @@ end
 local ROOM_WORDS = { auto = "", me = "me", none = "none", off = "none" }
 
 local function Help()
-	PartySync:Print("party: /sps invite <name> | remove <name> | members | lead [auto|me|follow] | room [auto|me|none|<name>]")
+	PartySync:Print("party: /sps invite <name> | remove <name> | members | lead [auto|me|follow|<name>] | room [auto|me|none|<name>]")
 	PartySync:Print("lines: /sps sync (what played together) | test <questID> (queue a quest's accept line here)")
 	PartySync:Print("window and settings: /sps window | settings")
 	PartySync:Print("debug log (Spoken's, on in Spoken > Developer): /sps logs [count] (yours and the party's, to copy) | logs pull [count] | logs clear (yours) | logs clear all (the party's too)")
@@ -125,19 +125,24 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 	elseif cmd == "lead" then
 		local value = rest:lower()
 		if value == "auto" or value == "me" or value == "follow" then
-			PartySync:DB().lead = value
-			Peers:Announce()
+			Peers:ChooseLead(value)
+		elseif rest ~= "" then
+			if not Peers:IsMember(rest) then
+				PartySync:Print("%s is not in your Spoken party", rest)
+				return
+			end
+			Peers:ChooseLead(PartySync:NameKey(rest))
 		end
 		local leader = Peers:Leader()
-		PartySync:Print("lead: %s; the leader now is %s", PartySync:DB().lead,
+		PartySync:Print("lead: %s; the leader now is %s", Peers:DescribeLead(PartySync:DB().lead),
 			leader and PartySync:ShortName(Peers:MemberName(leader)) or "?")
 	elseif cmd == "room" then
 		if rest ~= "" then
 			local word = ROOM_WORDS[rest:lower()]
 			if word then
-				Room:Set(word)
+				Room:Choose(word)
 			elseif Peers:IsMember(rest) then
-				Room:Set(PartySync:NameKey(rest))
+				Room:Choose(PartySync:NameKey(rest))
 			else
 				PartySync:Print("%s is not in your Spoken party", rest)
 				return

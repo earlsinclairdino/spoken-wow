@@ -2,14 +2,17 @@
 -- what has gone wrong. Small and plain, and by default only on screen when something is wrong:
 -- the player already shows what is speaking, and this is for when two computers disagree.
 --
--- One block of text, rebuilt from scratch on every change, rather than rows to keep in step:
--- it is a handful of lines, and the queue it describes changes shape all the time.
+-- The party is a row per member, with Lead and Sound buttons that choose for the whole party.
+-- The rest is one block of text, rebuilt from scratch on every change, rather than rows to keep
+-- in step: it is a handful of lines, and the queue it describes changes shape all the time.
 
 local _, PartySync = ...
 
-local Peers, Sync, Lines, L = PartySync.Peers, PartySync.Sync, PartySync.Lines, PartySync.L
+local Peers, Sync, Lines, Room, L = PartySync.Peers, PartySync.Sync, PartySync.Lines, PartySync.Room, PartySync.L
 
 local WIDTH = 320
+local ROW_HEIGHT = 18
+local BUTTON_WIDTH = 46
 local PAD = 10
 local MAX_LINES = 8
 -- How long the window stays up after the last problem cleared, on "when something is wrong".
@@ -30,6 +33,17 @@ local DOTS = {
 
 local function DB()
 	return PartySync:DB().window
+end
+
+--- The hover text a button keeps in `tooltip`.
+local function Tip(button)
+	button:HookScript("OnEnter", function(self)
+		if not self.tooltip then return end
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(self.tooltip, nil, nil, nil, nil, true)
+		GameTooltip:Show()
+	end)
+	button:HookScript("OnLeave", function() GameTooltip_Hide() end)
 end
 
 local function SavePosition()
@@ -94,8 +108,19 @@ local function Create()
 		pause:SetPoint("RIGHT", close, "LEFT", -2, 0)
 		pause:SetScript("OnClick", function() Spoken:TogglePause() end)
 		pause.tooltip = L.WINDOW_PAUSE
+		Tip(pause)
 		frame.pause = pause
+		-- Every setting is on the page; the window has only the two chosen most often.
+		local settings = Spoken:CreateRoundButton(frame, "icon", nil, [[Interface\Buttons\UI-OptionsButton]])
+		settings:SetSize(18, 18)
+		settings:SetPoint("RIGHT", pause, "LEFT", -2, 0)
+		settings:SetScript("OnClick", function() PartySync:OpenOptions() end)
+		settings.tooltip = L.WINDOW_SETTINGS
+		Tip(settings)
+		frame.settings = settings
 	end
+	frame.rows = {}
+	PartySync.windowRows = frame.rows
 
 	text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	text:SetPoint("TOPLEFT", PAD, -PAD - 16)
@@ -104,6 +129,50 @@ local function Create()
 	text:SetJustifyV("TOP")
 	if text.SetSpacing then text:SetSpacing(2) end
 	return frame
+end
+
+local function SmallButton(parent, label, tooltip, onClick)
+	local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+	button:SetSize(BUTTON_WIDTH, 16)
+	button:SetText(label)
+	if button.SetNormalFontObject then
+		button:SetNormalFontObject("GameFontNormalSmall")
+		button:SetHighlightFontObject("GameFontHighlightSmall")
+		button:SetDisabledFontObject("GameFontDisableSmall")
+	end
+	button:SetScript("OnClick", onClick)
+	button.tooltip = tooltip
+	Tip(button)
+	return button
+end
+
+--- Row `i` of the party: a member's line, Lead and Sound. Made the first time it is needed.
+local function Row(i)
+	local row = frame.rows[i]
+	if row then return row end
+	row = CreateFrame("Frame", nil, frame)
+	row:SetSize(WIDTH - 2 * PAD, ROW_HEIGHT)
+	row:SetPoint("TOPLEFT", PAD, -PAD - 16 - (i - 1) * ROW_HEIGHT)
+	row.label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	row.label:SetPoint("LEFT", 0, 0)
+	row.label:SetWidth(WIDTH - 2 * PAD - 2 * BUTTON_WIDTH - 6)
+	row.label:SetJustifyH("LEFT")
+	if row.label.SetWordWrap then row.label:SetWordWrap(false) end
+	-- The row's own character is "me" on the way out: the others are told its key.
+	row.sound = SmallButton(row, L.OPT_SOUND_BTN, L.OPT_SOUND_BTN_TIP, function()
+		if row.key then Room:Choose(row.isMe and "me" or row.key) end
+	end)
+	row.sound:SetPoint("RIGHT", 0, 0)
+	row.lead = SmallButton(row, L.OPT_LEAD_BTN, L.OPT_LEAD_BTN_TIP, function()
+		if row.key then Peers:ChooseLead(row.isMe and "me" or row.key) end
+	end)
+	row.lead:SetPoint("RIGHT", row.sound, "LEFT", -2, 0)
+	frame.rows[i] = row
+	return row
+end
+
+local function SetEnabled(button, enabled)
+	if enabled then button:Enable() else button:Disable() end
 end
 
 --------------------------------------------------------------------------------
@@ -183,21 +252,26 @@ local function QueueLine(clip)
 	return line
 end
 
+--- The whole window as text (for /dump and the tests), whether something is wrong, the party's
+--- rows ({ key, isMe, text }) and the text drawn under them.
 local function Build()
-	local out = {}
+	local out, members = {}, {}
 	local me = PartySync:MyKey()
 	local anyMember = false
 	for _ in Peers:Members() do anyMember = true break end
-	if not anyMember then
-		table.insert(out, GREY .. L.WINDOW_NO_MEMBERS .. "|r")
-	else
-		if me then table.insert(out, MemberLine(me, true)) end
+	if anyMember then
+		if me then table.insert(members, { key = me, isMe = true, text = MemberLine(me, true) }) end
 		local keys = {}
 		for key in Peers:Members() do table.insert(keys, key) end
 		table.sort(keys)
-		for _, key in ipairs(keys) do table.insert(out, MemberLine(key, false)) end
+		for _, key in ipairs(keys) do table.insert(members, { key = key, text = MemberLine(key, false) }) end
 	end
-	table.insert(out, " ")
+	local membersText = {}
+	for _, member in ipairs(members) do table.insert(membersText, member.text) end
+	if not anyMember then
+		table.insert(out, GREY .. L.WINDOW_NO_MEMBERS .. "|r")
+		table.insert(out, " ")
+	end
 	local Spoken = _G.Spoken
 	local queue = PartySync:PlayerAvailable() and Spoken:GetQueue() or {}
 	if not queue[1] then
@@ -217,7 +291,9 @@ local function Build()
 			table.insert(out, RED .. problem.text .. "|r")
 		end
 	end
-	return table.concat(out, "\n"), problems[1] ~= nil
+	local rest = table.concat(out, "\n")
+	local whole = membersText[1] and (table.concat(membersText, "\n") .. "\n \n" .. rest) or rest
+	return whole, problems[1] ~= nil, members, rest
 end
 
 --------------------------------------------------------------------------------
@@ -250,7 +326,7 @@ end
 
 function PartySync:RefreshWindow()
 	if not self.windowReady then return end
-	local body, hasProblems = Build()
+	local body, hasProblems, members, rest = Build()
 	-- Kept for /dump and the tests: what the window says, whether or not it is up.
 	self.windowBody = body
 	local want = Wanted(hasProblems)
@@ -264,8 +340,25 @@ function PartySync:RefreshWindow()
 	end
 	Create()
 	if hasProblems then frame.dismissed = nil end
-	text:SetText(body)
-	frame:SetHeight((text:GetStringHeight() or 0) + 2 * PAD + 20)
+	local speaker = Room:Speaker()
+	for i, member in ipairs(members) do
+		local row = Row(i)
+		row.key, row.isMe = member.key, member.isMe
+		row.label:SetText(member.text)
+		-- Nothing to choose where it is already so.
+		SetEnabled(row.lead, not Peers:IsLeader(member.key))
+		SetEnabled(row.sound, speaker ~= member.key)
+		row:Show()
+	end
+	for i = #members + 1, #frame.rows do
+		frame.rows[i].key = nil
+		frame.rows[i]:Hide()
+	end
+	local rowsHeight = members[1] and (#members * ROW_HEIGHT + 6) or 0
+	text:ClearAllPoints()
+	text:SetPoint("TOPLEFT", PAD, -PAD - 16 - rowsHeight)
+	text:SetText(rest)
+	frame:SetHeight((text:GetStringHeight() or 0) + 2 * PAD + 20 + rowsHeight)
 	if frame.pause and frame.pause.SetPlaying then
 		frame.pause:SetPlaying(_G.Spoken:GetNowPlaying() ~= nil and not _G.Spoken:IsPaused())
 	end

@@ -54,6 +54,14 @@ local function Modify(_, rootDescription, contextData)
 		rootDescription:CreateTitle(L.MENU_TITLE)
 	end
 	if Peers:IsMember(name) then
+		-- Both chosen for the whole party; offered unless it is already so.
+		local key = PartySync:NameKey(name)
+		if not Peers:IsLeader(key) then
+			rootDescription:CreateButton(L.MENU_LEAD, function() Peers:ChooseLead(key) end)
+		end
+		if PartySync.Room and PartySync.Room:Speaker() ~= key then
+			rootDescription:CreateButton(L.MENU_SOUND, function() PartySync.Room:Choose(key) end)
+		end
 		rootDescription:CreateButton(L.MENU_REMOVE, function()
 			Peers:RemoveMember(name)
 			PartySync:Print("%s left your Spoken party", PartySync:ShortName(name))

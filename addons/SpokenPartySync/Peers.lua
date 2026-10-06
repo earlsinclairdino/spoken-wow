@@ -10,6 +10,11 @@
 --                           which is never answered. `lead` and `room` are this client's
 --                           settings, which the others need to agree on who leads and which
 --                           computer plays the sound. Sent again as a reply when either changes.
+--   CH  kind, value         a choice made for the whole party: `lead` (a member's key, or
+--                           "auto") or `room` (a member's key, or "none": every computer).
+--                           Each member saves the same, so the last choice is everyone's; a
+--                           key that is the receiver's own becomes its "me". "Never this one"
+--                           and "as chosen elsewhere" are one computer's and never sent.
 --   IV  version             an invitation to the party. Asked of the player in a popup.
 --   IA                      accepted: both sides keep the other as a member.
 --   ID                      declined, or removed: both sides forget the other.
@@ -371,8 +376,15 @@ function Peers:Leader()
 	local keys = {}
 	for key in pairs(wishes) do table.insert(keys, key) end
 	table.sort(keys)
+	-- A wish can name a member (chosen for the party with Lead): as good as their own "me".
+	local named = {}
+	for _, key in ipairs(keys) do
+		local wish = wishes[key]
+		if wishes[wish] ~= nil and not named[wish] then named[wish] = key end
+	end
 	for _, key in ipairs(keys) do
 		if wishes[key] == "me" then return key, "asked to lead" end
+		if named[key] then return key, named[key] == key and "asked to lead" or ("named by " .. named[key]) end
 	end
 	for _, key in ipairs(keys) do
 		if wishes[key] ~= "follow" and IsGroupLeader(key) then return key, "leads the group" end
@@ -393,6 +405,84 @@ function Peers:CheckLeader()
 		lastLeader = leader
 	end
 end
+
+--- The choices "Who Leads" offers: automatic, this character, never this one, each member.
+function Peers:LeadChoices()
+	local list = { "auto", "me", "follow" }
+	local keys = {}
+	for key in self:Members() do table.insert(keys, key) end
+	table.sort(keys)
+	for _, key in ipairs(keys) do table.insert(list, key) end
+	return list
+end
+
+function Peers:DescribeLead(choice)
+	if choice == nil or choice == "auto" then return L.LEAD_AUTO end
+	if choice == "me" then return L.LEAD_ME end
+	if choice == "follow" then return L.LEAD_FOLLOW end
+	return format(L.LEAD_MEMBER_FMT, self:MemberName(choice))
+end
+
+--- Tell every member online about a choice made here for the whole party (CH).
+function Peers:SendChoice(kind, value)
+	for _, key in ipairs(self:OnlineMembers()) do
+		Comm:Whisper(self:MemberName(key), "CH", kind, value)
+	end
+end
+
+--- Who leads, chosen here: "auto", "me", "follow" or a member's key. All but "follow", which
+--- only says this character never leads, are chosen for the whole party: every member online
+--- is told and saves the same.
+function Peers:ChooseLead(choice)
+	local me = PartySync:MyKey()
+	if choice == nil or choice == "" then choice = "auto" end
+	if choice == me then choice = "me" end
+	PartySync:DB().lead = choice
+	PartySync:TraceSetting("lead", choice)
+	if choice ~= "follow" then
+		self:SendChoice("lead", choice == "me" and me or choice)
+	end
+	self:Announce()
+end
+
+--- A choice another member made for the party, in this client's own terms: "me" for this
+--- character's key, the key for another member, the word for a word. Nil for a name that is
+--- not in this party.
+local function Translate(sender, value, words)
+	if value == nil or value == "" then return nil end
+	if words[value] then return value end
+	if value == PartySync:MyKey() then return "me" end
+	if Peers:IsMember(value) then return value end
+	return nil
+end
+
+local LEAD_WORDS, ROOM_WORDS = { auto = true }, { none = true }
+
+Comm:On("CH", function(sender, channel, kind, value)
+	if not Peers:IsMember(sender) then return end
+	local who = PartySync:ShortName(sender)
+	if kind == "lead" then
+		local choice = Translate(sender, value, LEAD_WORDS)
+		if not choice then
+			PartySync:Trace("party", "%s chose %s to lead: not in this party, ignored", PartySync:NameKey(sender), tostring(value))
+			return
+		end
+		PartySync:DB().lead = choice
+		PartySync:Trace("party", "%s chose who leads: %s", PartySync:NameKey(sender), choice)
+		Peers:Announce()
+		PartySync:Print("%s chose who leads the party: %s", who, choice == "me" and "you"
+			or Peers:DescribeLead(choice))
+	elseif kind == "room" and PartySync.Room then
+		local choice = Translate(sender, value, ROOM_WORDS)
+		if not choice then
+			PartySync:Trace("party", "%s chose %s to play the sound: not in this party, ignored", PartySync:NameKey(sender), tostring(value))
+			return
+		end
+		PartySync:Trace("party", "%s chose who plays the sound: %s", PartySync:NameKey(sender), choice)
+		PartySync.Room:Set(choice)
+		PartySync:Print("%s chose who plays the sound: %s", who, PartySync.Room:Describe(choice))
+	end
+end)
 
 function Peers:IsLeader(key)
 	return key ~= nil and self:Leader() == key
