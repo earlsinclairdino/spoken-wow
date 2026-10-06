@@ -127,80 +127,122 @@ zone:Enqueue(H.Clip({ key = "z:1411" }))
 Expect("zone lore queued here is announced", P.Last("LN", LALA) and P.Last("LN", LALA).fields[3], "z")
 Expect("...without words, which every client has", P.Last("TX", LALA), nil)
 
----------------------------------------------------------------- the debug log
+---------------------------------------------------------------- the debug log, Spoken's
+-- The log is Spoken's (Spoken > Developer), where Spoken has one: Party Sync writes into it and
+-- collects the party's. A Spoken without it leaves Party Sync without a log, and saying so.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
 VO.Player:Enqueue({ event = 1, questID = 101, name = "Giver", title = "Quest 101", unitGUID = "Creature-0-0-0-0-1234-0" })
 stub.Advance(0.6)
-local function Logged(pattern)
-	for _, line in ipairs(ns:DB().log) do
-		if line:find(pattern, 1, true) then return true end
+Expect("Party Sync keeps no log of its own", ns:DB().log, nil)
+
+if not Spoken.Log then
+	Expect("without Spoken's log, there is none to show", ns.LogBook:Available(), false)
+	Expect("...and /sps logs says so", pcall(SlashCmdList.SPOKENPARTYSYNC, "logs"), true)
+	P.Clear()
+	P.Receive(stub, LALA, "LQ", "t1", 5)
+	local header = P.Last("LH", LALA)
+	Expect("a member asking for it gets no lines", header and header.fields[3], "0")
+	Expect("...and hears it is off", header and header.fields[6], "0")
+else
+	Expect("with Spoken's log off, nothing is kept", #Spoken:LogLines(), 0)
+
+	ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+	P.Party(stub, ns)
+	Spoken:SetLogOn(true)
+	VO.Player:Enqueue({ event = 1, questID = 101, name = "Giver", title = "Quest 101", unitGUID = "Creature-0-0-0-0-1234-0" })
+	stub.Advance(0.6)
+	local function Logged(pattern)
+		for _, line in ipairs(Spoken:LogLines()) do
+			if line:find(pattern, 1, true) then return true end
+		end
+		return false
 	end
-	return false
+	Expect("Spoken's log starts the session", Logged("session log on: Tata Throwaway"), true)
+	Expect("...Party Sync writes a line driven from here", Logged("sync drive 101-accept"), true)
+	Expect("...when it was told to start", Logged("sync go 101-accept"), true)
+	Expect("...Spoken its own view of it", Logged("player started "), true)
+	Expect("...and Party Sync the messages sent", Logged("msg -> WHISPER \"Lala Throwaway\" LN 101-accept"), true)
+	Expect("each line carries the time", Spoken:LogLines(1)[1]:match("^%d+%.%d%d%d ") ~= nil, true)
+
+	-- A member asks for this client's log: it goes back in pieces, paced, with this clock's reading.
+	P.Clear()
+	P.Receive(stub, LALA, "LQ", "t1", 5)
+	local header = P.Last("LH", LALA)
+	Expect("asked for a log, the last lines are offered", header and header.fields[3], "5")
+	Expect("...with this client's clock", tonumber(header.fields[4]) ~= nil, true)
+	Expect("...saying the log is on", header.fields[6], "1")
+	stub.Advance(3)
+	local pieces = P.Sent("LL", LALA)
+	Expect("...and all of them arrive", #pieces, 5)
+	Expect("...the newest last, as written", ns.Comm.Unescape(pieces[5].fields[4]):find("^%d+%.%d+ ") ~= nil, true)
+	P.Clear()
+	P.Receive(stub, "Bob Stranger", "LQ", "t2", 5)
+	Expect("someone outside the party gets nothing", P.Last("LH"), nil)
+
+	-- This client asks: her lines come back, are laid on this client's clock, and Spoken shows them.
+	P.Clear()
+	Expect("pulling asks every member online", ns.LogBook:Pull(50), 1)
+	local ask = P.Last("LQ", LALA)
+	Expect("...for the lines asked", ask and ask.fields[3], "50")
+	local token = ask.fields[2]
+	local now = stub.world.time
+	P.Receive(stub, LALA, "LH", token, 2, string.format("%.3f", now - 100), "0.2.0", "1")
+	P.Receive(stub, LALA, "LL", token, 1, ns.Comm.Escape(string.format("%.3f sync go 101-accept from tata throwaway: start in 0 ms", now - 101)))
+	P.Receive(stub, LALA, "LL", token, 2, ns.Comm.Escape(string.format("%.3f player started 101-accept", now - 100.5)))
+	local hers = ns:DB().collected["lala throwaway"]
+	Expect("her log is kept", hers and #hers.lines, 2)
+	-- Her clock is 100 s behind; her header took half the default round trip to come.
+	Expect("...with the offset onto this clock", hers and string.format("%.1f", hers.offset), "99.5")
+	local merged = _G.SpokenEnv.DebugLog:Merged()
+	local found
+	for _, line in ipairs(merged) do if line:find("Lala Throwaway", 1, true) and line:find("player started", 1, true) then found = line end end
+	Expect("Spoken's merged log has her lines, named", found ~= nil, true)
+	Expect("...on this client's clock", found and tonumber(found:match("^%s*([%d%.]+)")) ~= nil
+		and math.abs(tonumber(found:match("^%s*([%d%.]+)")) - (now - 1)) < 0.01, true)
+	Expect("the logs open in Spoken's box", ns.LogBook:Show() > 0, true)
+	ns.LogBook:Clear()
+	Expect("clearing empties the collected logs", next(ns:DB().collected) == nil, true)
+	Expect("...and starts Spoken's log again with a session line",
+		#Spoken:LogLines() == 3 and Spoken:LogLines()[1]:find("session cleared:", 1, true) ~= nil, true)
+
+	-- Clearing for the party: this log, and every member online asked to clear theirs.
+	P.Clear()
+	Expect("clearing the party's logs asks each member online", ns.LogBook:ClearParty(), 1)
+	Expect("...by whisper", P.Last("LC", LALA) ~= nil, true)
+	Expect("...and clears this one, starting it again", Spoken:LogLines()[1]:find("session cleared, with the party's:", 1, true) ~= nil, true)
+	P.Receive(stub, LALA, "LK")
+	Expect("her answer is noted in the new log", Spoken:LogLines(1)[1]:find("cleared their log", 1, true) ~= nil, true)
+	Spoken:Log("sync", "something from before")
+	P.Clear()
+	P.Receive(stub, LALA, "LC")
+	Expect("asked by a member, this client clears its log", Logged("something from before"), false)
+	Expect("...saying who asked", Spoken:LogLines()[1]:find("cleared at Lala Throwaway's request", 1, true) ~= nil, true)
+	Expect("...and answers", P.Last("LK", LALA) ~= nil, true)
+	Spoken:Log("sync", "kept")
+	P.Receive(stub, "Bob Stranger", "LC")
+	Expect("someone outside the party cannot clear it", Logged("sync kept"), true)
+
+	-- With the log off, a member asking is told so, and so is this client of hers.
+	Spoken:SetLogOn(false)
+	P.Clear()
+	P.Receive(stub, LALA, "LQ", "t3", 5)
+	header = P.Last("LH", LALA)
+	Expect("a log that is off says so", header and header.fields[6], "0")
+	P.Clear()
+	ns.LogBook:Pull(10)
+	ask = P.Last("LQ", LALA)
+	P.Receive(stub, LALA, "LH", ask.fields[2], 0, string.format("%.3f", stub.world.time), "0.2.0", "0")
+	Expect("...and hers being off is kept", ns:DB().collected["lala throwaway"] ~= nil, true)
+
+	-- The party's buttons sit under Spoken's own on its Developer page.
+	local devLabels = {}
+	for _, text in ipairs(stub.LabelsUnder(_G.SpokenDeveloperOptionsPanel)) do devLabels[text] = true end
+	Expect("Spoken's Developer page has the log", devLabels["Keep a Debug Log"], true)
+	Expect("...and Party Sync's section", devLabels["Spoken Party Sync"], true)
+	Expect("...collecting the party's logs", devLabels["Collect the Party's Logs"], true)
+	Expect("...and clearing them", devLabels["Clear the Party's Logs"], true)
 end
-Expect("the log starts each session", Logged("session start: Tata Throwaway"), true)
-Expect("...records a line driven from here", Logged("sync drive 101-accept"), true)
-Expect("...when it was told to start", Logged("sync go 101-accept"), true)
-Expect("...the player's own view of it", Logged("player started 101-accept [quests driver/"), true)
-Expect("...and the messages sent", Logged("msg -> WHISPER \"Lala Throwaway\" LN 101-accept"), true)
-Expect("each line carries the time", ns:DB().log[#ns:DB().log]:match("^%d+%.%d%d%d ") ~= nil, true)
-
--- A member asks for this client's log: it goes back in pieces, paced, with this clock's reading.
-local total = #ns:DB().log
-P.Clear()
-P.Receive(stub, LALA, "LQ", "t1", 5)
-local header = P.Last("LH", LALA)
-Expect("asked for a log, the last lines are offered", header and header.fields[3], "5")
-Expect("...with this client's clock", tonumber(header.fields[4]) ~= nil, true)
-stub.Advance(3)
-local pieces = P.Sent("LL", LALA)
-Expect("...and all of them arrive", #pieces, 5)
-Expect("...the newest last, as written", ns.Comm.Unescape(pieces[5].fields[4]):find("^%d+%.%d+ ") ~= nil, true)
-P.Clear()
-P.Receive(stub, "Bob Stranger", "LQ", "t2", 5)
-Expect("someone outside the party gets nothing", P.Last("LH"), nil)
-
--- This client asks: her lines come back and are laid on this client's clock.
-P.Clear()
-Expect("pulling asks every member online", ns.LogBook:Pull(50), 1)
-local ask = P.Last("LQ", LALA)
-Expect("...for the lines asked", ask and ask.fields[3], "50")
-local token = ask.fields[2]
-local now = stub.world.time
-P.Receive(stub, LALA, "LH", token, 2, string.format("%.3f", now - 100), "0.2.0")
-P.Receive(stub, LALA, "LL", token, 1, ns.Comm.Escape(string.format("%.3f sync go 101-accept from tata throwaway: start in 0 ms", now - 101)))
-P.Receive(stub, LALA, "LL", token, 2, ns.Comm.Escape(string.format("%.3f player started 101-accept", now - 100.5)))
-local hers = ns:DB().collected["lala throwaway"]
-Expect("her log is kept", hers and #hers.lines, 2)
--- Her clock is 100 s behind; her header took half the default round trip to come.
-Expect("...with the offset onto this clock", hers and string.format("%.1f", hers.offset), "99.5")
-local merged = ns.LogBook:Merged()
-local found
-for _, line in ipairs(merged) do if line:find("Lala Throwaway", 1, true) and line:find("player started", 1, true) then found = line end end
-Expect("the merged log has her lines, named", found ~= nil, true)
-Expect("...on this client's clock", found and tonumber(found:match("^%s*([%d%.]+)")) ~= nil
-	and math.abs(tonumber(found:match("^%s*([%d%.]+)")) - (now - 1)) < 0.01, true)
-Expect("the logs open in a box to copy from", ns.LogBook:Show() > 0, true)
-ns.LogBook:Clear()
-Expect("clearing empties the collected logs", next(ns:DB().collected) == nil, true)
-Expect("...and starts the log again with a session line", #ns:DB().log == 1 and ns:DB().log[1]:find("session cleared:", 1, true) ~= nil, true)
-
--- Clearing for the party: this log, and every member online asked to clear theirs.
-P.Clear()
-Expect("clearing the party's logs asks each member online", ns.LogBook:ClearParty(), 1)
-Expect("...by whisper", P.Last("LC", LALA) ~= nil, true)
-Expect("...and clears this one, starting it again", ns:DB().log[1]:find("session cleared, with the party's:", 1, true) ~= nil, true)
-P.Receive(stub, LALA, "LK")
-Expect("her answer is noted in the new log", ns:DB().log[#ns:DB().log]:find("cleared their log", 1, true) ~= nil, true)
-ns.LogBook:Add("sync", "something from before")
-P.Clear()
-P.Receive(stub, LALA, "LC")
-Expect("asked by a member, this client clears its log", Logged("something from before"), false)
-Expect("...saying who asked", ns:DB().log[1]:find("cleared at Lala Throwaway's request", 1, true) ~= nil, true)
-Expect("...and answers", P.Last("LK", LALA) ~= nil, true)
-ns.LogBook:Add("sync", "kept")
-P.Receive(stub, "Bob Stranger", "LC")
-Expect("someone outside the party cannot clear it", Logged("sync kept"), true)
 
 ---------------------------------------------------------------- the window, the page, the commands
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)

@@ -89,10 +89,10 @@ end
 function PartySync:ResetOptions()
 	local db = SpokenPartySyncDB
 	if not db then return end
-	local members, log, collected = db.members, db.log, db.collected
+	local members, collected = db.members, db.collected
 	for key in pairs(db) do db[key] = nil end
 	Fill(db, Defaults())
-	db.members, db.log, db.collected = members or {}, log, collected
+	db.members, db.collected = members or {}, collected
 	self:Changed()
 end
 
@@ -106,11 +106,17 @@ function PartySync:Print(message, ...)
 	DEFAULT_CHAT_FRAME:AddMessage("|cff80c0ffSpoken Party Sync|r: " .. text)
 end
 
---- One line in the debug log (Log.lua), under `category`.
+--- One line in Spoken's debug log, under `category`, while it is on. Formatted here: Spoken:Log
+--- takes four arguments at most, and some lines here have more.
 function PartySync:Trace(category, message, ...)
-	if self.LogBook then
-		self.LogBook:Add(category, message, ...)
+	local Spoken = _G.Spoken
+	if not (Spoken and Spoken.Log and Spoken:IsLogOn()) then return end
+	local text = message
+	if select("#", ...) > 0 then
+		local ok, formatted = pcall(format, message, ...)
+		text = ok and formatted or tostring(message)
 	end
+	Spoken:Log(category, text)
 end
 
 --- A message in or out, in the debug log.

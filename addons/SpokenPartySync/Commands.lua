@@ -66,6 +66,8 @@ end
 
 local function Status()
 	PartySync:Print("group: %s; %s", tostring(Comm:GroupChannel() or "none"), Comm:Context())
+	PartySync:Print("debug log: %s", not PartySync.LogBook:Available() and "this Spoken has none"
+		or PartySync.LogBook:IsOn() and "on" or "off (Spoken > Developer, or /spoken log on)")
 	Members()
 	local others = false
 	for key, peer in pairs(Peers.list) do
@@ -102,7 +104,7 @@ local function Help()
 	PartySync:Print("party: /sps invite <name> | remove <name> | members | lead [auto|me|follow] | room [auto|me|none|<name>]")
 	PartySync:Print("lines: /sps sync (what played together) | test <questID> (queue a quest's accept line here)")
 	PartySync:Print("window and settings: /sps window | settings")
-	PartySync:Print("debug log: /sps logs [count] (yours and the party's, to copy) | logs pull [count] | logs clear (yours) | logs clear all (the party's too)")
+	PartySync:Print("debug log (Spoken's, on in Spoken > Developer): /sps logs [count] (yours and the party's, to copy) | logs pull [count] | logs clear (yours) | logs clear all (the party's too)")
 	PartySync:Print("connection tests: /sps api | ping [name|group] | latency [name] | probe [name] | hello | burst [count] [name] | status")
 end
 
@@ -204,6 +206,8 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 		Peers:HelloMembers()
 		PartySync:Print("hello to the members, and to %s: %s (%s)", tostring(Comm:GroupChannel() or "no group"),
 			sent and "sent" or "NOT sent", tostring(answer))
+	elseif cmd == "logs" and not PartySync.LogBook:Available() then
+		PartySync:Print("the debug log is Spoken's, and this Spoken has none: update Spoken")
 	elseif cmd == "logs" then
 		local action, more = rest:match("^(%S*)%s*(.-)$")
 		action, more = (action or ""):lower(), (more or ""):lower()
@@ -218,7 +222,8 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 			PartySync:Print("debug log cleared here, with the party's logs collected here; a new session starts")
 		else
 			local shown = PartySync.LogBook:Show(tonumber(count) or tonumber(action))
-			PartySync:Print("%d log lines shown; they are also in WTF\\...\\SavedVariables\\SpokenPartySync.lua after a /reload", shown)
+			PartySync:Print("%d log lines shown; yours are also in WTF\\...\\SavedVariables\\Spoken.lua after a /reload%s",
+				shown or 0, PartySync.LogBook:IsOn() and "" or " (your log is off: /spoken log on)")
 		end
 	elseif cmd == "status" then
 		Status()

@@ -1,22 +1,21 @@
--- The debug log: what this client did and saw, kept for finding out afterwards why two
--- computers disagreed about a line.
---
--- Every client keeps its own, in SpokenPartySyncDB.log, so it survives a /reload and can be
--- read straight out of the saved variables file. It records the sync's own steps (a line
--- announced, rebuilt, held, started, acknowledged), every addon message in and out, and the
--- Spoken player's queue as the player reports it (queued, started, stopped, dropped, and why).
+-- The party's debug logs. Each client's log is Spoken's own (Spoken > Developer, `/spoken log`),
+-- which Party Sync writes its steps and every message into (PartySync:Trace); this file adds
+-- what takes a party: finding out afterwards why two computers disagreed about a line means
+-- reading both logs on one timeline. A Spoken without the debug log leaves Party Sync without
+-- one: nothing is written, the commands say so, and a member asking gets no lines.
 --
 -- Any member can ask the others for theirs (`/sps logs pull`): each sends its last lines back,
 -- paced, with its own clock reading, and the asker keeps them in SpokenPartySyncDB.collected
--- with the offset that maps that clock onto its own. `/sps logs` then shows every log merged
--- on one timeline, in a box to copy from.
+-- with the offset that maps that clock onto its own. They are handed to Spoken as a log source,
+-- so Spoken's box (`/sps logs`, `/spoken log`) shows them merged with this client's.
 --
---   LQ  token, count                ask for the last `count` lines
---   LH  token, total, now, version  the answer's header: how many lines follow, the sender's
---                                   GetTime() as it sent this, its addon version
---   LL  token, seq, line            one line, escaped
---   LC                              clear your log: a new session starts for the whole party
---   LK                              cleared
+--   LQ  token, count                    ask for the last `count` lines
+--   LH  token, total, now, version, on  the answer's header: how many lines follow, the
+--                                       sender's GetTime() as it sent this, its addon version,
+--                                       and whether its log is on ("1") or off ("0")
+--   LL  token, seq, line                one line, escaped
+--   LC                                  clear your log: a new session starts for the whole party
+--   LK                                  cleared
 
 local _, PartySync = ...
 
@@ -25,55 +24,44 @@ local Comm, Peers = PartySync.Comm, PartySync.Peers
 local LogBook = {}
 PartySync.LogBook = LogBook
 
--- Kept lines. A busy evening of questing is a few hundred lines of sync, so this is hours.
-local MAX_LINES = 2000
 -- How many lines a member sends when asked, unless the asker says otherwise.
 local DEFAULT_PULL = 400
+-- At most what Spoken keeps.
+local MAX_PULL = 2000
 -- One message line at most this long once escaped, so it fits a message with its header.
 local LINE_BYTES = 220
 -- A whole log arrives over a few seconds: this many messages, then a pause.
 local PACE_BATCH, PACE_SECONDS = 8, 0.5
 local PULL_TIMEOUT = 120
 
-local function Store()
-	local db = PartySync:DB()
-	db.log = db.log or {}
-	return db.log
+--- Spoken, where it has the debug log: an older one has nothing to write into.
+local function Spoken()
+	local api = _G.Spoken
+	return api and api.Log and api or nil
 end
 
---- Record one line: `category` is a short word to filter by (sync, msg, player, room, ...).
-function LogBook:Add(category, message, ...)
-	local ok, text = true, message
-	if select("#", ...) > 0 then
-		ok, text = pcall(format, message, ...)
-		if not ok then text = tostring(message) end
-	end
-	local line = format("%.3f %s %s", GetTime(), category, tostring(text))
-	local log = Store()
-	log[#log + 1] = line
-	-- Trimmed in a batch rather than one by one: removing from the front moves every line.
-	if #log > MAX_LINES + 200 then
-		local keep = {}
-		for i = #log - MAX_LINES + 1, #log do keep[#keep + 1] = log[i] end
-		PartySync:DB().log = keep
-	end
+function LogBook:Available()
+	return Spoken() ~= nil
 end
 
---- The start of a session, with what a reader needs to place it: who, which client, and the
---- wall clock that goes with this GetTime(), so two computers' logs can be laid side by side.
-function LogBook:Session(how)
-	local _, build = GetBuildInfo()
-	self:Add("session", "%s: %s, Spoken Party Sync %s, client build %s, wall clock %s at GetTime %.3f",
-		how or "start", tostring(PartySync:UnitChatName("player")), PartySync.version, tostring(build),
-		date and date("%Y-%m-%d %H:%M:%S") or "?", GetTime())
+function LogBook:IsOn()
+	local api = Spoken()
+	return api ~= nil and api:IsLogOn()
 end
 
---- Empty this client's log and the logs collected here, and start it again with a session line,
---- so what follows reads as a test session of its own.
+--------------------------------------------------------------------------------
+-- Clearing, for the whole party
+--------------------------------------------------------------------------------
+
+--- Clear this log, and with it the logs collected here (the source's clear), starting it
+--- again with a session line that says why.
 function LogBook:Clear(how)
-	PartySync:DB().log = {}
-	PartySync:DB().collected = {}
-	self:Session(how or "cleared")
+	local api = Spoken()
+	if api then
+		api:ClearLog(how)
+	else
+		PartySync:DB().collected = {}
+	end
 end
 
 --- Clear this log and ask every member online to clear theirs: one new session for everyone.
@@ -97,58 +85,16 @@ end)
 
 Comm:On("LK", function(sender)
 	if not Peers:IsMember(sender) then return end
-	LogBook:Add("logs", "%s cleared their log", PartySync:ShortName(sender))
+	PartySync:Trace("logs", "%s cleared their log", PartySync:ShortName(sender))
 	PartySync:Print("%s's debug log is cleared", PartySync:ShortName(sender))
 end)
-
---------------------------------------------------------------------------------
--- The player's queue, as the player reports it
---------------------------------------------------------------------------------
-
-local function Describe(clip)
-	if type(clip) ~= "table" then return tostring(clip) end
-	local source = clip.source and clip.source.key or "?"
-	local sync = clip.partySync
-	local role = sync and (" " .. sync.role .. "/" .. tostring(sync.state)) or ""
-	return format("%s [%s%s]", tostring(clip.key), source, role)
-end
-LogBook.Describe = Describe
-
-function LogBook:WatchPlayer()
-	local Spoken = _G.Spoken
-	if self.watching or not (Spoken and Spoken.RegisterCallback) then return end
-	self.watching = true
-	Spoken:RegisterCallback("CLIP_QUEUED", function(clip)
-		local held = Spoken:GetHeldReason(clip)
-		LogBook:Add("player", "queued %s, %d in queue%s", Describe(clip), Spoken:GetQueueSize(),
-			held and (", held: " .. tostring(held)) or "")
-	end)
-	Spoken:RegisterCallback("CLIP_STARTED", function(clip)
-		LogBook:Add("player", "started %s, length %s%s", Describe(clip), tostring(clip.length),
-			Spoken.IsCaptionsOnly and Spoken:IsCaptionsOnly() and ", captions only" or "")
-	end)
-	Spoken:RegisterCallback("CLIP_STOPPED", function(clip, finished)
-		LogBook:Add("player", "%s %s", finished and "finished" or "stopped", Describe(clip))
-	end)
-	Spoken:RegisterCallback("CLIP_DROPPED", function(clip, reason)
-		LogBook:Add("player", "dropped %s: %s", Describe(clip), tostring(reason))
-	end)
-	local paused
-	Spoken:RegisterCallback("AUDIO_CHANGED", function()
-		local now = Spoken:IsPaused()
-		if now ~= paused then
-			if paused ~= nil then LogBook:Add("player", now and "paused" or "resumed") end
-			paused = now
-		end
-	end)
-end
 
 --------------------------------------------------------------------------------
 -- Pulling the others' logs
 --------------------------------------------------------------------------------
 
 local counter = 0
-local pulls = {}   -- token -> { key, name, sentAt, total, lines, now, at }
+local pulls = {}   -- token -> { key, name, sentAt, total, lines, offset, version, on }
 
 local function Collected()
 	local db = PartySync:DB()
@@ -158,7 +104,7 @@ end
 
 --- Ask every member online for their last `count` lines.
 function LogBook:Pull(count)
-	count = math.max(1, math.min(MAX_LINES, tonumber(count) or DEFAULT_PULL))
+	count = math.max(1, math.min(MAX_PULL, tonumber(count) or DEFAULT_PULL))
 	local members = Peers:OnlineMembers()
 	if not members[1] then
 		PartySync:Print("nobody in your Spoken party is online to send a log")
@@ -177,8 +123,11 @@ function LogBook:Pull(count)
 			end
 		end)
 	end
-	self:Add("logs", "asked %d member(s) for %d lines", #members, count)
+	PartySync:Trace("logs", "asked %d member(s) for %d lines", #members, count)
 	PartySync:Print("asked %d member%s for their log; it takes a few seconds", #members, #members == 1 and "" or "s")
+	if not self:IsOn() then
+		PartySync:Print("your own debug log is off: turn it on in Spoken > Developer, or with /spoken log on")
+	end
 	return #members
 end
 
@@ -202,17 +151,22 @@ function LogBook:Keep(pull, timedOut)
 		lines = lines,
 		missing = (pull.total or 0) - received,
 	}
-	self:Add("logs", "%s's log: %d of %s lines%s, offset %s s", pull.name, received, tostring(pull.total),
-		timedOut and " (gave up waiting)" or "", pull.offset and format("%.3f", pull.offset) or "?")
+	PartySync:Trace("logs", "%s's log: %d of %s lines%s, offset %s s%s", pull.name, received, tostring(pull.total),
+		timedOut and " (gave up waiting)" or "", pull.offset and format("%.3f", pull.offset) or "?",
+		pull.on == false and ", their log is off" or "")
 	PartySync:Print("%s's log: %d line%s%s. /sps logs shows them with yours", PartySync:ShortName(pull.name), received,
 		received == 1 and "" or "s", timedOut and format(", %d never arrived", (pull.total or 0) - received) or "")
+	if pull.on == false then
+		PartySync:Print("%s's debug log is off: they can turn it on in Spoken > Developer", PartySync:ShortName(pull.name))
+	end
 end
 
 Comm:On("LQ", function(sender, channel, token, count)
 	-- Only to the party: a log names the characters played with and what was said.
 	if not Peers:IsMember(sender) then return end
-	LogBook:Add("logs", "%s asked for %s lines", PartySync:ShortName(sender), tostring(count))
-	local log = Store()
+	PartySync:Trace("logs", "%s asked for %s lines", PartySync:ShortName(sender), tostring(count))
+	local api = Spoken()
+	local log = api and api:LogLines() or {}
 	count = math.max(1, math.min(#log, tonumber(count) or DEFAULT_PULL))
 	local first = #log - count + 1
 	local lines = {}
@@ -221,7 +175,8 @@ Comm:On("LQ", function(sender, channel, token, count)
 		if #escaped > LINE_BYTES then escaped = escaped:sub(1, LINE_BYTES):gsub("\\$", "") end
 		lines[#lines + 1] = escaped
 	end
-	Comm:Whisper(sender, "LH", token, #lines, format("%.3f", GetTime()), PartySync.version)
+	Comm:Whisper(sender, "LH", token, #lines, format("%.3f", GetTime()), PartySync.version,
+		LogBook:IsOn() and "1" or "0")
 	-- Paced: a whisper burst of 30 arrived intact on the beta, but a whole log is hundreds.
 	local seq = 0
 	local function Batch()
@@ -235,11 +190,13 @@ Comm:On("LQ", function(sender, channel, token, count)
 	Batch()
 end)
 
-Comm:On("LH", function(sender, channel, token, total, now, version)
+Comm:On("LH", function(sender, channel, token, total, now, version, on)
 	local pull = token and pulls[token]
 	if not pull then return end
 	pull.total = tonumber(total) or 0
 	pull.version = version
+	-- Absent from a version before the log moved into Spoken, whose log was always on.
+	pull.on = on ~= "0"
 	local theirs = tonumber(now)
 	if theirs then
 		local rtt = Peers:Rtt(pull.key) / 1000
@@ -266,97 +223,32 @@ Comm:On("LL", function(sender, channel, token, seq, line)
 end)
 
 --------------------------------------------------------------------------------
--- One timeline
+-- Read beside this client's, in Spoken's box
 --------------------------------------------------------------------------------
 
---- This client's log and every collected one, on this client's clock, oldest first, each line
---- headed by whose it is. `count` limits it to the newest lines.
-function LogBook:Merged(count)
-	local rows = {}
-	-- `n` keeps lines with the same time in the order they were written: many happen in one
-	-- frame, and their order is often the very thing being looked for.
-	local function AddAll(lines, who, offset, source)
-		for i, line in ipairs(lines) do
-			local t, rest = line:match("^(%-?[%d%.]+) (.*)$")
-			t = tonumber(t)
-			if t then
-				rows[#rows + 1] = { t = t + (offset or 0), who = who, text = rest, source = source, n = i }
-			end
-		end
-	end
-	AddAll(Store(), PartySync:ShortName(PartySync:UnitChatName("player")), 0, 0)
-	local source = 0
+--- The collected logs, as Spoken's AddLogSource takes them.
+function LogBook:Sources()
+	local list = {}
 	for _, log in pairs(Collected()) do
-		source = source + 1
-		AddAll(log.lines or {}, PartySync:ShortName(log.name), log.offset or 0, source)
+		list[#list + 1] = { name = log.name, lines = log.lines or {}, offset = log.offset or 0 }
 	end
-	table.sort(rows, function(a, b)
-		if a.t ~= b.t then return a.t < b.t end
-		if a.source ~= b.source then return a.source < b.source end
-		return a.n < b.n
-	end)
-	local first = count and math.max(1, #rows - count + 1) or 1
-	local out = {}
-	for i = first, #rows do
-		local row = rows[i]
-		out[#out + 1] = format("%10.3f  %-16s %s", row.t, row.who, row.text)
-	end
-	return out
+	table.sort(list, function(a, b) return tostring(a.name) < tostring(b.name) end)
+	return list
 end
 
---------------------------------------------------------------------------------
--- A box to copy from
---------------------------------------------------------------------------------
-
-local box
-
-local function Box()
-	if box then return box end
-	box = CreateFrame("Frame", "SpokenPartySyncLogWindow", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
-	box:SetSize(760, 460)
-	box:SetPoint("CENTER")
-	box:SetFrameStrata("DIALOG")
-	box:SetMovable(true)
-	box:EnableMouse(true)
-	box:RegisterForDrag("LeftButton")
-	box:SetScript("OnDragStart", function(self) self:StartMoving() end)
-	box:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
-	if box.SetBackdrop then
-		box:SetBackdrop({ bgFile = [[Interface\DialogFrame\UI-DialogBox-Background-Dark]],
-			edgeFile = [[Interface\Tooltips\UI-Tooltip-Border]], tile = true, tileSize = 16, edgeSize = 14,
-			insets = { left = 4, right = 4, top = 4, bottom = 4 } })
-	end
-	local title = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	title:SetPoint("TOPLEFT", 12, -10)
-	title:SetText("Spoken Party Sync log -- Ctrl+A, Ctrl+C to copy")
-	local close = CreateFrame("Button", nil, box, "UIPanelCloseButton")
-	close:SetPoint("TOPRIGHT", -2, -2)
-	local scroll = CreateFrame("ScrollFrame", "SpokenPartySyncLogScroll", box, "UIPanelScrollFrameTemplate")
-	scroll:SetPoint("TOPLEFT", 12, -32)
-	scroll:SetPoint("BOTTOMRIGHT", -32, 12)
-	local edit = CreateFrame("EditBox", nil, scroll)
-	edit:SetMultiLine(true)
-	edit:SetFontObject(ChatFontNormal or GameFontHighlightSmall)
-	edit:SetWidth(700)
-	edit:SetAutoFocus(false)
-	edit:SetScript("OnEscapePressed", function() box:Hide() end)
-	scroll:SetScrollChild(edit)
-	box.edit = edit
-	if UISpecialFrames then table.insert(UISpecialFrames, "SpokenPartySyncLogWindow") end
-	return box
-end
-
+--- This client's log and the collected ones, merged by Spoken, in its box. Returns how many
+--- lines it shows, or nil where Spoken has no log.
 function LogBook:Show(count)
-	local lines = self:Merged(count)
-	local frame = Box()
-	frame.edit:SetText(table.concat(lines, "\n"))
-	frame:Show()
-	frame.edit:SetFocus()
-	frame.edit:HighlightText()
-	return #lines
+	local api = Spoken()
+	return api and api:ShowLog(count) or nil
 end
 
 function LogBook:Setup()
-	self:Session()
-	self:WatchPlayer()
+	-- The log Party Sync kept itself, before Spoken had one: nothing reads it any more.
+	PartySync:DB().log = nil
+	local api = Spoken()
+	if not api or self.ready then return end
+	self.ready = true
+	api:AddLogSource(function() return LogBook:Sources() end, function() PartySync:DB().collected = {} end)
+	PartySync:Trace("party", "Spoken Party Sync %s", PartySync.version)
 end

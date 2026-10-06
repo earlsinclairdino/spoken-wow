@@ -54,7 +54,7 @@ Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 | `/sps sync` | the lines played together this session, and each member's state |
 | `/sps test <questID>` | queue a quest's accept line here, to try the sync without its NPC |
 | `/sps window`, `/sps settings` | the window, the settings |
-| `/sps logs [count]` | the debug log, this computer's and the party's collected ones on one timeline, to copy |
+| `/sps logs [count]` | Spoken's debug log, this computer's and the party's collected ones on one timeline, to copy |
 | `/sps logs pull [count]` | ask every member online for their last lines (400 by default) |
 | `/sps logs clear` | empty this computer's log and the collected ones; a new session starts |
 | `/sps logs clear all` | the same, and every member online clears theirs: one new session for the party |
@@ -94,16 +94,21 @@ source's own, and `Spoken:SetCaptionsOnlyOverride` for the room.
 
 ## Debug log
 
-Every client keeps a log of the sync's steps, every message in and out, and the Spoken player's
-queue as the player reports it (queued, started, stopped, dropped, and why), each line stamped
-with `GetTime()`. It is kept in `SpokenPartySyncDB.log` (the last 2000 lines), so after a
-`/reload` it is in `WTF\Account\<account>\SavedVariables\SpokenPartySync.lua`.
+The log is Spoken's own, where Spoken has one (its debug log, `Spoken:Log`; without it Party
+Sync keeps none, and `/sps logs` says so). It is off until **Keep a Debug Log** is turned on in
+Spoken > Developer (or `/spoken log on`), on each computer. Party Sync writes into it the
+sync's steps (`sync`), every message in and out (`msg`), the party and the room, beside
+Spoken's own lines for the queue (queued, started, stopped, dropped, and why), each stamped
+with `GetTime()`. Spoken keeps the last 2000 lines in its saved settings, so after a `/reload`
+they are in `WTF\Account\<account>\SavedVariables\Spoken.lua`.
 
-`/sps logs pull` (or **Collect the Party's Logs** in the settings) asks every member online for
-theirs. Each answers with its clock reading and its lines, a few a second; the asker keeps them
-in `SpokenPartySyncDB.collected` with the offset that maps the other clock onto its own (less
-half the measured round trip). `/sps logs` shows all of them merged on one timeline in a box to
-copy from, each line headed by whose it is.
+`/sps logs pull` (or **Collect the Party's Logs**, in Party Sync's section of the Developer
+page) asks every member online for theirs. Each answers with its clock reading, whether its log
+is on, and its lines, a few a second; the asker keeps them in `SpokenPartySyncDB.collected` with
+the offset that maps the other clock onto its own (less half the measured round trip), and
+hands them to Spoken as a log source. `/sps logs` (or Spoken's **Show the Log**) shows all of
+them merged on one timeline in a box to copy from, each line headed by whose it is.
+`/sps logs clear all` (**Clear the Party's Logs**) starts one new session for everyone.
 
 ## Files
 
@@ -113,7 +118,7 @@ copy from, each line headed by whose it is.
 | `Names.lua` | Forever's names and whisper addresses |
 | `Comm.lua` | addon messages: escaping, pieces, pacing, "No player named" |
 | `Peers.lua` | members, invitations, presence, round trips, the leader, the connection tests |
-| `Log.lua` | the debug log, the player's queue events, pulling the party's logs, the copy box |
+| `Log.lua` | the party's debug logs: pulling the members' into Spoken's log as a source, clearing them all |
 | `Lines.lua` | a line's description and its rebuild |
 | `Sync.lua` | announcing, holding, starting together, acknowledgements, controls |
 | `Accept.lua` | quests shared and accepted |

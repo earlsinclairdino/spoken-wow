@@ -204,16 +204,6 @@ function PartySync:SetupOptions()
 
 	layout:Section(L.OPT_SECTION_DIAGNOSTICS)
 	layout:Button(L.OPT_PING, nil, function() Peers:PingMembers() end, L.OPT_PING_TIP)
-	layout:Button(L.OPT_LOGS_PULL, nil, function() PartySync.LogBook:Pull() end, L.OPT_LOGS_PULL_TIP)
-	layout:Button(L.OPT_LOGS_SHOW, nil, function() PartySync.LogBook:Show() end, L.OPT_LOGS_SHOW_TIP)
-	layout:Button(L.OPT_LOGS_CLEAR, nil, function()
-		PartySync.LogBook:Clear()
-		PartySync:Print("debug log cleared here; a new session starts")
-	end, L.OPT_LOGS_CLEAR_TIP)
-	layout:Button(L.OPT_LOGS_CLEAR_ALL, nil, function()
-		local asked = PartySync.LogBook:ClearParty()
-		PartySync:Print("debug log cleared here; asked %d member%s online to clear theirs", asked, asked == 1 and "" or "s")
-	end, L.OPT_LOGS_CLEAR_ALL_TIP)
 	layout:Note(L.OPT_COMMANDS)
 
 	layout:StartOver(L.OPT_SECTION_START_OVER, L.OPT_RESET_PAGE, function()
@@ -242,6 +232,27 @@ function PartySync:SetupOptions()
 		Settings.RegisterAddOnCategory(category)
 	end
 	self.optionsPanel = panel
+	self:SetupDeveloperRows()
+end
+
+--- The party's logs, on Spoken's Developer page under Spoken's own debug log: collecting the
+--- members' logs to read beside this one, and clearing them all at once. Where Spoken has the
+--- page and the log.
+function PartySync:SetupDeveloperRows()
+	local Spoken = _G.Spoken
+	if self.developerRows or not (Spoken and Spoken.AddDeveloperSettings and PartySync.LogBook:Available()) then
+		return
+	end
+	self.developerRows = true
+	Spoken:AddDeveloperSettings(function(page)
+		page:Section(L.TITLE)
+		page:Button(L.OPT_LOGS_PULL, nil, function() PartySync.LogBook:Pull() end, L.OPT_LOGS_PULL_TIP)
+		page:Button(L.OPT_LOGS_CLEAR_ALL, nil, function()
+			local asked = PartySync.LogBook:ClearParty()
+			PartySync:Print("debug log cleared here; asked %d member%s online to clear theirs", asked, asked == 1 and "" or "s")
+		end, L.OPT_LOGS_CLEAR_ALL_TIP)
+		page:Note(L.OPT_LOGS_NOTE)
+	end)
 end
 
 --- Redraw what may have changed: who is in the party and online. Only while the page shows.
