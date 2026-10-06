@@ -94,8 +94,8 @@ source's own, and `Spoken:SetCaptionsOnlyOverride` for the room.
 
 ## Debug log
 
-The log is Spoken's own, where Spoken has one (its debug log, `Spoken:Log`; without it Party
-Sync keeps none, and `/sps logs` says so). It is off until **Keep a Debug Log** is turned on in
+The log is Spoken's, kept by the Spoken Developer module (`Spoken:Log`; without the module
+Party Sync keeps none, and `/sps logs` says so). It is off until **Keep a Debug Log** is turned on in
 Spoken > Developer (or `/spoken log on`), on each computer. Party Sync writes into it the
 sync's steps (`sync`), every message in and out (`msg`), the party and the room, beside
 Spoken's own lines for the queue (queued, started, stopped, dropped, and why), each stamped

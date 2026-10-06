@@ -66,7 +66,7 @@ end
 
 local function Status()
 	PartySync:Print("group: %s; %s", tostring(Comm:GroupChannel() or "none"), Comm:Context())
-	PartySync:Print("debug log: %s", not PartySync.LogBook:Available() and "this Spoken has none"
+	PartySync:Print("debug log: %s", not PartySync.LogBook:Available() and "no Spoken Developer module"
 		or PartySync.LogBook:IsOn() and "on" or "off (Spoken > Developer, or /spoken log on)")
 	Members()
 	local others = false
@@ -207,7 +207,7 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 		PartySync:Print("hello to the members, and to %s: %s (%s)", tostring(Comm:GroupChannel() or "no group"),
 			sent and "sent" or "NOT sent", tostring(answer))
 	elseif cmd == "logs" and not PartySync.LogBook:Available() then
-		PartySync:Print("the debug log is Spoken's, and this Spoken has none: update Spoken")
+		PartySync:Print("the debug log comes with the Spoken Developer module, which is not installed")
 	elseif cmd == "logs" then
 		local action, more = rest:match("^(%S*)%s*(.-)$")
 		action, more = (action or ""):lower(), (more or ""):lower()

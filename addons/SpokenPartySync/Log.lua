@@ -1,8 +1,9 @@
 -- The party's debug logs. Each client's log is Spoken's own (Spoken > Developer, `/spoken log`),
 -- which Party Sync writes its steps and every message into (PartySync:Trace); this file adds
 -- what takes a party: finding out afterwards why two computers disagreed about a line means
--- reading both logs on one timeline. A Spoken without the debug log leaves Party Sync without
--- one: nothing is written, the commands say so, and a member asking gets no lines.
+-- reading both logs on one timeline. Without the Spoken Developer module, Spoken has no log and
+-- Party Sync keeps none: nothing is written, the commands say so, and a member asking gets no
+-- lines.
 --
 -- Any member can ask the others for theirs (`/sps logs pull`): each sends its last lines back,
 -- paced, with its own clock reading, and the asker keeps them in SpokenPartySyncDB.collected
@@ -34,10 +35,11 @@ local LINE_BYTES = 220
 local PACE_BATCH, PACE_SECONDS = 8, 0.5
 local PULL_TIMEOUT = 120
 
---- Spoken, where it has the debug log: an older one has nothing to write into.
+--- Spoken, where it has the debug log: the Spoken Developer module installed (Spoken:HasLog).
+--- Without it, or with a Spoken too old to ask, there is nothing to write into.
 local function Spoken()
 	local api = _G.Spoken
-	return api and api.Log and api or nil
+	return api and api.HasLog and api:HasLog() and api or nil
 end
 
 function LogBook:Available()

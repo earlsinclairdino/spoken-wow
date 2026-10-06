@@ -128,15 +128,15 @@ Expect("zone lore queued here is announced", P.Last("LN", LALA) and P.Last("LN",
 Expect("...without words, which every client has", P.Last("TX", LALA), nil)
 
 ---------------------------------------------------------------- the debug log, Spoken's
--- The log is Spoken's (Spoken > Developer), where Spoken has one: Party Sync writes into it and
--- collects the party's. A Spoken without it leaves Party Sync without a log, and saying so.
+-- The log is Spoken's, kept by the Spoken Developer module where it is installed: Party Sync
+-- writes into it and collects the party's. Without the module Party Sync has no log, and says so.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
 VO.Player:Enqueue({ event = 1, questID = 101, name = "Giver", title = "Quest 101", unitGUID = "Creature-0-0-0-0-1234-0" })
 stub.Advance(0.6)
 Expect("Party Sync keeps no log of its own", ns:DB().log, nil)
 
-if not Spoken.Log then
+if not (Spoken.HasLog and Spoken:HasLog()) then
 	Expect("without Spoken's log, there is none to show", ns.LogBook:Available(), false)
 	Expect("...and /sps logs says so", pcall(SlashCmdList.SPOKENPARTYSYNC, "logs"), true)
 	P.Clear()
@@ -194,7 +194,7 @@ else
 	Expect("her log is kept", hers and #hers.lines, 2)
 	-- Her clock is 100 s behind; her header took half the default round trip to come.
 	Expect("...with the offset onto this clock", hers and string.format("%.1f", hers.offset), "99.5")
-	local merged = _G.SpokenEnv.DebugLog:Merged()
+	local merged = P.developer.Log:Merged()
 	local found
 	for _, line in ipairs(merged) do if line:find("Lala Throwaway", 1, true) and line:find("player started", 1, true) then found = line end end
 	Expect("Spoken's merged log has her lines, named", found ~= nil, true)

@@ -10,6 +10,7 @@ local here = (debug.getinfo(1, "S").source:match("^@(.*)/[^/]*$") or ".")
 local SPOKEN = here .. "/../../addons/Spoken/"
 local QUESTS = here .. "/../../addons/Spoken_Quests/"
 local SYNC = here .. "/../../addons/SpokenPartySync/"
+local DEVELOPER = here .. "/../../addons/Spoken_Developer/"
 
 M.ME = "Tata Throwaway"
 M.LALA = "Lala Throwaway"
@@ -94,6 +95,15 @@ function M.Boot(stub, lookup)
 	ClientAPI(stub)
 	_G.SpokenPartySyncDB = nil
 	local VO, env = stub.LoadQuests(QUESTS, SPOKEN)
+	-- The Spoken Developer module, where the tree has it (it keeps the debug log Party Sync
+	-- writes into); without it the log tests check that Party Sync does without.
+	local developer = io.open(DEVELOPER .. "Spoken_Developer.toc")
+	if developer and stub.LoadDeveloper then
+		developer:close()
+		M.developer = stub.LoadDeveloper(DEVELOPER)
+	elseif developer then
+		developer:close()
+	end
 	VO.Addon:OnInitialize()
 	VO.DataModules:Register("TestPack", {
 		SoundLengthLookupByFileName = lookup,
