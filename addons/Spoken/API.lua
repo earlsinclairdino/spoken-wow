@@ -366,6 +366,11 @@ end
 function Spoken.Minimap:RemoveEntry(sourceKey, id)
     Minimap:RemoveEntry(sourceKey, id)
 end
+--- A heading for an addon that is not a source (it queues nothing): its entries, added under
+--- `key`, are listed after the sources' under `title`. Additive: guard on the field.
+function Spoken.Minimap:AddSection(key, title, order)
+    Minimap:AddSection(key, title, order)
+end
 
 --------------------------------------------------------------------------------
 -- The queue, player-wide. Source-scoped operations live on the source.

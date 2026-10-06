@@ -176,6 +176,14 @@ Expect("the menu is the player's entries then each source's in order", table.con
     "Stop or Replay|Stop All|Settings|Quest settings|Open lore window")
 env.Minimap:RemoveEntry("zones", "lore")
 Expect("RemoveEntry", getn(env.Minimap:BuildMenu()), 4)
+-- An addon that queues nothing has a heading of its own, after the sources.
+env.Minimap:AddEntry("party", { id = "window", text = "Open party window", order = 1, onClick = function() end })
+Expect("an entry with no source and no section is not shown", getn(env.Minimap:BuildMenu()), 4)
+env.Minimap:AddSection("party", "Party", 10)
+labels = {}
+for _, entry in ipairs(env.Minimap:BuildMenu()) do table.insert(labels, entry.text) end
+Expect("...with its section, after the sources'", table.concat(labels, "|"),
+    "Stop or Replay|Stop All|Settings|Quest settings|Open party window")
 
 -- A click on the icon opens the settings at once; the menu is a right-click away.
 local openSettings, settingsOpened = env.Options.Open, false
@@ -200,7 +208,7 @@ end
 -- A rule before each addon's heading. Without one the headings are the only thing
 -- separating the groups, and a heading reads as a row of the group above it.
 Expect("...listing the player's entries, then each source's under its name, ruled apart",
-    table.concat(shown, "|"), "Stop or Replay|Stop All|Settings|---|[Quests]|Quest settings")
+    table.concat(shown, "|"), "Stop or Replay|Stop All|Settings|---|[Quests]|Quest settings|---|[Party]|Open party window")
 Expect("...anchored to the button", stub.openDropDown.dropdownAnchor, mmButton)
 
 -- The menu opens under the cursor, which is still on the button, so the button's tooltip

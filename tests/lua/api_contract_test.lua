@@ -61,6 +61,7 @@ Expect("Spoken.Packs.Register exists", type(Spoken.Packs and Spoken.Packs.Regist
 Expect("Spoken.Packs.Get exists", type(Spoken.Packs and Spoken.Packs.Get), "function")
 Expect("Spoken.Minimap.AddEntry exists", type(Spoken.Minimap and Spoken.Minimap.AddEntry), "function")
 Expect("Spoken.Minimap.RemoveEntry exists", type(Spoken.Minimap and Spoken.Minimap.RemoveEntry), "function")
+Expect("Spoken.Minimap.AddSection exists", type(Spoken.Minimap and Spoken.Minimap.AddSection), "function")
 
 local SOURCE_METHODS = { "Enqueue", "PlayNow", "Remove", "StopAll", "AddGate", "RecheckGates", "CanPlay", "SetQueueLimit", "SetInterClipGap" }
 local src = Spoken:RegisterSource("contract", { title = "Contract", addon = "X", order = 1 })

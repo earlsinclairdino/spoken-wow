@@ -21,6 +21,8 @@ Spoken Player until 3.0.0, when it became Spoken and took its modules into one d
   `SetCaptionsOnlyOverride`; `Spoken:RecheckGates`, to start what a player-wide gate held as
   soon as it opens; and a source's optional `rebuild(fields)`, which re-creates one of its clips
   from another client's description.
+- For feature addons that queue nothing: `Spoken.Minimap:AddSection(key, title, order)` gives
+  their minimap-menu entries a heading of their own, after the modules'.
 
 ## 3.1.0 — 2026-10-06
 
