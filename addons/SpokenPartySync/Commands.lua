@@ -134,7 +134,7 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 			Peers:ChooseLead(PartySync:NameKey(rest))
 		end
 		local leader = Peers:Leader()
-		PartySync:Print("lead: %s; the leader now is %s", Peers:DescribeLead(PartySync:DB().lead),
+		PartySync:Print("lead: %s; the leader now is %s", Peers:DescribeLead(PartySync:Party().lead),
 			leader and PartySync:ShortName(Peers:MemberName(leader)) or "?")
 	elseif cmd == "room" then
 		if rest ~= "" then
@@ -148,7 +148,7 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 				return
 			end
 		end
-		PartySync:Print("same room: %s", Room:Describe(PartySync:DB().roomSpeaker))
+		PartySync:Print("same room: %s", Room:Describe(PartySync:Party().roomSpeaker))
 	elseif cmd == "sync" then
 		Lines()
 	elseif cmd == "test" then

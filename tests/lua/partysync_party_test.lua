@@ -58,7 +58,7 @@ Expect("an escort a member starts is joined", P.Called("ConfirmAcceptQuest"), tr
 
 ---------------------------------------------------------------- sharing what the leader accepts
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:DB().lead = "me"
+ns:Party().lead = "me"
 P.Party(stub, ns)
 P.client.units.party1 = LALA
 world.questID = 101
@@ -69,7 +69,7 @@ stub.Advance(0.55)
 Expect("...but a moment later", P.Called("QuestLogPushQuest 1"), true)
 
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:DB().lead = "me"
+ns:Party().lead = "me"
 P.Party(stub, ns)
 P.client.units.party1 = LALA
 stub.FireEvent("QUEST_ACCEPTED", 3, 102)
@@ -77,7 +77,7 @@ stub.Advance(0.55)
 Expect("Classic's index-then-quest arguments share the quest", P.Called("QuestLogPushQuest 2"), true)
 
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:DB().lead = "me"
+ns:Party().lead = "me"
 P.Party(stub, ns)
 P.client.units.party1 = LALA
 stub.FireEvent("QUEST_ACCEPTED", 999)
@@ -92,14 +92,14 @@ stub.Advance(0.55)
 Expect("a member who does not lead shares nothing", P.Called("QuestLogPushQuest"), false)
 
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:DB().lead = "me"
+ns:Party().lead = "me"
 P.Party(stub, ns)
 stub.FireEvent("QUEST_ACCEPTED", 101)
 stub.Advance(0.55)
 Expect("nor does the leader when no member is in the group", P.Called("QuestLogPushQuest"), false)
 
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:DB().lead = "me"
+ns:Party().lead = "me"
 P.Party(stub, ns)
 P.client.units.party1 = LALA
 P.client.offererIsPlayer, P.client.offerer = true, LALA
@@ -300,20 +300,20 @@ P.Clear()
 ns.Peers:ChooseLead("me")
 Expect("choosing this character to lead tells her, by this character's key", Fields(P.Last("CH", LALA)), "lead|tata throwaway")
 Expect("...and it leads", ns.Peers:Leader(), "tata throwaway")
-ns:DB().lead = "auto"
+ns:Party().lead = "auto"
 P.Receive(stub, LALA, "HI", "0.3.0", 1, "tata throwaway", "")
 local leader, why = ns.Peers:Leader()
 Expect("named in her hello, this character leads", leader .. ": " .. why, "tata throwaway: named by lala throwaway")
 P.Clear()
 P.Receive(stub, LALA, "CH", "lead", "lala throwaway")
-Expect("her choice of herself is saved here", ns:DB().lead, "lala throwaway")
+Expect("her choice of herself is saved here", ns:Party().lead, "lala throwaway")
 Expect("...and this computer's hello says so", P.Last("HI", LALA) and P.Last("HI", LALA).fields[4], "lala throwaway")
 P.Receive(stub, LALA, "CH", "lead", "tata throwaway")
-Expect("her choice of this character becomes its own", ns:DB().lead, "me")
+Expect("her choice of this character becomes its own", ns:Party().lead, "me")
 P.Receive(stub, "Bob Stranger", "CH", "lead", "bob stranger")
-Expect("a stranger's choice is ignored", ns:DB().lead, "me")
+Expect("a stranger's choice is ignored", ns:Party().lead, "me")
 P.Receive(stub, LALA, "CH", "lead", "bob stranger")
-Expect("...and so is one naming someone outside this party", ns:DB().lead, "me")
+Expect("...and so is one naming someone outside this party", ns:Party().lead, "me")
 P.Clear()
 ns.Peers:ChooseLead("follow")
 Expect("Never This One stays on this computer", P.Last("CH"), nil)
@@ -322,10 +322,10 @@ ns.Room:Choose("lala throwaway")
 Expect("choosing her computer for the sound tells her", Fields(P.Last("CH", LALA)), "room|lala throwaway")
 Expect("...and this one shows the captions without sound", Spoken:IsCaptionsOnly(), true)
 P.Receive(stub, LALA, "CH", "room", "none")
-Expect("her choice of every computer is saved here", ns:DB().roomSpeaker, "none")
+Expect("her choice of every computer is saved here", ns:Party().roomSpeaker, "none")
 Expect("...and the sound comes back", Spoken:IsCaptionsOnly(), false)
 P.Receive(stub, LALA, "CH", "room", "tata throwaway")
-Expect("her choice of this computer becomes its own", ns:DB().roomSpeaker, "me")
+Expect("her choice of this computer becomes its own", ns:Party().roomSpeaker, "me")
 P.Clear()
 ns.Room:Choose("")
 Expect("As Chosen Elsewhere stays on this computer", P.Last("CH"), nil)

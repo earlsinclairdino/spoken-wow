@@ -27,7 +27,7 @@ end
 --- The key of the computer that plays the sound, or nil when every computer does.
 function Room:Speaker()
 	local me = PartySync:MyKey()
-	local choice = PartySync:DB().roomSpeaker or ""
+	local choice = PartySync:Party().roomSpeaker or ""
 	if choice == "me" then
 		return me
 	end
@@ -95,7 +95,7 @@ function Room:Describe(choice)
 end
 
 function Room:Set(choice)
-	PartySync:DB().roomSpeaker = choice or ""
+	PartySync:Party().roomSpeaker = choice or ""
 	Peers:Announce()
 	self:Update()
 end

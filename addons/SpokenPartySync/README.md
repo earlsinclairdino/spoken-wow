@@ -19,6 +19,10 @@ Books are installed, as long as they can rebuild a line from another client's de
 Grouping is not needed. The party is kept by name, so it survives leaving the group, joining a
 raid, or questing apart.
 
+The party is the character's. Another character on the same computer is in no party until it
+invites or is invited: the others know a member by its name, and take nothing from a name they
+did not invite. Back on the first character, its party is there again.
+
 ## What it does
 
 - **Lines played together.** A quest line, greeting or gossip, zone lore or book page queued
@@ -138,7 +142,7 @@ them merged on one timeline in a box to copy from, each line headed by whose it 
 
 | File | |
 |---|---|
-| `Core.lua` | the addon table, saved settings, problems |
+| `Core.lua` | the addon table, saved settings (the computer's in `SpokenPartySyncDB`, the character's party in `SpokenPartySyncCharDB`), problems |
 | `Names.lua` | Forever's names and whisper addresses |
 | `Comm.lua` | addon messages: escaping, pieces, pacing, "No player named" |
 | `Peers.lua` | members, invitations, presence, round trips, the leader, the connection tests |

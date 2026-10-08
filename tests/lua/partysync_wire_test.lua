@@ -29,9 +29,10 @@ Expect("this character cannot be its own member", ns.Peers:AddMember("tata throw
 
 ---------------------------------------------------------------- the 0.1 companion
 _G.SpokenPartySyncDB = { companion = '"lala throwaway"', windowShown = true }
+_G.SpokenPartySyncCharDB = nil
 ns:InitDB()
 Expect("a companion saved by 0.1 becomes a member", ns.Peers:IsMember("Lala Throwaway"), true)
-Expect("...under its cleaned name", ns:DB().members["lala throwaway"].name, "Lala Throwaway")
+Expect("...under its cleaned name", ns:Party().members["lala throwaway"].name, "Lala Throwaway")
 Expect("...and the old field goes", ns:DB().companion, nil)
 Expect("a window left open by 0.1 stays shown", ns:DB().window.show, "always")
 Expect("the other settings get their defaults", ns:DB().controls, "leader")
@@ -138,6 +139,35 @@ Expect("...which sends the invitation", P.Last("IV") and P.Last("IV").target, "L
 entries = {}
 P.menus.MENU_UNIT_PARTY(nil, root, { unit = "npc" })
 Expect("an NPC gets no entry", entries[1], nil)
+
+---------------------------------------------------------------- the party is the character's
+-- The members know this character by its name, so another character on this computer cannot
+-- speak for its party: each character keeps its own (2026-10-08, Tata logged out, Williams in,
+-- and Lala's computer refused every line Williams sent).
+local ACCOUNT_030 = { members = { ["lala throwaway"] = { name = "Lala Throwaway", added = 0 } },
+	lead = "lala throwaway", roomSpeaker = "me", controls = "anyone" }
+local ns3 = P.Boot(stub, LOOKUP, { account = ACCOUNT_030 })
+Expect("a party 0.3.0 kept with the account becomes this character's", ns3.Peers:IsMember("Lala Throwaway"), true)
+Expect("...with who leads", ns3:Party().lead, "lala throwaway")
+Expect("...and which computer plays the sound", ns3:Party().roomSpeaker, "me")
+Expect("...and leaves the account", ACCOUNT_030.members == nil and ACCOUNT_030.lead == nil
+	and ACCOUNT_030.roomSpeaker == nil, true)
+Expect("...whose own settings stay", ns3:DB().controls, "anyone")
+
+ns3 = P.Boot(stub, LOOKUP)
+ns3.Peers:AddMember("Lala Throwaway")
+ns3.Peers:ChooseLead("me")
+local account, character = _G.SpokenPartySyncDB, _G.SpokenPartySyncCharDB
+Expect("a member is saved with the character", character.members["lala throwaway"] ~= nil, true)
+Expect("...and not with the account", account.members, nil)
+-- Another character: the same account file, a character file of its own.
+ns3 = P.Boot(stub, LOOKUP, { account = account })
+Expect("another character on this computer is in no party", ns3.Peers:IsMember("Lala Throwaway"), false)
+Expect("...so nobody else counts for who leads", ns3.Peers:Leader(), "tata throwaway")
+Expect("...and it has no lead chosen", ns3:Party().lead, "auto")
+ns3 = P.Boot(stub, LOOKUP, { account = account, character = character })
+Expect("the first character logging back in has its party again", ns3.Peers:IsMember("Lala Throwaway"), true)
+Expect("...and its choice of who leads", ns3:Party().lead, "me")
 
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll party sync wire tests passed")

@@ -206,7 +206,7 @@ function PartySync:SetupOptions()
 	self.memberRows = membersBlock.rows
 	layout:Custom(membersBlock, MEMBERS_HEIGHT)
 	self.leadDropdown = layout:Dropdown(L.OPT_LEAD, L.OPT_LEAD_TIP, function() return Peers:LeadChoices() end,
-		function() return DB().lead or "auto" end,
+		function() return PartySync:Party().lead or "auto" end,
 		function(value) Peers:ChooseLead(value) end, refresh,
 		function(value) return Peers:DescribeLead(value) end)
 
@@ -231,7 +231,7 @@ function PartySync:SetupOptions()
 
 	layout:Section(L.OPT_SECTION_ROOM)
 	self.roomDropdown = layout:Dropdown(L.OPT_ROOM, L.OPT_ROOM_TIP, function() return Room:Choices() end,
-		function() return DB().roomSpeaker or "" end, function(value) Room:Choose(value) end, refresh,
+		function() return PartySync:Party().roomSpeaker or "" end, function(value) Room:Choose(value) end, refresh,
 		function(value) return Room:Describe(value) end)
 
 	layout:Section(L.OPT_SECTION_WINDOW)

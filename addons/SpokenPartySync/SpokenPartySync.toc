@@ -1,8 +1,9 @@
 ## Interface: 100007, 16001, 11509, 20506, 30403
 ## Title: Spoken Party Sync
 ## Notes: Plays Spoken's lines together for players who quest together: started at once, skipped at once, and one voice in the room.
-## Version: 0.3.0
+## Version: 0.3.1
 ## SavedVariables: SpokenPartySyncDB
+## SavedVariablesPerCharacter: SpokenPartySyncCharDB
 ## OptionalDeps: Spoken, Spoken_Quests, Spoken_Zones, Spoken_Books, Spoken_Developer
 # Spoken is required at runtime and its modules are what there is to sync, but all four are
 # optional here as they are for the modules themselves: an install missing the player loads,

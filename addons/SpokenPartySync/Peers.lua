@@ -115,16 +115,16 @@ end
 
 function Peers:IsMember(name)
 	local key = PartySync:NameKey(name)
-	return key ~= nil and PartySync:DB().members[key] ~= nil
+	return key ~= nil and PartySync:Party().members[key] ~= nil
 end
 
 --- Iterates `key, member` over the party, this character excluded.
 function Peers:Members()
-	return pairs(PartySync:DB().members)
+	return pairs(PartySync:Party().members)
 end
 
 function Peers:MemberName(key)
-	local member = PartySync:DB().members[key]
+	local member = PartySync:Party().members[key]
 	local peer = self.list[key]
 	return (member and member.name) or (peer and peer.name) or key
 end
@@ -153,7 +153,7 @@ function Peers:AddMember(name)
 	if not key or PartySync:IsSelf(name) then
 		return false
 	end
-	local members = PartySync:DB().members
+	local members = PartySync:Party().members
 	if not members[key] then
 		members[key] = { name = PartySync:WhisperName(name), added = time and time() or 0 }
 	end
@@ -164,12 +164,12 @@ end
 --- Forget `name` and tell them, so their side forgets this one too.
 function Peers:RemoveMember(name, quiet)
 	local key = PartySync:NameKey(name)
-	if not key or not PartySync:DB().members[key] then
+	if not key or not PartySync:Party().members[key] then
 		return false
 	end
 	local who = self:MemberName(key)
 	PartySync:Trace("party", "%s left the party%s", key, quiet and ", by their choice" or ", removed here")
-	PartySync:DB().members[key] = nil
+	PartySync:Party().members[key] = nil
 	if not quiet then
 		Comm:Whisper(who, "ID")
 	end
@@ -185,8 +185,8 @@ end
 --- This client's settings as the others need them: whether it asked to lead, and which
 --- computer it says plays the sound.
 local function Settings()
-	local db = PartySync:DB()
-	return db.lead or "auto", db.roomSpeaker or ""
+	local party = PartySync:Party()
+	return party.lead or "auto", party.roomSpeaker or ""
 end
 
 --- To the group, for whoever runs the addon there.
@@ -369,7 +369,7 @@ function Peers:Leader()
 	if not me then
 		return nil
 	end
-	local wishes = { [me] = PartySync:DB().lead or "auto" }
+	local wishes = { [me] = PartySync:Party().lead or "auto" }
 	for _, key in ipairs(self:OnlineMembers()) do
 		wishes[key] = self.list[key].lead or "auto"
 	end
@@ -437,7 +437,7 @@ function Peers:ChooseLead(choice)
 	local me = PartySync:MyKey()
 	if choice == nil or choice == "" then choice = "auto" end
 	if choice == me then choice = "me" end
-	PartySync:DB().lead = choice
+	PartySync:Party().lead = choice
 	PartySync:TraceSetting("lead", choice)
 	if choice ~= "follow" then
 		self:SendChoice("lead", choice == "me" and me or choice)
@@ -467,7 +467,7 @@ Comm:On("CH", function(sender, channel, kind, value)
 			PartySync:Trace("party", "%s chose %s to lead: not in this party, ignored", PartySync:NameKey(sender), tostring(value))
 			return
 		end
-		PartySync:DB().lead = choice
+		PartySync:Party().lead = choice
 		PartySync:Trace("party", "%s chose who leads: %s", PartySync:NameKey(sender), choice)
 		Peers:Announce()
 		PartySync:Print("%s chose who leads the party: %s", who, choice == "me" and "you"
