@@ -81,12 +81,39 @@ stub.FireEvent("QUEST_ACCEPTED", 999)
 stub.Advance(0.55)
 Expect("a quest the game will not share is not", P.Called("QuestLogPushQuest"), false)
 
+-- 2026-10-08: only the leader shared, so a quest the other member accepted never reached it.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
 P.client.units.party1 = LALA
 stub.FireEvent("QUEST_ACCEPTED", 101)
 stub.Advance(0.55)
-Expect("a member who does not lead shares nothing", P.Called("QuestLogPushQuest"), false)
+Expect("by default a member who does not lead shares too", P.Called("QuestLogPushQuest 1"), true)
+
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, nil, { share = "leader" })
+P.client.units.party1 = LALA
+stub.FireEvent("QUEST_ACCEPTED", 101)
+stub.Advance(0.55)
+Expect("with Quests Are Shared By the leader, a member shares nothing", P.Called("QuestLogPushQuest"), false)
+
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, "me", { share = "nobody" })
+P.client.units.party1 = LALA
+stub.FireEvent("QUEST_ACCEPTED", 101)
+stub.Advance(0.55)
+Expect("with nobody's, not even the leader shares", P.Called("QuestLogPushQuest"), false)
+
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+P.client.units.party1 = LALA
+ns:DB().autoShare = false
+stub.FireEvent("QUEST_ACCEPTED", 101)
+stub.Advance(0.55)
+Expect("a computer that switched its own sharing off shares nothing", P.Called("QuestLogPushQuest"), false)
+P.Receive(stub, LALA, "PS", "leader", "none", "1111", "leader")
+Expect("the leader's rule reaches this computer", ns.Peers:Rules().share, "leader")
+P.Receive(stub, LALA, "PS", "leader", "none", "1111")
+Expect("...and a leader on 0.4.0, who sends none, means anyone", ns.Peers:Rules().share, "anyone")
 
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns, nil, "me")
@@ -277,7 +304,7 @@ Expect("the party's diagnostics name the addon and the group", Has("Spoken Party
 Expect("...the debug log", Has("debug log: ", diag), true)
 Expect("...the party", Has("party: " .. P.SESSION .. ", 2 member(s)", diag), true)
 Expect("...who leads, and why", Has("leader: Lala Throwaway (leads the party); sound: every computer", diag), true)
-Expect("...and the leader's rules", Has("rules (the leader's): controls leader, sound none, played together quests, gossip, zones, books", diag), true)
+Expect("...and the leader's rules", Has("rules (the leader's): controls leader, sound none, quests shared by anyone, played together quests, gossip, zones, books", diag), true)
 Expect("...the member, online and leading", Has("Lala Throwaway: online", diag) and Has(", leads", diag), true)
 Expect("...and, detailed, the lines played together", Has("101-accept, driver", diag), true)
 Expect("...but not when brief", Has("101-accept, driver", ns.Diagnostics:Lines(false)), false)
@@ -308,9 +335,9 @@ P.Receive(stub, LALA, "RO", P.SESSION, "Tata Throwaway", "Lala Throwaway;Tata Th
 Expect("the roster can hand this character the lead", ns.Peers:AmLeader(), true)
 P.Clear()
 ns.Peers:SetRule("controls", "leader")
-Expect("leading, a rule set here goes to her", Fields(P.Last("PS", LALA)), "leader|lala throwaway|1011")
+Expect("leading, a rule set here goes to her", Fields(P.Last("PS", LALA)), "leader|lala throwaway|1011|anyone")
 ns.Room:Choose("me")
-Expect("...as does the sound", Fields(P.Last("PS", LALA)), "leader|tata throwaway|1011")
+Expect("...as does the sound", Fields(P.Last("PS", LALA)), "leader|tata throwaway|1011|anyone")
 Expect("...which comes back here", Spoken:IsCaptionsOnly(), false)
 P.Clear()
 ns.Peers:PassLead(LALA)
@@ -332,7 +359,7 @@ P.Receive(stub, LALA, "RO", P.SESSION, "Tata Throwaway", "Lala Throwaway;Tata Th
 Expect("leading, her Lead is live", rows[2].lead:IsEnabled(), true)
 P.Clear()
 rows[2].sound:Click()
-Expect("her Sound gives her computer the sound, for the party", Fields(P.Last("PS", LALA)), "leader|lala throwaway|1111")
+Expect("her Sound gives her computer the sound, for the party", Fields(P.Last("PS", LALA)), "leader|lala throwaway|1111|anyone")
 Expect("...and then greys", rows[2].sound:IsEnabled(), false)
 rows[2].lead:Click()
 Expect("her Lead passes her the lead", Fields(P.Last("RO", LALA)), P.SESSION .. "|lala throwaway|Tata Throwaway;Lala Throwaway")
@@ -402,7 +429,7 @@ Expect("Spoken's minimap menu opens the party window and its settings", table.co
 	"Open Party Window|Party Sync Settings")
 
 for _, command in ipairs({ "", "api", "members", "status", "sync", "lead", "room", "room me", "room none", "room auto",
-	"controls", "controls anyone", "controls x", "sound", "sound captions", "sound x", "list", "list add Bob Stranger",
+	"controls", "controls anyone", "controls x", "share", "share leader", "share x", "share anyone", "sound", "sound captions", "sound x", "list", "list add Bob Stranger",
 	"list auto Bob Stranger off", "list auto Bob", "list remove Bob Stranger", "remember", "remember on", "remember off",
 	"test 101", "test 31337", "ping", "window", "window", "invite", "remove Nobody", "remove",
 	"lead Lala Throwaway", "logs", "logs 20", "logs pull 30", "logs clear", "logs clear all", "logs clearall", "leave" }) do

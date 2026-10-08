@@ -78,7 +78,7 @@ local OWN_WORDS = { party = "", sound = "sound", captions = "captions" }
 local CONTROL_WORDS = { anyone = true, leader = true, nobody = true }
 
 local function Help()
-	PartySync:Print("party: /sps invite <name> | remove <name> | leave | members | lead [<name>] (pass the lead) | room [none|me|<name>] | controls [anyone|leader|nobody] | sound [party|sound|captions] (this computer's)")
+	PartySync:Print("party: /sps invite <name> | remove <name> | leave | members | lead [<name>] (pass the lead) | room [none|me|<name>] | controls [anyone|leader|nobody] | share [anyone|leader|nobody] | sound [party|sound|captions] (this computer's)")
 	PartySync:Print("auto-form list: /sps remember [on|off] (the party, or the setting) | list [add <name> | remove <name> | auto <name> on|off]")
 	PartySync:Print("lines: /sps sync (what played together) | test <questID> (queue a quest's accept line here)")
 	PartySync:Print("window and settings: /sps window | settings")
@@ -167,6 +167,17 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 			if not ok then PartySync:Print("%s", tostring(why)) end
 		end
 		PartySync:Print("controls: %s", tostring(Peers:Rules().controls))
+	elseif cmd == "share" then
+		local value = rest:lower()
+		if value ~= "" then
+			if not CONTROL_WORDS[value] then
+				PartySync:Print("/sps share anyone|leader|nobody")
+				return
+			end
+			local ok, why = Peers:SetRule("share", value)
+			if not ok then PartySync:Print("%s", tostring(why)) end
+		end
+		PartySync:Print("quests are shared by: %s", tostring(Peers:Rules().share or "anyone"))
 	elseif cmd == "list" then
 		local Autoform = PartySync.Autoform
 		local action, name = rest:match("^(%S*)%s*(.-)$")

@@ -1,7 +1,7 @@
--- Quests for the whole party: the leader shares what it accepts, the others accept what a
--- member shares.
+-- Quests for the whole party: a member shares what it accepts, as the party's Quests Are
+-- Shared By rule allows (anyone, by default), and the others accept what a member shares.
 --
--- The leader's accept line has just played on every computer, so the share it sends is
+-- The sharer's accept line has just played on every computer, so the share it sends is
 -- accepted without the dialog being read a second time: Sync refuses the accept line the
 -- shared dialog would queue (Sync:ExpectShared). Only quests the game lets you share are
 -- shared, and only with a member in the group, since the game shares with the group alone.
@@ -96,7 +96,7 @@ function Accept:QUEST_ACCEPTED(first, second)
 	if not questID then
 		return
 	end
-	if not (PartySync:DB().autoShare and Peers:AmLeader() and MemberInGroup()) then
+	if not (PartySync:DB().autoShare and Peers:MayShare() and MemberInGroup()) then
 		return
 	end
 	-- Shared with this character in the first place: sharing it back would be noise.
