@@ -194,7 +194,7 @@ function Skin:Initialize()
     self.name:SetHeight(20)
     Removable(self.title, 12, 1, 1, 1)
     self.title:SetScript("OnClick", function()
-        if self:HasClip() then SoundQueue:RemoveSoundFromQueue(self.clip) end
+        if self:HasClip() and not SoundQueue:WhyNoControl() then SoundQueue:RemoveSoundFromQueue(self.clip) end
     end)
     self.title:SetScript("OnEnter", function()
         if not self:HasClip() then return end
@@ -608,7 +608,7 @@ function Skin:UpdateControls(relayout)
         relayout = true
     end
     Actions.Glyph(self.pause:GetNormalTexture(), Actions.HeadState())
-    self.pause:GetNormalTexture():SetAlpha((paused or MouseIsOver(self.pause)) and .9 or 0)
+    Actions.GateGlyph(self.pause:GetNormalTexture(), (paused or MouseIsOver(self.pause)) and .9 or 0)
     self.pause.wash:SetShown(paused and not playing)
     local colors = self.colors
     if colors then
@@ -618,6 +618,9 @@ function Skin:UpdateControls(relayout)
     local held = not paused and not playing and SoundQueue:GetHeldReason(self.clip)
     self.title.text:SetText(held and format("%s (%s)", Label(self.clip), held) or Label(self.clip))
     local pausable = SoundQueue:CanBePaused()
+    -- Close skips the line: greyed with the rest while it is not this computer's to skip.
+    local closeGlyph = self.close:GetNormalTexture()
+    if closeGlyph then Actions.GateGlyph(closeGlyph, 1) end
     for _, button in ipairs(self.buttons) do
         local color = pausable and colors and colors.paragraph or colors and colors.disabled
         if color then button.text:SetTextColor(color[1], color[2], color[3]) end

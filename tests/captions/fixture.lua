@@ -149,8 +149,11 @@ for _,method in ipairs({'SetClampedToScreen','SetMovable','SetResizable',
     'SetBackdropColor','SetBackdropBorderColor','EnableMouse','RegisterForDrag','RegisterForClicks',
     'SetJustifyH','SetJustifyV','SetSpacing','StartSizing','SetClipsChildren','EnableMouseWheel',
     'SetColorTexture','RegisterEvent','SetUserPlaced','SetTexCoord','SetVertexColor',
-    'SetStatusBarTexture','SetMinMaxValues','SetValue','SetStatusBarColor','Enable','Disable','AddLine',
+    'SetStatusBarTexture','SetMinMaxValues','SetValue','SetStatusBarColor','AddLine',
     'SetBlendMode'}) do Widget[method]=function() end end
+function Widget:Enable() self.enabled=true end
+function Widget:Disable() self.enabled=false end
+function Widget:IsEnabled() return self.enabled~=false end
 CreateFrame=function(kind,name,parent)
     local w=New(parent,kind); if name then _G[name]=w end; return w
 end

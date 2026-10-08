@@ -124,8 +124,23 @@ VO.Player:Enqueue(QuestLine(VO, 101))
 stub.Advance(0.55)
 Expect("with the controls off, the leader's own Stop is greyed too", Spoken:WhyNoControl(), ns.L.GATE_NOBODY)
 Expect("...and does nothing", Spoken:Pause() == false and Spoken:IsPaused() == false, true)
+-- What the player shows (2026-10-08: the Subtitles player's Stop and Skip stayed lit).
+local Subtitle = env.Subtitle
+if not Subtitle.frame then Subtitle:Build() end
+Subtitle:UpdatePause()
+Expect("...the subtitle's Stop is greyed", Subtitle.pause:IsEnabled(), false)
+Expect("...and its Skip", Subtitle.skip:IsEnabled(), false)
+ns:ShowWindow(true)
+local windowStop = _G.SpokenPartySyncWindow.pause
+Expect("...and the party window's Stop", windowStop:IsEnabled(), false)
+Expect("...saying why", windowStop.tooltip:find(ns.L.GATE_NOBODY, 1, true) ~= nil, true)
 ns.Peers:SetRule("controls", "leader")
 Expect("under the leader's controls the leader may stop", Spoken:WhyNoControl(), nil)
+Subtitle:UpdatePause()
+ns:RefreshWindow()
+Expect("...its subtitle buttons live again", Subtitle.pause:IsEnabled() and Subtitle.skip:IsEnabled(), true)
+Expect("...and the window's Stop", windowStop:IsEnabled() and windowStop.tooltip, ns.L.WINDOW_PAUSE)
+ns:ShowWindow(false)
 Expect("...and it reaches the party", Spoken:Pause() and P.Last("PZ", LALA) ~= nil, true)
 Spoken:Resume()
 VO.Player:Enqueue(QuestLine(VO, 102))
