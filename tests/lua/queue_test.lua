@@ -293,6 +293,105 @@ local probed = env.Sources:Register("probed", { title = "Probed", addon = "Spoke
 local p = H.Clip()
 Expect("a probed source admits a file that exists", probed:Enqueue(p) ~= nil, true)
 Expect("...probing it on the source's channel", world.playedChannels[1], "Master")
+-- A duplicate of the clip speaking is refused before the probe: playing and stopping its file
+-- can cut the one speaking short.
+local plays, stops = #world.played, #world.stopped
+local again, why = probed:Enqueue(H.Clip({ key = p.key }))
+Expect("a duplicate of a probed clip is refused", why, "duplicate")
+Expect("...without its file being played or stopped", #world.played == plays and #world.stopped == stops, true)
+
+---------------------------------------------------------------- captions only
+-- Two players in one room: one client speaks, the other shows the line without playing it.
+-- Muting the channel instead is what used to be done, and it refuses the line outright.
+-- The saved settings outlive a fresh player, as they outlive a /reload in the game, so each
+-- case starts from the defaults it depends on.
+local function CaptionsFresh()
+    Fresh()
+    env.Addon.db.profile.Audio.AutoToggleDialog = false
+    world.cvars.Sound_EnableDialog = nil
+    world.cvars.Sound_MasterVolume = nil
+    Q:SetCaptionsOnly(false)
+    Q:SetCaptionsOnlyOverride(false)
+end
+
+CaptionsFresh()
+world.cvars.Sound_MasterVolume = "0"
+local refused, refusal = quests:Enqueue(H.Clip())
+Expect("a muted channel refuses the line", refused, nil)
+Expect("...saying why", refusal, "the master volume is 0")
+
+CaptionsFresh()
+world.cvars.Sound_MasterVolume = "0"
+Q:SetCaptionsOnly(true)
+local silent, silent2 = H.Clip(), H.Clip()
+Expect("captions only, a muted channel admits the line", quests:Enqueue(silent) ~= nil, true)
+Expect("...which starts, so the player and its captions show", rec:Has("CLIP_STARTED " .. silent.key), true)
+Expect("...without playing anything", world.played[1], nil)
+quests:Enqueue(silent2)
+stub.Advance(1.55)
+Expect("...and ends on its duration, starting the next", Q:GetCurrentSound(), silent2)
+Expect("...which is silent too", world.played[1], nil)
+Expect("a silent line can still be skipped", Q:Skip(), true)
+Expect("...and is gone", Q:GetCurrentSound(), nil)
+local silent3 = H.Clip()
+quests:Enqueue(silent3)
+Q:PauseQueue()
+Expect("...or paused", Q:IsPaused(), true)
+Q:ResumeQueue()
+Expect("...and resumed", Q:IsPlaying(silent3), true)
+
+CaptionsFresh()
+world.cvars.Sound_MasterVolume = "0"
+Q:SetCaptionsOnly(true)
+local probedQuiet = env.Sources:Register("probedQuiet", { title = "Probed", addon = "Spoken_Quests", order = 3,
+    testBeforeQueue = true })
+Expect("captions only, the existence probe does not refuse every line on a muted channel",
+    probedQuiet:Enqueue(H.Clip()) ~= nil, true)
+Expect("...and the source reports it can play", (probedQuiet:CanPlay()), true)
+
+CaptionsFresh()
+local loud = H.Clip()
+quests:Enqueue(loud)
+Expect("a line plays normally", world.played[1], loud.path)
+Q:SetCaptionsOnly(true)
+Expect("switching to captions only stops it at once", world.stopped[1], 1)
+Expect("...and keeps it as the head, captions running", Q:GetCurrentSound(), loud)
+Expect("...which can still be skipped, though its sound is already stopped", Q:CanBePaused(), true)
+stub.Advance(1.55)
+Expect("...until its duration is up", Q:GetCurrentSound(), nil)
+Q:SetCaptionsOnly(false)
+local loudAgain = H.Clip()
+quests:Enqueue(loudAgain)
+Expect("switched back, lines play again", world.played[2], loudAgain.path)
+
+CaptionsFresh()
+env.Addon.db.profile.Audio.AutoToggleDialog = true
+Q:SetCaptionsOnly(true)
+quests:Enqueue(H.Clip())
+stub.Advance(0.6) -- the NPC's voice is faded out, not cut
+Expect("captions only, the game's own dialogue is still muted while the line runs",
+    GetCVar("Sound_EnableDialog"), "0")
+stub.Advance(0.95)
+Expect("...and let back when the queue drains", GetCVar("Sound_EnableDialog"), "1")
+
+-- A party addon's override: the session goes quiet while another client in the room speaks,
+-- and the player's own choice is never written.
+CaptionsFresh()
+local before = H.Clip()
+quests:Enqueue(before)
+Q:SetCaptionsOnlyOverride(true)
+Expect("an override stops a line speaking, as the setting does", world.stopped[1], 1)
+Expect("...without saving anything", env.Addon.db.profile.Audio.CaptionsOnly, false)
+stub.Advance(1.55)
+local during = H.Clip()
+quests:Enqueue(during)
+Expect("...and the next line is silent", world.played[2], nil)
+Expect("...but shown", rec:Has("CLIP_STARTED " .. during.key), true)
+stub.Advance(1.55)
+Q:SetCaptionsOnlyOverride(false)
+local after = H.Clip()
+quests:Enqueue(after)
+Expect("lifted, lines play again", world.played[2], after.path)
 
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll queue tests passed")

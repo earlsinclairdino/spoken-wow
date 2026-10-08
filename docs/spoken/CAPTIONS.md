@@ -53,6 +53,25 @@ scrollbar. Subtitles Only pages on its own and is not affected.
 Stopping freezes the text. Replay restarts it with the recording. Skipping
 shows the next clip's text, and a clip without text hides the captions.
 
+## Captions only
+
+**Captions Only, No Sound**, under Audio in `/spoken options`, shows every line in the
+player with its captions, timed as if it were playing, and plays nothing. `/spoken captionsonly`
+toggles it; `on` and `off` also work.
+
+It is for two players in one room: one client speaks, the other reads along, and there is no
+echo. Muting the game's sound channel is not the same thing. A line on a channel that cannot
+be heard is refused, so the player never opens and the captions never show.
+
+Turning it on stops a line already speaking, and its captions run on to the end. Turning it
+off takes effect from the next line, because the client cannot start a sound partway through.
+**Silence NPC Voices** still mutes NPC barks while a line runs, since the line is being read
+aloud in the room. Not on 1.12, which has no captions.
+
+A feature addon can turn it on for the session without touching the setting,
+`Spoken:SetCaptionsOnlyOverride(true)`, and lift it with `false`: Spoken Party Sync does this
+on the client that is not the room's speaker.
+
 ## Settings language
 
 Caption settings and tooltips follow the game client language. Translations cover

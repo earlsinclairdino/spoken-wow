@@ -73,6 +73,18 @@ Expect("...with no queue limit", B.source.queueLimit, nil)
 Expect("...with its own gap", B.source.interClipGap, 0.35)
 Expect("...and reports itself compatible", B.compatible, true)
 
+-- Another client's page (Spoken Party Sync): the page id is the whole description, carried in
+-- the key when nothing else is sent. ClipFor is Audio.lua's, not loaded here; what this checks
+-- is that the description reaches it as a number.
+local asked = {}
+B.ClipFor = function(_, pageId) table.insert(asked, pageId); return { key = "b:" .. pageId } end
+Expect("the source offers a rebuild", type(B.source.rebuild), "function")
+Expect("a page is rebuilt from its key", B.source.rebuild({ key = "b:4242" }).key, "b:4242")
+Expect("...asking for the page as a number", asked[1], 4242)
+Expect("...or from its page id", B.source.rebuild({ key = "x", pageId = "77" }).key, "b:77")
+Expect("a key that names no page rebuilds nothing", B.source.rebuild({ key = "z:1411" }), nil)
+B.ClipFor = nil
+
 ---------------------------------------------------------------- saved variables
 Expect("autoplay is on by default, because opening a book is already deliberate",
     SpokenBooksSettings.autoplay, true)

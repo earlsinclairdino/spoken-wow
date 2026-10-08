@@ -7,7 +7,7 @@ setfenv(1, SpokenEnv)
 -- source's, grouped in source order. Middle-click stops or replays. All three are
 -- rebindable (Minimap.Commands in the profile), which is what keeps VoiceOverRedux's three-configurable-clicks
 -- behaviour for the players who use it.
-Minimap = { entries = {} }
+Minimap = { entries = {}, sections = {} }
 
 local ICON = [[Interface\AddOns\Spoken\Textures\MinimapButton]]
 local ldbObject, menuFrame, minimapButton
@@ -34,6 +34,12 @@ function Minimap:AddEntry(sourceKey, entry)
     table.sort(self.entries[sourceKey], function(a, b) return (a.order or 100) < (b.order or 100) end)
 end
 
+--- A heading for entries under `key` from an addon that queues nothing, so is no source (a
+--- party window, say). Listed after the sources, by `order` then key.
+function Minimap:AddSection(key, title, order)
+    self.sections[key] = { key = key, title = title, order = order or 100 }
+end
+
 function Minimap:RemoveEntry(sourceKey, id)
     local list = self.entries[sourceKey]
     if not list then return end
@@ -53,6 +59,20 @@ function Minimap:BuildMenu()
         for _, entry in ipairs(Sources:IsTurnedOff(source) and {} or self.entries[key] or {}) do
             if not entry.visible or entry.visible() then
                 entry.sourceTitle = source.title
+                table.insert(menu, entry)
+            end
+        end
+    end
+    local sections = {}
+    for _, section in pairs(self.sections) do table.insert(sections, section) end
+    table.sort(sections, function(a, b)
+        if a.order ~= b.order then return a.order < b.order end
+        return a.key < b.key
+    end)
+    for _, section in ipairs(sections) do
+        for _, entry in ipairs(self.entries[section.key] or {}) do
+            if not entry.visible or entry.visible() then
+                entry.sourceTitle = section.title
                 table.insert(menu, entry)
             end
         end

@@ -22,6 +22,8 @@ end
 -- one fixed hash for the test NPC's greeting.
 local GREETING_HASH = "9fdeb82237b72e8801030487901e690f"
 lookup[GREETING_HASH] = 3
+-- One line recorded for each player gender, as the packs carry for a line that names the player.
+lookup["m-104-accept"] = 2; lookup["f-104-accept"] = 2
 
 local function Boot()
     stub.SetClient("11509"); stub.ResetSound(); stub.ResetTimers()
@@ -287,6 +289,38 @@ Expect("Remove takes it out", VO.Player:Remove(overlayClip), true)
 Expect("...Contains is false again", VO.Player:Contains(overlayClip), false)
 Expect("a line no pack holds is refused", VO.Player:Enqueue({ event = VO.Enums.SoundEvent.QuestAccept, questID = 999, name = "x", title = "x" }), false)
 Expect("...and the stage says so", VO.Debug.runtime.stage, "data-lookup-failed")
+
+---------------------------------------------------------------- rebuilding another client's line
+-- What Spoken Party Sync hands the source: the other client's file name and what the quests
+-- addon put on its clip. The m-/f- prefix is that player's gender, not this one's.
+VO, env, Spoken = Boot()
+source = Spoken:GetSource("quests")
+Expect("the source offers a rebuild", type(source.rebuild), "function")
+local fields = { key = "101-accept", event = tostring(VO.Enums.SoundEvent.QuestAccept), questID = "101",
+    npcID = "1234", name = "Innkeeper Test", title = "Test Quest", text = "Go." }
+local rebuilt = source.rebuild(fields)
+Expect("a quest line is rebuilt from the file name and event", rebuilt and rebuilt.key, "101-accept")
+Expect("...with this client's path", rebuilt.path, [[Interface\AddOns\TestPack\101-accept.ogg]])
+Expect("...its length", rebuilt.length, 2)
+Expect("...and the presentation a local line has", rebuilt.present.header, "Innkeeper Test")
+Expect("...portrait from the NPC id", rebuilt.present.portrait.creatureID, 1234)
+Expect("...the quest id as a number, for the watcher", rebuilt.questID, 101)
+Expect("...and its text, for the captions", rebuilt.text, "Go.")
+Expect("it queues through the source like any other line", source:Enqueue(rebuilt) ~= nil, true)
+
+VO, env, Spoken = Boot()
+source = Spoken:GetSource("quests")
+world.unitSex = 3
+local gendered = source.rebuild({ key = "m-104-accept", event = tostring(VO.Enums.SoundEvent.QuestAccept), questID = "104" })
+Expect("another player's gendered take resolves to this player's", gendered and gendered.key, "f-104-accept")
+world.unitSex = 2
+Expect("a line no pack here holds is not rebuilt",
+    source.rebuild({ key = "999-accept", event = tostring(VO.Enums.SoundEvent.QuestAccept) }), nil)
+Expect("nor is one with no event", source.rebuild({ key = "101-accept" }), nil)
+local greeting = source.rebuild({ key = GREETING_HASH, event = tostring(VO.Enums.SoundEvent.QuestGreeting), npcID = "1234" })
+Expect("a greeting is rebuilt from its hash", greeting and greeting.key, GREETING_HASH)
+Expect("...as gossip, which yields to quest lines", greeting.priority, "low")
+Expect("...named from the pack when the sender gave no name", greeting.present.header ~= nil, true)
 
 ---------------------------------------------------------------- the minimap and settings
 VO, env, Spoken = Boot()

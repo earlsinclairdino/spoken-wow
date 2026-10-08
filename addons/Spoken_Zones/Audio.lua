@@ -230,6 +230,21 @@ function SpokenZones:SetupAudio()
 		-- Durations come from a generated lookup and are exact; upstream's larger gap
 		-- absorbs durations that are not.
 		interClipGap = 0.25,
+		-- Another client's narration, played here too (Spoken Party Sync): the line id names
+		-- the map and the area, and both are the same in every language.
+		rebuild = function(fields)
+			local mapID, areaKey = tonumber(fields.mapID), fields.areaKey
+			if not mapID and type(fields.key) == "string" then
+				local m, a = string.match(fields.key, "^s:(%d+):(.+)$")
+				if m then
+					mapID, areaKey = tonumber(m), a
+				else
+					mapID = tonumber(string.match(fields.key, "^z:(%d+)$") or "")
+				end
+			end
+			if areaKey == "" then areaKey = nil end
+			return mapID and SpokenZones:NewLoreSound(mapID, areaKey) or nil
+		end,
 		-- What Spoken's settings show on this part's card: which voice packs are installed.
 		packs = function()
 			local names = {}

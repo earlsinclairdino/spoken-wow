@@ -205,6 +205,13 @@ function SpokenBooks:SetupSource()
 		-- source's queue from there, so what waits behind the voice is one book and never a
 		-- session's worth of them.
 		queueLimit = nil,
+		-- Another client's page, played here too (Spoken Party Sync). Page ids are this
+		-- project's own, so both clients need the same data export.
+		rebuild = function(fields)
+			local pageId = tonumber(fields.pageId)
+				or (type(fields.key) == "string" and tonumber(string.match(fields.key, "^b:(%d+)$") or ""))
+			return pageId and SpokenBooks:ClipFor(pageId) or nil
+		end,
 		-- Durations come from a generated lookup and are exact, so the gap only has to
 		-- separate two pages of prose rather than absorb a bad measurement.
 		interClipGap = 0.35,

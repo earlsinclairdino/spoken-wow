@@ -22,6 +22,14 @@ end
 ---@param info SpokenSourceInfo
 ---@return table source  Carries Enqueue, PlayNow, Remove, StopAll, AddGate, RecheckGates, Retry,
 ---                      CanPlay, SetQueueLimit and SetInterClipGap.
+---
+--- `info.rebuild(fields) -> clip | nil` is optional: the source's own clip, rebuilt on this
+--- client from a description another client sent -- `fields.key` and whatever fields the
+--- source itself put on the clip there (a quest line's event and questID, a zone's mapID and
+--- areaKey, a book's pageId), as strings or numbers. Return it presented and ready for
+--- `source:Enqueue`, or nil when this client cannot play it (no pack, no data). It is how a
+--- party addon plays a line on a client that never triggered it, without reaching into the
+--- source addon's internals. Additive: a caller guards on `source.rebuild`.
 function Spoken:RegisterSource(key, info)
     return Sources:Register(key, info)
 end
@@ -358,6 +366,11 @@ end
 function Spoken.Minimap:RemoveEntry(sourceKey, id)
     Minimap:RemoveEntry(sourceKey, id)
 end
+--- A heading for an addon that is not a source (it queues nothing): its entries, added under
+--- `key`, are listed after the sources' under `title`. Additive: guard on the field.
+function Spoken.Minimap:AddSection(key, title, order)
+    Minimap:AddSection(key, title, order)
+end
 
 --------------------------------------------------------------------------------
 -- The queue, player-wide. Source-scoped operations live on the source.
@@ -448,6 +461,31 @@ end
 
 function Spoken:AddGate(fn)
     SoundQueue:AddGate(fn)
+end
+
+--- A player-wide gate opened: start what it held now rather than at the next once-a-second
+--- retry. Gates are only asked again when the queue moves, and a gate opening is not a move.
+--- Additive, like everything below: guard on the field.
+function Spoken:RecheckGates()
+    SoundQueue:Advance()
+end
+
+--- Captions only: lines are shown, captioned and timed, and nothing is played. Either the
+--- player's own setting or an override (below) turns it on.
+function Spoken:IsCaptionsOnly()
+    return SoundQueue:IsCaptionsOnly()
+end
+
+--- The player's own setting, saved with the rest of its audio settings.
+function Spoken:SetCaptionsOnly(on)
+    SoundQueue:SetCaptionsOnly(on)
+end
+
+--- Captions only for this session, on a feature addon's say -- one that knows another client
+--- in the same room is speaking the line. Never saved, and the player's own setting is left as
+--- it was: lift it with `false` when the reason goes away.
+function Spoken:SetCaptionsOnlyOverride(on)
+    SoundQueue:SetCaptionsOnlyOverride(on)
 end
 
 --------------------------------------------------------------------------------

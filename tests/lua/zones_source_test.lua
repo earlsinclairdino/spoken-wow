@@ -42,6 +42,15 @@ end
 local env, Z = Boot()
 local Spoken = _G.Spoken
 Expect("the zones addon registers a source with the player", Spoken:GetSource("zones"), Z.source)
+
+-- Another client's narration (Spoken Party Sync): the line id names the map and the area.
+local rebuild = Z.source.rebuild
+Expect("the source offers a rebuild", type(rebuild), "function")
+Expect("zone lore is rebuilt from its key", rebuild({ key = "z:1411" }).key, "z:1411")
+Expect("...and subzone lore", rebuild({ key = "s:1411:valley of trials" }).key, "s:1411:valley of trials")
+Expect("...or from the map and area sent alongside", rebuild({ key = "?", mapID = "1411", areaKey = "valley of trials" }).path ~= nil, true)
+Expect("lore no pack here narrates is not rebuilt", rebuild({ key = "z:9999" }), nil)
+Expect("nor is a key that names no map", rebuild({ key = "b:12" }), nil)
 -- No channel of its own: the channel is one setting, on the player.
 Expect("...on the player's channel", Z.source:GetChannel(), "Master")
 Expect("...SpokenZones's queue limit", Z.source.queueLimit, 3)
