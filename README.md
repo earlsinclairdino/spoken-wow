@@ -149,3 +149,5 @@ full history:
 `git log --follow` works across the move. Tags from the first are prefixed
 `legacy/quests/` because they predate the addon they would otherwise appear
 to name.
+
+Test
