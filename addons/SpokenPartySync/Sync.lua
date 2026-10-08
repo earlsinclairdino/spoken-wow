@@ -151,9 +151,9 @@ function Sync:Available()
 	return PartySync:PlayerAvailable()
 end
 
---- Whether `kind` of line is played together, per the settings.
+--- Whether `kind` of line is played together, per the party's rules.
 function Sync:Syncs(kind)
-	local sync = PartySync:DB().sync
+	local sync = Peers:Rules().sync or {}
 	return kind ~= nil and sync[kind] ~= false
 end
 
@@ -692,38 +692,55 @@ end)
 
 --- Whether this client's Stop, Replay, Skip and Stop All go to the others.
 function Sync:CanControl()
-	local policy = PartySync:DB().controls
+	local policy = Peers:Rules().controls
 	if policy == "anyone" then return true end
 	if policy == "leader" then return Peers:AmLeader() end
 	return false
+end
+
+--- Why the head cannot be stopped, replayed or skipped here, for the player's buttons: a line
+--- played together is the party's, under the leader's rule. Nothing while another member's
+--- control is being applied, and nothing for a line played here alone.
+function Sync:WhyNoControl(clip)
+	if applyingRemote or not (clip and clip.partySync) or not self:Live() then
+		return nil
+	end
+	local policy = Peers:Rules().controls
+	if policy == "nobody" then
+		return L.GATE_NOBODY
+	end
+	if policy == "leader" and not Peers:AmLeader() then
+		return format(L.GATE_LEADER_FMT, Short(Peers:Leader()))
+	end
+	return nil
 end
 
 --- Why this client's Stop, Replay or Skip stays here, or nil when it goes to the party; false
 --- when there is no party to tell, which is not worth a line in the log.
 function Sync:WhyKept()
 	if not self:Live() then
-		return next(PartySync:Party().members) ~= nil and "nobody in the party online" or false
+		return Peers:InParty() and "nobody in the party online" or false
 	end
-	local policy = PartySync:DB().controls
+	local policy = Peers:Rules().controls
 	if policy == "anyone" then return nil end
 	if policy == "leader" then
 		if Peers:AmLeader() then return nil end
 		return format("the controls are the leader's, %s's", tostring(Peers:Leader()))
 	end
-	return "the controls are not shared"
+	return "the leader turned the controls off"
 end
 
 --- Why `sender`'s do nothing here, or nil when they do.
 function Sync:WhyRefused(sender)
 	if not Peers:IsMember(sender) then return "not in the party" end
-	local policy = PartySync:DB().controls
+	local policy = Peers:Rules().controls
 	if policy == "anyone" then return nil end
 	if policy == "leader" then
 		local leader = Peers:Leader()
 		if leader == PartySync:NameKey(sender) then return nil end
 		return format("the controls are the leader's, %s's", tostring(leader))
 	end
-	return "the controls are not shared here"
+	return "the leader turned the controls off"
 end
 
 --- Whether `sender`'s do here.
@@ -911,6 +928,9 @@ function Sync:Setup()
 		local ok, reason = pcall(Gate, clip)
 		return ok and reason or nil
 	end)
+	if S.SetControlGate then
+		S:SetControlGate(function(clip) return Sync:WhyNoControl(clip) end)
+	end
 	for key, source in S:IterateSources() do
 		Wrap(key, source)
 	end

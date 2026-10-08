@@ -2,7 +2,7 @@
 -- what has gone wrong. Small and plain, and by default only on screen when something is wrong:
 -- the player already shows what is speaking, and this is for when two computers disagree.
 --
--- The party is a row per member, with Lead and Sound buttons that choose for the whole party.
+-- The party is a row per member, with Lead and Sound buttons that are the leader's to press.
 -- The rest is one block of text, rebuilt from scratch on every change, rather than rows to keep
 -- in step: it is a handful of lines, and the queue it describes changes shape all the time.
 
@@ -19,6 +19,7 @@ local MAX_LINES = 8
 local LINGER_SECONDS = 8
 
 local frame, text
+local SmallButton
 -- Opened by hand (/sps window, the settings button): shown whatever the setting says, until
 -- closed by hand.
 local forced = false
@@ -119,6 +120,14 @@ local function Create()
 		Tip(settings)
 		frame.settings = settings
 	end
+	-- The party onto the auto-form list, from here as from the page.
+	local remember = SmallButton(frame, L.WINDOW_REMEMBER, L.OPT_REMEMBER_TIP, function()
+		local added = PartySync.Autoform:Remember()
+		if added then PartySync:Print("the party is on the auto-form list, %d new to it", added) end
+	end)
+	remember:SetWidth(64)
+	remember:SetPoint("RIGHT", frame.settings or close, "LEFT", -6, 0)
+	frame.remember = remember
 	frame.rows = {}
 	PartySync.windowRows = frame.rows
 
@@ -131,7 +140,7 @@ local function Create()
 	return frame
 end
 
-local function SmallButton(parent, label, tooltip, onClick)
+SmallButton = function(parent, label, tooltip, onClick)
 	local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
 	button:SetSize(BUTTON_WIDTH, 16)
 	button:SetText(label)
@@ -142,6 +151,8 @@ local function SmallButton(parent, label, tooltip, onClick)
 	end
 	button:SetScript("OnClick", onClick)
 	button.tooltip = tooltip
+	-- A greyed button still says why on hover.
+	if button.SetMotionScriptsWhileDisabled then button:SetMotionScriptsWhileDisabled(true) end
 	Tip(button)
 	return button
 end
@@ -158,13 +169,12 @@ local function Row(i)
 	row.label:SetWidth(WIDTH - 2 * PAD - 2 * BUTTON_WIDTH - 6)
 	row.label:SetJustifyH("LEFT")
 	if row.label.SetWordWrap then row.label:SetWordWrap(false) end
-	-- The row's own character is "me" on the way out: the others are told its key.
 	row.sound = SmallButton(row, L.OPT_SOUND_BTN, L.OPT_SOUND_BTN_TIP, function()
-		if row.key then Room:Choose(row.isMe and "me" or row.key) end
+		if row.key then Room:Choose(row.key) end
 	end)
 	row.sound:SetPoint("RIGHT", 0, 0)
 	row.lead = SmallButton(row, L.OPT_LEAD_BTN, L.OPT_LEAD_BTN_TIP, function()
-		if row.key then Peers:ChooseLead(row.isMe and "me" or row.key) end
+		if row.key then Peers:PassLead(row.key) end
 	end)
 	row.lead:SetPoint("RIGHT", row.sound, "LEFT", -2, 0)
 	frame.rows[i] = row
@@ -197,6 +207,8 @@ local function MemberLine(key, isMe)
 	end
 	if Peers:IsLeader(key) then table.insert(parts, YELLOW .. L.TAG_LEAD .. "|r") end
 	if PartySync.Room and PartySync.Room:Speaker() == key then table.insert(parts, GREEN .. L.TAG_SOUND .. "|r") end
+	local own = isMe and Room:IsOwn() or (not isMe and peer and peer.own)
+	if own then table.insert(parts, GREY .. L.TAG_OWN_SOUND .. "|r") end
 	return table.concat(parts, "  ")
 end
 
@@ -257,14 +269,12 @@ end
 local function Build()
 	local out, members = {}, {}
 	local me = PartySync:MyKey()
-	local anyMember = false
-	for _ in Peers:Members() do anyMember = true break end
+	local anyMember = Peers:InParty()
 	if anyMember then
-		if me then table.insert(members, { key = me, isMe = true, text = MemberLine(me, true) }) end
-		local keys = {}
-		for key in Peers:Members() do table.insert(keys, key) end
-		table.sort(keys)
-		for _, key in ipairs(keys) do table.insert(members, { key = key, text = MemberLine(key, false) }) end
+		for _, key in ipairs(Peers:MemberKeys()) do
+			local isMe = key == me
+			table.insert(members, { key = key, isMe = isMe, text = MemberLine(key, isMe) })
+		end
 	end
 	local membersText = {}
 	for _, member in ipairs(members) do table.insert(membersText, member.text) end
@@ -341,15 +351,20 @@ function PartySync:RefreshWindow()
 	Create()
 	if hasProblems then frame.dismissed = nil end
 	local speaker = Room:Speaker()
+	local leads = Peers:AmLeader()
+	local leaderName = PartySync:ShortName(Peers:MemberName(Peers:Leader() or "?"))
 	for i, member in ipairs(members) do
 		local row = Row(i)
 		row.key, row.isMe = member.key, member.isMe
 		row.label:SetText(member.text)
-		-- Nothing to choose where it is already so.
-		SetEnabled(row.lead, not Peers:IsLeader(member.key))
-		SetEnabled(row.sound, speaker ~= member.key)
+		-- The leader's to press, and nothing to choose where it is already so.
+		SetEnabled(row.lead, leads and not Peers:IsLeader(member.key))
+		SetEnabled(row.sound, leads and speaker ~= member.key)
+		row.lead.tooltip = leads and L.OPT_LEAD_BTN_TIP or format(L.ONLY_LEADER_FMT, leaderName)
+		row.sound.tooltip = leads and L.OPT_SOUND_BTN_TIP or format(L.ONLY_LEADER_FMT, leaderName)
 		row:Show()
 	end
+	if frame.remember then frame.remember:SetShown(members[1] ~= nil) end
 	for i = #members + 1, #frame.rows do
 		frame.rows[i].key = nil
 		frame.rows[i]:Hide()

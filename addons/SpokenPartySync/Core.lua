@@ -33,35 +33,45 @@ PartySync.version = GetAddOnMeta and GetAddOnMeta(ADDON_NAME, "Version") or "dev
 local REQUIRED_API = 1
 
 -- This computer's settings, the same for every character on the account.
-local function Defaults()
+local function Rules()
 	return {
+		-- Whose Stop, Replay, Skip and Stop All act on every computer: "leader", "anyone" or
+		-- "nobody" (the lines play through; nobody stops them, the leader included).
+		controls = "leader",
+		-- Which computer plays the sound: a member's NameKey, or "none" for every computer.
+		room = "none",
 		-- Which kinds of line are played together. Each one off still plays here, alone.
 		sync = { quests = true, gossip = true, zones = true, books = true },
+	}
+end
+PartySync.Rules = Rules
+
+local function Defaults()
+	return {
+		-- The rules a party started here begins with; in a party they are the leader's to set.
+		rules = Rules(),
 		autoShare = true,
 		autoAccept = true,
-		-- Whose Stop, Replay, Skip and Stop All act everywhere: "leader", "anyone" or "nobody".
-		controls = "leader",
+		-- Every party this character ends up in is added to its auto-form list.
+		remember = false,
+		-- "" follows the party's Who Plays the Sound; "sound" and "captions" decide it here.
+		soundOwn = "",
 		window = { show = "problems", scale = 1 },
 	}
 end
 PartySync.Defaults = Defaults
 
--- The character's party, saved per character: the other members know this character by its
--- name, and take a line, a choice or a control from no other, so another character on this
--- computer is in no party until it is invited.
+-- The character's, saved per character: the others know this character by its name, so another
+-- character on this computer is in no party until it is invited.
 local function PartyDefaults()
 	return {
-		-- NameKey -> { name, added }. Whoever is in here plays lines with this character; anyone
-		-- else running the addon is told about at most once. Kept by name, not by group: the
-		-- players this is for are always the same characters, and a name survives leaving the
-		-- group, joining a raid, or not grouping at all.
-		members = {},
-		-- "auto" (whoever leads the group, else the first name), "me", "follow" (never me), or a
-		-- member's NameKey.
-		lead = "auto",
-		-- Two computers in one room: "" follows what the others chose, "me" plays the sound here,
-		-- "none" plays it everywhere, a member's NameKey plays it there and only captions here.
-		roomSpeaker = "",
+		-- The party this character is in, or nil: { id, leader (a NameKey), members (NameKey ->
+		-- name, this character included), rules }. It lasts until fewer than two are left, and
+		-- a /reload rejoins it.
+		session = nil,
+		-- Who to form a party with as soon as they are online: NameKey -> { name, autoAccept,
+		-- added }, who led it and the rules it had.
+		list = { members = {}, leader = nil, rules = nil },
 	}
 end
 
@@ -75,6 +85,45 @@ local function Fill(target, defaults)
 	end
 end
 
+local function Copy(value)
+	if type(value) ~= "table" then return value end
+	local copy = {}
+	for key, item in pairs(value) do copy[key] = Copy(item) end
+	return copy
+end
+PartySync.Copy = Copy
+
+--- The 0.3 party, kept by name as a list of members, lead and sound choices: it becomes the
+--- auto-form list, with the choices as the rules it starts a party with.
+local function MigrateMembers(db, party, me)
+	if type(party.members) ~= "table" then return end
+	for key, member in pairs(party.members) do
+		if not party.list.members[key] then
+			party.list.members[key] = { name = member.name, autoAccept = true, added = member.added }
+		end
+	end
+	local lead = party.lead
+	if type(lead) == "string" and party.list.members[lead] then
+		party.list.leader = lead
+	end
+	local room = party.roomSpeaker
+	if room == "me" then room = me end
+	if type(room) == "string" and (room == "none" or room == me or party.list.members[room]) then
+		party.list.rules = party.list.rules or Rules()
+		party.list.rules.room = room
+	end
+	if type(db.controls) == "string" then
+		db.rules = db.rules or Rules()
+		db.rules.controls = db.controls
+	end
+	if type(db.sync) == "table" then
+		db.rules = db.rules or Rules()
+		db.rules.sync = db.sync
+	end
+	party.members, party.lead, party.roomSpeaker = nil, nil, nil
+	db.controls, db.sync = nil, nil
+end
+
 function PartySync:InitDB()
 	SpokenPartySyncDB = SpokenPartySyncDB or {}
 	SpokenPartySyncCharDB = SpokenPartySyncCharDB or {}
@@ -85,25 +134,33 @@ function PartySync:InitDB()
 		party.members, party.lead, party.roomSpeaker = db.members, db.lead, db.roomSpeaker
 	end
 	db.members, db.lead, db.roomSpeaker = nil, nil, nil
-	Fill(db, Defaults())
 	Fill(party, PartyDefaults())
 	-- 0.1.0 kept one companion by name, sometimes with the quotes it was typed with. Saved
 	-- variables do come back on Forever, so it outlived that version: it becomes a member.
 	if type(db.companion) == "string" then
 		local name = self:CleanName(db.companion)
 		if name ~= "" and not self:IsSelf(name) then
+			party.members = party.members or {}
 			party.members[self:NameKey(name)] = { name = name, added = time and time() or 0 }
 		end
 		db.companion = nil
 	end
+	MigrateMembers(db, party, self:MyKey())
+	Fill(db, Defaults())
 	if db.windowShown ~= nil then
 		if db.windowShown then db.window.show = "always" end
 		db.windowShown = nil
 	end
+	-- A session saved by a /reload: rejoined once the others answer (Peers:Resume).
+	local session = party.session
+	if session and not (type(session.id) == "string" and type(session.leader) == "string"
+		and type(session.members) == "table") then
+		party.session = nil
+	end
 	return db
 end
 
---- Everything back to its defaults but the party's members and the collected logs.
+--- Everything back to its defaults but the party, the auto-form list and the collected logs.
 function PartySync:ResetOptions()
 	local db = SpokenPartySyncDB
 	if not db then return end
@@ -111,11 +168,6 @@ function PartySync:ResetOptions()
 	for key in pairs(db) do db[key] = nil end
 	Fill(db, Defaults())
 	db.collected = collected
-	local party = SpokenPartySyncCharDB
-	if party then
-		local defaults = PartyDefaults()
-		party.lead, party.roomSpeaker = defaults.lead, defaults.roomSpeaker
-	end
 	self:Changed()
 end
 
@@ -125,7 +177,7 @@ function PartySync:DB()
 end
 
 local partyFallback = PartyDefaults()
---- This character's party: its members, who leads and which computer plays the sound.
+--- This character's: its party (session) and its auto-form list.
 function PartySync:Party()
 	return SpokenPartySyncCharDB or partyFallback
 end

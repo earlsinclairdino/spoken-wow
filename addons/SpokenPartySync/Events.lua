@@ -51,9 +51,7 @@ local function QueueHello()
 			if key then
 				roster[key] = true
 				if not lastRoster[key] and Peers:IsMember(key) then
-					local version = PartySync.version
-					local party = PartySync:Party()
-					Comm:Whisper(Peers:MemberName(key), "HI", version, 0, party.lead, party.roomSpeaker)
+					Peers:Greet(Peers:MemberName(key))
 				end
 			end
 		end
@@ -70,6 +68,7 @@ local function Start()
 	Comm:Register()
 	Comm:FilterChat()
 	Peers:Setup()
+	PartySync.Autoform:Setup()
 	if not Sync:Setup() then
 		PartySync:Print("|cffffcc00Spoken is missing or too old: there is nothing to play together.|r")
 	end
@@ -78,7 +77,8 @@ local function Start()
 	PartySync.UnitMenu:Setup()
 	PartySync:SetupWindow()
 	Room:Update()
-	Peers:HelloMembers()
+	Peers:Resume()
+	PartySync.Autoform:Tick()
 	started = true
 end
 

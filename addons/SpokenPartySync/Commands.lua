@@ -73,10 +73,13 @@ local function Lines()
 	for _, line in ipairs(lines) do PartySync:Print("  %s", line) end
 end
 
-local ROOM_WORDS = { auto = "", me = "me", none = "none", off = "none" }
+local ROOM_WORDS = { me = "me", here = "me", none = "none", every = "none", all = "none", off = "none" }
+local OWN_WORDS = { party = "", sound = "sound", captions = "captions" }
+local CONTROL_WORDS = { anyone = true, leader = true, nobody = true }
 
 local function Help()
-	PartySync:Print("party: /sps invite <name> | remove <name> | members | lead [auto|me|follow|<name>] | room [auto|me|none|<name>]")
+	PartySync:Print("party: /sps invite <name> | remove <name> | leave | members | lead [<name>] (pass the lead) | room [none|me|<name>] | controls [anyone|leader|nobody] | sound [party|sound|captions] (this computer's)")
+	PartySync:Print("auto-form list: /sps remember [on|off] (the party, or the setting) | list [add <name> | remove <name> | auto <name> on|off]")
 	PartySync:Print("lines: /sps sync (what played together) | test <questID> (queue a quest's accept line here)")
 	PartySync:Print("window and settings: /sps window | settings")
 	PartySync:Print("debug log (Spoken's, on in Spoken > Developer): /sps logs [count] (yours and the party's, to copy) | logs pull [count] | logs clear (yours) | logs clear all (the party's too)")
@@ -115,40 +118,100 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 		local sent, answer = Peers:Invite(rest)
 		PartySync:Print("invitation to %s: %s", PartySync:ShortName(rest), sent and "sent" or tostring(answer))
 	elseif cmd == "remove" then
-		if Peers:RemoveMember(rest) then
-			PartySync:Print("%s left your Spoken party", PartySync:ShortName(rest))
+		local ok, why = Peers:RemoveMember(rest)
+		if ok then
+			PartySync:Print("%s is out of your Spoken party", PartySync:ShortName(rest))
 		else
-			PartySync:Print("%s is not in your Spoken party", rest)
+			PartySync:Print("%s: %s", rest ~= "" and rest or "/sps remove <name>", tostring(why))
+		end
+	elseif cmd == "leave" then
+		if not Peers:Leave() then
+			PartySync:Print("you are in no Spoken party")
 		end
 	elseif cmd == "members" then
 		Members()
 	elseif cmd == "lead" then
-		local value = rest:lower()
-		if value == "auto" or value == "me" or value == "follow" then
-			Peers:ChooseLead(value)
-		elseif rest ~= "" then
-			if not Peers:IsMember(rest) then
-				PartySync:Print("%s is not in your Spoken party", rest)
-				return
-			end
-			Peers:ChooseLead(PartySync:NameKey(rest))
+		if rest ~= "" then
+			local ok, why = Peers:PassLead(rest)
+			if not ok then PartySync:Print("%s: %s", rest, tostring(why)) end
 		end
-		local leader = Peers:Leader()
-		PartySync:Print("lead: %s; the leader now is %s", Peers:DescribeLead(PartySync:Party().lead),
-			leader and PartySync:ShortName(Peers:MemberName(leader)) or "?")
+		local leader, why = Peers:Leader()
+		PartySync:Print("leader: %s (%s)", leader and PartySync:ShortName(Peers:MemberName(leader)) or "nobody", tostring(why))
 	elseif cmd == "room" then
 		if rest ~= "" then
-			local word = ROOM_WORDS[rest:lower()]
-			if word then
-				Room:Choose(word)
-			elseif Peers:IsMember(rest) then
-				Room:Choose(PartySync:NameKey(rest))
-			else
+			local choice = ROOM_WORDS[rest:lower()] or (Peers:IsMember(rest) and PartySync:NameKey(rest)) or nil
+			if not choice then
 				PartySync:Print("%s is not in your Spoken party", rest)
 				return
 			end
+			local ok, why = Room:Choose(choice)
+			if not ok then PartySync:Print("%s", tostring(why)) end
 		end
-		PartySync:Print("same room: %s", Room:Describe(PartySync:Party().roomSpeaker))
+		PartySync:Print("who plays the sound: %s", Room:Describe(Peers:Rules().room))
+	elseif cmd == "sound" then
+		local word = OWN_WORDS[rest:lower()]
+		if rest ~= "" and not word then
+			PartySync:Print("/sps sound party|sound|captions")
+			return
+		end
+		if word then Room:SetOwn(word) end
+		PartySync:Print("this computer's sound: %s", Room:DescribeOwn(PartySync:DB().soundOwn))
+	elseif cmd == "controls" then
+		local value = rest:lower()
+		if value ~= "" then
+			if not CONTROL_WORDS[value] then
+				PartySync:Print("/sps controls anyone|leader|nobody")
+				return
+			end
+			local ok, why = Peers:SetRule("controls", value)
+			if not ok then PartySync:Print("%s", tostring(why)) end
+		end
+		PartySync:Print("controls: %s", tostring(Peers:Rules().controls))
+	elseif cmd == "list" then
+		local Autoform = PartySync.Autoform
+		local action, name = rest:match("^(%S*)%s*(.-)$")
+		action, name = (action or ""):lower(), name or ""
+		if action == "add" and name ~= "" then
+			PartySync:Print("%s %s", PartySync:ShortName(name), Autoform:Add(name) and "is on the auto-form list" or "cannot be added")
+		elseif action == "remove" and name ~= "" then
+			PartySync:Print("%s %s", PartySync:ShortName(name), Autoform:Remove(name) and "is off the auto-form list" or "is not on the list")
+		elseif action == "auto" and name ~= "" then
+			local onOff = name:match("%s(%S+)$")
+			local who = onOff and name:sub(1, #name - #onOff - 1) or nil
+			if not (who and (onOff == "on" or onOff == "off")) then
+				PartySync:Print("/sps list auto <name> on|off")
+				return
+			end
+			PartySync:Print("%s's invitations: %s", PartySync:ShortName(who), Autoform:SetAutoAccept(who, onOff == "on")
+				and (onOff == "on" and "accepted without asking" or "asked each time") or "they are not on the list")
+		else
+			local list = Autoform:List()
+			local keys = Autoform:Keys()
+			if not keys[1] then
+				PartySync:Print("the auto-form list is empty: /sps remember in a party, or /sps list add <name>")
+				return
+			end
+			for _, key in ipairs(keys) do
+				local entry = list.members[key]
+				PartySync:Print("  %s%s: %s", entry.name, list.leader == key and " (leads)" or "",
+					entry.autoAccept and "invitations accepted without asking" or "asked each time")
+			end
+			if list.rules then PartySync:Print("  rules: %s", Peers.DescribeRules(list.rules)) end
+		end
+	elseif cmd == "remember" then
+		local value = rest:lower()
+		if value == "on" or value == "off" then
+			PartySync:DB().remember = value == "on"
+			PartySync:TraceSetting("remember parties", value)
+			PartySync:Print("remember parties automatically: %s", value)
+		else
+			local added = PartySync.Autoform:Remember()
+			if added then
+				PartySync:Print("the party is on the auto-form list, %d new to it", added)
+			else
+				PartySync:Print("you are in no Spoken party to remember")
+			end
+		end
 	elseif cmd == "sync" then
 		Lines()
 	elseif cmd == "test" then

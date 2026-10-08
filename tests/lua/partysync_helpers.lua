@@ -171,10 +171,18 @@ function M.Receive(stub, sender, kind, ...)
 	stub.FireEvent("CHAT_MSG_ADDON", "SpokenPartySync", table.concat(fields, "\t"), "WHISPER", sender)
 end
 
---- Lala in the party and online, as her hello makes her.
-function M.Party(stub, ns, room, lead)
-	ns.Peers:AddMember(M.LALA)
-	M.Receive(stub, M.LALA, "HI", "0.2.0", 1, lead or "auto", room or "")
+M.SESSION = "lala throwaway-1"
+
+--- A party with Lala, online: she leads unless `lead` is "me"; with `room` "me" her computer
+--- plays the sound. `rules` fills in the rest.
+function M.Party(stub, ns, room, lead, rules)
+	local me, lala = ns:MyKey(), ns:NameKey(M.LALA)
+	local session = { id = M.SESSION, leader = lead == "me" and me or lala,
+		members = { [me] = M.ME, [lala] = M.LALA }, rules = ns.Rules() }
+	if room == "me" then session.rules.room = lala end
+	for key, value in pairs(rules or {}) do session.rules[key] = value end
+	ns:Party().session = session
+	M.Receive(stub, M.LALA, "HI", "0.4.0", 1, M.SESSION, 0)
 	M.Clear()
 end
 

@@ -58,8 +58,7 @@ Expect("an escort a member starts is joined", P.Called("ConfirmAcceptQuest"), tr
 
 ---------------------------------------------------------------- sharing what the leader accepts
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:Party().lead = "me"
-P.Party(stub, ns)
+P.Party(stub, ns, nil, "me")
 P.client.units.party1 = LALA
 world.questID = 101
 stub.FireEvent("QUEST_DETAIL")
@@ -69,16 +68,14 @@ stub.Advance(0.55)
 Expect("...but a moment later", P.Called("QuestLogPushQuest 1"), true)
 
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:Party().lead = "me"
-P.Party(stub, ns)
+P.Party(stub, ns, nil, "me")
 P.client.units.party1 = LALA
 stub.FireEvent("QUEST_ACCEPTED", 3, 102)
 stub.Advance(0.55)
 Expect("Classic's index-then-quest arguments share the quest", P.Called("QuestLogPushQuest 2"), true)
 
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:Party().lead = "me"
-P.Party(stub, ns)
+P.Party(stub, ns, nil, "me")
 P.client.units.party1 = LALA
 stub.FireEvent("QUEST_ACCEPTED", 999)
 stub.Advance(0.55)
@@ -92,15 +89,13 @@ stub.Advance(0.55)
 Expect("a member who does not lead shares nothing", P.Called("QuestLogPushQuest"), false)
 
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:Party().lead = "me"
-P.Party(stub, ns)
+P.Party(stub, ns, nil, "me")
 stub.FireEvent("QUEST_ACCEPTED", 101)
 stub.Advance(0.55)
 Expect("nor does the leader when no member is in the group", P.Called("QuestLogPushQuest"), false)
 
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:Party().lead = "me"
-P.Party(stub, ns)
+P.Party(stub, ns, nil, "me")
 P.client.units.party1 = LALA
 P.client.offererIsPlayer, P.client.offerer = true, LALA
 world.questID = 101
@@ -280,7 +275,9 @@ end
 local diag = ns.Diagnostics:Lines(true)
 Expect("the party's diagnostics name the addon and the group", Has("Spoken Party Sync " .. ns.version .. "; group: ", diag), true)
 Expect("...the debug log", Has("debug log: ", diag), true)
-Expect("...who leads, and why", Has("leader: Lala Throwaway (first by name); controls: leader", diag), true)
+Expect("...the party", Has("party: " .. P.SESSION .. ", 2 member(s)", diag), true)
+Expect("...who leads, and why", Has("leader: Lala Throwaway (leads the party); sound: every computer", diag), true)
+Expect("...and the leader's rules", Has("rules (the leader's): controls leader, sound none, played together quests, gossip, zones, books", diag), true)
 Expect("...the member, online and leading", Has("Lala Throwaway: online", diag) and Has(", leads", diag), true)
 Expect("...and, detailed, the lines played together", Has("101-accept, driver", diag), true)
 Expect("...but not when brief", Has("101-accept, driver", ns.Diagnostics:Lines(false)), false)
@@ -290,47 +287,37 @@ if Spoken.Diagnostics and Spoken.HasLog and Spoken:HasLog() then
 	Expect("...with the member", Has("Lala Throwaway: online", all), true)
 end
 
----------------------------------------------------------------- lead and sound, for the whole party
+---------------------------------------------------------------- the leader, the rules
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
 local LALA = P.LALA
 local function Fields(message) return message and table.concat(message.fields, "|", 2) or nil end
-Expect("with nobody choosing, the first by name leads", ns.Peers:Leader(), "lala throwaway")
+Expect("whoever started the party leads it", ns.Peers:Leader(), "lala throwaway")
+Expect("a member cannot pass the lead", (ns.Peers:PassLead(ns:MyKey())), false)
+Expect("...nor set a rule", (ns.Peers:SetRule("controls", "anyone")), false)
+Expect("...nor invite", (ns.Peers:Invite("Bob Stranger")), false)
+Expect("...nor remove", (ns.Peers:RemoveMember(LALA)), false)
 P.Clear()
-ns.Peers:ChooseLead("me")
-Expect("choosing this character to lead tells her, by this character's key", Fields(P.Last("CH", LALA)), "lead|tata throwaway")
-Expect("...and it leads", ns.Peers:Leader(), "tata throwaway")
-ns:Party().lead = "auto"
-P.Receive(stub, LALA, "HI", "0.3.0", 1, "tata throwaway", "")
-local leader, why = ns.Peers:Leader()
-Expect("named in her hello, this character leads", leader .. ": " .. why, "tata throwaway: named by lala throwaway")
+P.Receive(stub, LALA, "PS", "anyone", "lala throwaway", "1011")
+Expect("the leader's rules are saved here", ns.Peers:Rules().controls .. "|" .. ns.Peers:Rules().room, "anyone|lala throwaway")
+Expect("...gossip off among them", ns.Sync:Syncs("gossip"), false)
+Expect("...and her computer plays the sound", Spoken:IsCaptionsOnly(), true)
+P.Receive(stub, "Bob Stranger", "PS", "nobody", "none", "1111")
+Expect("a stranger's rules are ignored", ns.Peers:Rules().controls, "anyone")
+P.Receive(stub, LALA, "RO", P.SESSION, "Tata Throwaway", "Lala Throwaway;Tata Throwaway")
+Expect("the roster can hand this character the lead", ns.Peers:AmLeader(), true)
 P.Clear()
-P.Receive(stub, LALA, "CH", "lead", "lala throwaway")
-Expect("her choice of herself is saved here", ns:Party().lead, "lala throwaway")
-Expect("...and this computer's hello says so", P.Last("HI", LALA) and P.Last("HI", LALA).fields[4], "lala throwaway")
-P.Receive(stub, LALA, "CH", "lead", "tata throwaway")
-Expect("her choice of this character becomes its own", ns:Party().lead, "me")
-P.Receive(stub, "Bob Stranger", "CH", "lead", "bob stranger")
-Expect("a stranger's choice is ignored", ns:Party().lead, "me")
-P.Receive(stub, LALA, "CH", "lead", "bob stranger")
-Expect("...and so is one naming someone outside this party", ns:Party().lead, "me")
+ns.Peers:SetRule("controls", "leader")
+Expect("leading, a rule set here goes to her", Fields(P.Last("PS", LALA)), "leader|lala throwaway|1011")
+ns.Room:Choose("me")
+Expect("...as does the sound", Fields(P.Last("PS", LALA)), "leader|tata throwaway|1011")
+Expect("...which comes back here", Spoken:IsCaptionsOnly(), false)
 P.Clear()
-ns.Peers:ChooseLead("follow")
-Expect("Never This One stays on this computer", P.Last("CH"), nil)
-P.Clear()
-ns.Room:Choose("lala throwaway")
-Expect("choosing her computer for the sound tells her", Fields(P.Last("CH", LALA)), "room|lala throwaway")
-Expect("...and this one shows the captions without sound", Spoken:IsCaptionsOnly(), true)
-P.Receive(stub, LALA, "CH", "room", "none")
-Expect("her choice of every computer is saved here", ns:Party().roomSpeaker, "none")
-Expect("...and the sound comes back", Spoken:IsCaptionsOnly(), false)
-P.Receive(stub, LALA, "CH", "room", "tata throwaway")
-Expect("her choice of this computer becomes its own", ns:Party().roomSpeaker, "me")
-P.Clear()
-ns.Room:Choose("")
-Expect("As Chosen Elsewhere stays on this computer", P.Last("CH"), nil)
+ns.Peers:PassLead(LALA)
+Expect("passing the lead sends the roster with her leading", Fields(P.Last("RO", LALA)), P.SESSION .. "|lala throwaway|Tata Throwaway;Lala Throwaway")
+Expect("...and she leads", ns.Peers:Leader(), "lala throwaway")
 
--- The window's rows choose the same way.
+-- The window's rows are the leader's to press.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
 ns:ShowWindow(true)
@@ -339,17 +326,23 @@ Expect("the window has a row for this character, then one for her",
 	rows and rows[1] and rows[2] and (rows[1].key .. "|" .. rows[2].key), "tata throwaway|lala throwaway")
 Expect("...with her line on it", rows[2].label.text and rows[2].label.text:find("Lala Throwaway", 1, true) ~= nil, true)
 Expect("...and its Lead greyed, as she leads", rows[2].lead:IsEnabled(), false)
+Expect("...this character's too: the lead is hers to pass", rows[1].lead:IsEnabled(), false)
+Expect("...saying so on hover", rows[1].lead.tooltip, format(ns.L.ONLY_LEADER_FMT, "Lala Throwaway"))
+P.Receive(stub, LALA, "RO", P.SESSION, "Tata Throwaway", "Lala Throwaway;Tata Throwaway")
+Expect("leading, her Lead is live", rows[2].lead:IsEnabled(), true)
 P.Clear()
-rows[1].lead:Click()
-Expect("this character's Lead makes it the leader, for the party", Fields(P.Last("CH", LALA)), "lead|tata throwaway")
-Expect("...and then greys", rows[1].lead:IsEnabled(), false)
 rows[2].sound:Click()
-Expect("her Sound gives her computer the sound, for the party", Fields(P.Last("CH", LALA)), "room|lala throwaway")
+Expect("her Sound gives her computer the sound, for the party", Fields(P.Last("PS", LALA)), "leader|lala throwaway|1111")
 Expect("...and then greys", rows[2].sound:IsEnabled(), false)
+rows[2].lead:Click()
+Expect("her Lead passes her the lead", Fields(P.Last("RO", LALA)), P.SESSION .. "|lala throwaway|Tata Throwaway;Lala Throwaway")
+Expect("...and then greys", rows[2].lead:IsEnabled(), false)
 Expect("the window opens the settings too", _G.SpokenPartySyncWindow.settings ~= nil, true)
+Expect("...and remembers the party", _G.SpokenPartySyncWindow.remember ~= nil, true)
 ns:ShowWindow(false)
 
 -- And the settings page's Party block.
+P.Receive(stub, LALA, "RO", P.SESSION, "Tata Throwaway", "Lala Throwaway;Tata Throwaway")
 ns.optionsPanel:Show()
 ns:RefreshOptions()
 local memberRows = ns.memberRows
@@ -358,10 +351,9 @@ Expect("the page lists this character first, then her",
 Expect("...this character with no Remove", memberRows[1].remove:IsShown(), false)
 P.Clear()
 memberRows[2].lead:Click()
-Expect("her Lead on the page makes her the leader", Fields(P.Last("CH", LALA)), "lead|lala throwaway")
-local choices = table.concat(ns.Peers:LeadChoices(), "|")
-Expect("Who Leads offers each member", choices, "auto|me|follow|lala throwaway")
-Expect("...named as they are", ns.Peers:DescribeLead("lala throwaway"), "Lala Throwaway")
+Expect("her Lead on the page passes her the lead", Fields(P.Last("RO", LALA)), P.SESSION .. "|lala throwaway|Tata Throwaway;Lala Throwaway")
+Expect("...after which this character's buttons grey", memberRows[2].remove:IsEnabled(), false)
+Expect("the auto-form block is there, empty", ns.listRows ~= nil and not ns.listRows[1].label:IsShown(), true)
 ns.optionsPanel:Hide()
 
 -- Her portrait's menu.
@@ -371,14 +363,14 @@ local root = {
 	CreateTitle = function() end,
 	CreateButton = function(_, label) table.insert(offered, label) end,
 }
-ns.Room:Choose("none")
 P.menus.MENU_UNIT_PARTY(nil, root, { name = LALA })
-Expect("her portrait offers Sound and Remove, not Lead, which she has", table.concat(offered, "|"),
-	"Play the Sound for the Spoken Party|Remove from Spoken Party")
-ns.Peers:ChooseLead("me")
+Expect("her portrait offers to remember her, and nothing of the leader's", table.concat(offered, "|"), "Remember for Spoken Parties")
+P.Receive(stub, LALA, "RO", P.SESSION, "Tata Throwaway", "Lala Throwaway;Tata Throwaway")
+ns.Room:Choose("none")
 offered = {}
 P.menus.MENU_UNIT_PARTY(nil, root, { name = LALA })
-Expect("...and Lead once this character leads", offered[1], "Lead the Spoken Party")
+Expect("...and, leading, Lead, Sound and Remove", table.concat(offered, "|"),
+	"Pass the Spoken Party Lead|Play the Sound for the Spoken Party|Remove from Spoken Party|Remember for Spoken Parties")
 
 -- Spoken's minimap menu has a section for the party.
 local entries = {}
@@ -388,9 +380,11 @@ end
 Expect("Spoken's minimap menu opens the party window and its settings", table.concat(entries, "|"),
 	"Open Party Window|Party Sync Settings")
 
-for _, command in ipairs({ "", "api", "members", "status", "sync", "lead", "room", "room me", "room auto",
-	"test 101", "test 31337", "ping", "window", "window", "invite", "remove Nobody",
-	"lead Lala Throwaway", "lead auto", "logs", "logs 20", "logs pull 30", "logs clear", "logs clear all", "logs clearall" }) do
+for _, command in ipairs({ "", "api", "members", "status", "sync", "lead", "room", "room me", "room none", "room auto",
+	"controls", "controls anyone", "controls x", "sound", "sound captions", "sound x", "list", "list add Bob Stranger",
+	"list auto Bob Stranger off", "list auto Bob", "list remove Bob Stranger", "remember", "remember on", "remember off",
+	"test 101", "test 31337", "ping", "window", "window", "invite", "remove Nobody", "remove",
+	"lead Lala Throwaway", "logs", "logs 20", "logs pull 30", "logs clear", "logs clear all", "logs clearall", "leave" }) do
 	local ok, err = pcall(SlashCmdList.SPOKENPARTYSYNC, command)
 	Expect("/sps " .. command .. " runs", ok and true or tostring(err), true)
 end

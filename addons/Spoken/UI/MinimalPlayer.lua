@@ -306,6 +306,8 @@ function MinimalPlayer:BuildPortrait()
         local stopped = SoundQueue:IsPaused()
         GameTooltip:SetText(stopped and L.REPLAY or L.STOP)
         GameTooltip:AddLine(stopped and L.REPLAY_TOOLTIP or L.STOP_TOOLTIP, 1, 1, 1, true)
+        local why = SoundQueue:WhyNoControl()
+        if why then GameTooltip:AddLine(why, 1, .5, .5, true) end
         GameTooltip:AddLine(L.MIN_MENU_HINT, 1, .82, 0, true)
         GameTooltip:Show()
     end)

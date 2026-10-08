@@ -1,7 +1,7 @@
 ## Interface: 100007, 16001, 11509, 20506, 30403
 ## Title: Spoken Party Sync
 ## Notes: Plays Spoken's lines together for players who quest together: started at once, skipped at once, and one voice in the room.
-## Version: 0.3.1
+## Version: 0.4.0
 ## SavedVariables: SpokenPartySyncDB
 ## SavedVariablesPerCharacter: SpokenPartySyncCharDB
 ## OptionalDeps: Spoken, Spoken_Quests, Spoken_Zones, Spoken_Books, Spoken_Developer
@@ -18,6 +18,7 @@ Core.lua
 Names.lua
 Comm.lua
 Peers.lua
+Autoform.lua
 Log.lua
 Lines.lua
 Sync.lua
@@ -31,6 +32,6 @@ UI\UnitMenu.lua
 Events.lua
 Commands.lua
 
-# Core first: every other file hangs its module off the table it builds. Comm before Peers and
-# Sync, which register their message handlers with it. Events.lua is last but one because it is
+# Core first: every other file hangs its module off the table it builds. Comm before Peers,
+# Autoform and Sync, which register their message handlers with it. Events.lua is last but one because it is
 # what calls Setup on everything above once the saved variables and the world are up.

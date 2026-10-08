@@ -31,8 +31,10 @@ function Diagnostics:MemberLine(key, leader)
 	if peer then
 		if peer.rtt then table.insert(parts, format("%d ms", math.floor(peer.rtt + 0.5))) end
 		if peer.version then table.insert(parts, "v" .. peer.version) end
-		table.insert(parts, "lead " .. tostring(peer.lead or "?"))
-		if peer.room and peer.room ~= "" then table.insert(parts, "room " .. peer.room) end
+		if peer.session and peer.session ~= "" and peer.session ~= Peers:SessionId() then
+			table.insert(parts, "in another party")
+		end
+		if peer.own then table.insert(parts, "own sound") end
 		if peer.lastSeen then
 			table.insert(parts, format("last heard %d s ago", math.floor(GetTime() - peer.lastSeen + 0.5)))
 		end
@@ -85,23 +87,34 @@ function Diagnostics:Lines(detailed)
 	Add("Spoken Party Sync %s; group: %s; %s", PartySync.version, tostring(Comm:GroupChannel() or "none"), Comm:Context())
 	Add("debug log: %s", not PartySync.LogBook:Available() and "no Spoken Developer module"
 		or PartySync.LogBook:IsOn() and "on" or "off")
+	local session = Peers:Session()
 	local leader, why = Peers:Leader()
 	local speaker = Room:Speaker()
-	Add("leader: %s (%s); controls: %s; sound: %s", Name(leader), tostring(why), tostring(db.controls),
-		speaker and Name(speaker) or "every computer")
-	local party = PartySync:Party()
-	Add("this computer: %s, lead %s, room %s%s", tostring(PartySync:MyKey()), tostring(party.lead),
-		Room:Describe(party.roomSpeaker), Room:IsSilent() and ", captions only" or "")
-	Add("played together: quests %s, gossip %s, zones %s, books %s; auto share %s, auto accept %s",
-		OnOff(db.sync.quests ~= false), OnOff(db.sync.gossip ~= false), OnOff(db.sync.zones ~= false),
-		OnOff(db.sync.books ~= false), OnOff(db.autoShare), OnOff(db.autoAccept))
+	Add("party: %s", session and format("%s, %d member(s)", session.id, Peers:Count()) or "none")
+	Add("leader: %s (%s); sound: %s", Name(leader), tostring(why), speaker and Name(speaker) or "every computer")
+	Add("rules%s: %s", session and " (the leader's)" or " (this computer's, for a party it starts)",
+		Peers.DescribeRules(Peers:Rules()))
+	Add("this computer: %s, sound here %s%s", tostring(PartySync:MyKey()), Room:DescribeOwn(db.soundOwn),
+		Room:IsSilent() and ", captions only" or "")
+	Add("auto share %s, auto accept %s, remember parties %s", OnOff(db.autoShare), OnOff(db.autoAccept), OnOff(db.remember))
 
 	local members = self:MemberLines()
 	if members[1] then
 		Add("members:")
 		for _, line in ipairs(members) do Add("  %s", line) end
 	else
-		Add("members: nobody yet")
+		Add("members: nobody")
+	end
+	local Autoform = PartySync.Autoform
+	local list = Autoform and Autoform:List()
+	if list and next(list.members) then
+		Add("auto-form list%s:", list.leader and format(" (%s leads)", Name(list.leader)) or "")
+		for _, key in ipairs(Autoform:Keys()) do
+			local entry = list.members[key]
+			local peer = Peers.list[key]
+			Add("  %s: %s, %s", entry.name or key, entry.autoAccept and "accepted without asking" or "asked each time",
+				peer and peer.state or "not heard from")
+		end
 	end
 	local others = {}
 	for key, peer in pairs(Peers.list) do

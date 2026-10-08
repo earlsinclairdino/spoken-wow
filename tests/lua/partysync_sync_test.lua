@@ -200,11 +200,10 @@ Expect("one with neither file nor words is only acknowledged", P.Last("AK", LALA
 
 -- The same line already queued here, before the party was online: that copy follows.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns.Peers:AddMember(LALA)
 VO.Player:Enqueue(QuestLine(VO, 101))
 VO.Player:Enqueue(QuestLine(VO, 103))
 local waiting = Spoken:GetQueue()[2]
-P.Receive(stub, LALA, "HI", "0.2.0", 1, "auto", "")
+P.Party(stub, ns)
 P.Receive(stub, LALA, "LN", "103-accept", "q", 1, 103, 1234, "2.00", "", 0, "Giver", "Quest 103")
 Expect("a line already waiting here follows hers rather than playing twice", waiting.partySync and waiting.partySync.role, "follower")
 Expect("...and nothing else is queued", Spoken:GetQueueSize(), 2)
@@ -241,14 +240,10 @@ P.Receive(stub, LALA, "GO", "102-accept", 0)
 Expect("once hers starts, it is next", world.played[1], "Interface\\AddOns\\TestPack\\102-accept.ogg")
 
 ---------------------------------------------------------------- both start the same line
--- Lala's name comes first, and with nobody leading the group the first name leads.
+-- Whoever started the party leads it; here Lala did.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
-P.client.units.party1 = LALA
-P.client.leader = "player"
-Expect("the group's leader leads", ns.Peers:AmLeader(), true)
-P.client.leader = nil
-Expect("...and otherwise the first name", ns.Peers:Leader(), "lala throwaway")
+Expect("whoever started the party leads", ns.Peers:Leader(), "lala throwaway")
 VO.Player:Enqueue(QuestLine(VO, 103))
 clip = Spoken:GetCurrent()
 Expect("this side announced its copy", clip.partySync.role, "driver")
@@ -262,8 +257,7 @@ Expect("her start starts it", P.started[1] ~= nil, true)
 
 -- This side leading: hers yields, so this side ignores her announcement.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:Party().lead = "me"
-P.Party(stub, ns)
+P.Party(stub, ns, nil, "me")
 VO.Player:Enqueue(QuestLine(VO, 103))
 clip = Spoken:GetCurrent()
 P.Receive(stub, LALA, "LN", "103-accept", "q", 1, 103, 1234, "2.00", "", 0, "Giver", "Quest 103")
@@ -283,8 +277,7 @@ local function Logged(text)
 end
 
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:Party().lead = "me"
-P.Party(stub, ns)
+P.Party(stub, ns, nil, "me")
 VO.Player:Enqueue(QuestLine(VO, 101))
 stub.Advance(0.55)
 P.Clear()
@@ -321,14 +314,17 @@ Expect("...without being sent back", P.Last("SK"), nil)
 P.Receive(stub, LALA, "LN", "103-accept", "q", 1, 103, 1234, "2.00", "", 0, "Giver", "Quest 103")
 P.Receive(stub, LALA, "GO", "103-accept", 0)
 P.Clear()
-Spoken:Skip()
-Expect("a follower's own skip stays here", P.Last("SK"), nil)
-Expect("...but she hears it was dropped", P.Last("AK", LALA) and P.Last("AK", LALA).fields[3], "dropped")
-Expect("...and the log says why it stayed", Logged("here: kept here, the controls are the leader's, lala throwaway's"), true)
-ns:DB().controls = "nobody"
+Expect("under the leader's controls, a member cannot skip a line played together", Spoken:Skip(), false)
+Expect("...the player's buttons say why", Spoken:WhyNoControl(), format(ns.L.GATE_LEADER_FMT, "Lala Throwaway"))
+Expect("...and the line stays", Spoken:GetCurrent() ~= nil, true)
+Expect("...nor stop it", Spoken:Pause() == false and Spoken:IsPaused() == false, true)
+ns:Party().session.rules.controls = "nobody"
 P.Receive(stub, LALA, "PZ")
-Expect("with nobody's controls shared, hers do nothing here", Spoken:IsPaused(), false)
-Expect("...and the log says why", Logged("sync stop from lala throwaway ignored: the controls are not shared here"), true)
+Expect("with the controls off, even the leader's do nothing here", Spoken:IsPaused(), false)
+Expect("...and the log says why", Logged("sync stop from lala throwaway ignored: the leader turned the controls off"), true)
+Expect("...and the buttons are greyed here too", Spoken:WhyNoControl(), ns.L.GATE_NOBODY)
+ns:Party().session.rules.controls = "anyone"
+Expect("with anyone's controls, a member may skip", Spoken:WhyNoControl(), nil)
 P.Receive(stub, "Bob Stranger", "RS")
 Expect("a stranger's replay is logged as ignored", Logged("replay from bob stranger ignored: not in the party"), true)
 
@@ -346,10 +342,9 @@ Expect("...and plays", P.started[1] ~= nil, true)
 
 ---------------------------------------------------------------- settings
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-P.Party(stub, ns)
-ns:DB().sync.quests = false
+P.Party(stub, ns, nil, nil, { sync = { quests = false, gossip = true, zones = true, books = true } })
 VO.Player:Enqueue(QuestLine(VO, 101))
-Expect("quest lines switched off are not announced", P.Last("LN"), nil)
+Expect("quest lines the leader switched off are not announced", P.Last("LN"), nil)
 Expect("...and play here at once", P.started[1] ~= nil, true)
 P.Receive(stub, LALA, "LN", "102-accept", "q", 1, 102, 1234, "2.00", "", 0, "Giver", "Quest 102")
 Expect("...and hers are declined", P.Last("AK", LALA) and P.Last("AK", LALA).fields[3], "dropped")
@@ -368,13 +363,24 @@ Expect("...so a line shows without a sound", #world.played, probed)
 Expect("...but runs", Spoken:IsPlaying(Spoken:GetCurrent()), true)
 ns.Peers:MarkOffline(LALA)
 Expect("with her offline this computer plays again", Spoken:IsCaptionsOnly(), false)
-P.Receive(stub, LALA, "HI", "0.2.0", 1, "auto", "")
-Expect("...as when nobody chose", Spoken:IsCaptionsOnly(), false)
-ns.Room:Set("me")
-Expect("choosing this computer tells her", P.Last("HI", LALA) and P.Last("HI", LALA).fields[5], "me")
+Expect("...and the party of one is over", ns.Peers:InParty(), false)
+
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, "me")
+P.Clear()
+ns.Room:Choose("me")
+Expect("the leader choosing this computer tells her the rules", P.Last("PS", LALA) and P.Last("PS", LALA).fields[3], "tata throwaway")
 Expect("...and keeps the sound here", Spoken:IsCaptionsOnly(), false)
-ns.Room:Set("lala throwaway")
+ns.Room:Choose("lala throwaway")
 Expect("naming her computer makes this one silent", Spoken:IsCaptionsOnly(), true)
+P.Clear()
+ns.Room:SetOwn("sound")
+Expect("deciding the sound here overrides the party's rule", Spoken:IsCaptionsOnly(), false)
+Expect("...and the party is told", P.Last("HI", LALA) and P.Last("HI", LALA).fields[5], "1")
+ns.Room:SetOwn("captions")
+Expect("...captions only here by choice", Spoken:IsCaptionsOnly(), true)
+ns.Room:SetOwn("")
+Expect("...and back to the party's rule", Spoken:IsCaptionsOnly(), true)
 
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll party sync tests passed")
