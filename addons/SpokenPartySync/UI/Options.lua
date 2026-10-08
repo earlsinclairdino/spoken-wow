@@ -270,6 +270,7 @@ end
 --------------------------------------------------------------------------------
 
 local CONTROLS = { leader = L.CONTROLS_LEADER, anyone = L.CONTROLS_ANYONE, nobody = L.CONTROLS_NOBODY }
+local SHARE = { anyone = L.SHARE_ANYONE, leader = L.CONTROLS_LEADER, nobody = L.CONTROLS_NOBODY }
 local SHOW = { always = L.SHOW_ALWAYS, syncing = L.SHOW_SYNCING, problems = L.SHOW_PROBLEMS, never = L.SHOW_NEVER }
 
 --- A rule's row: read from the rules in force, written through Peers (the leader's in a party),
@@ -332,6 +333,10 @@ function PartySync:SetupOptions()
 	self.roomDropdown = RuleRow(layout:Dropdown(L.OPT_ROOM, L.OPT_ROOM_TIP, function() return Room:Choices() end,
 		function() return Peers:Rules().room or "none" end, function(value) Room:Choose(value) end, refresh,
 		function(value) return Room:Describe(value) end))
+	RuleRow(layout:Dropdown(L.OPT_SHARE, L.OPT_SHARE_TIP, { "anyone", "leader", "nobody" },
+		function() return Peers:Rules().share or "anyone" end,
+		function(value) Peers:SetRule("share", value) end, refresh,
+		function(value) return SHARE[value] or value end))
 	SyncBox("quests", L.OPT_SYNC_QUESTS, L.OPT_SYNC_QUESTS_TIP)
 	SyncBox("gossip", L.OPT_SYNC_GOSSIP, L.OPT_SYNC_GOSSIP_TIP)
 	SyncBox("zones", L.OPT_SYNC_ZONES, L.OPT_SYNC_ZONES_TIP)

@@ -22,10 +22,11 @@
 --   RO  session, leader, members
 --                           the roster, from the leader: who leads and who is in, names
 --                           separated by semicolons. A member not in it has been removed.
---   PS  controls, room, sync
+--   PS  controls, room, sync, share
 --                           the rules, from the leader: whose controls act everywhere, which
---                           computer plays the sound, and which kinds of line are played
---                           together (four flags: quests, gossip, zones, books).
+--                           computer plays the sound, which kinds of line are played together
+--                           (four flags: quests, gossip, zones, books), and whose accepted
+--                           quests are shared with the party.
 --   PI  token               ping. Answered by PO with the same token, on the channel it came in
 --                           on, so `/sps latency` can time the two paths separately.
 --   PO  token               pong. The round trip is timed on the sender's own clock, so the two
@@ -294,7 +295,8 @@ function Peers:SendRules(key)
 	local rules = session.rules
 	local targets = key and { key } or self:OnlineMembers()
 	for _, target in ipairs(targets) do
-		Comm:Whisper(self:MemberName(target), "PS", rules.controls or "leader", rules.room or "none", SyncFlags(rules))
+		Comm:Whisper(self:MemberName(target), "PS", rules.controls or "leader", rules.room or "none", SyncFlags(rules),
+			rules.share or "anyone")
 	end
 end
 
@@ -691,13 +693,22 @@ local function DescribeRules(rules)
 	for _, kind in ipairs(SYNC_KINDS) do
 		if rules.sync == nil or rules.sync[kind] ~= false then table.insert(on, kind) end
 	end
-	return format("controls %s, sound %s, played together %s", tostring(rules.controls), tostring(rules.room),
-		on[1] and table.concat(on, ", ") or "nothing")
+	return format("controls %s, sound %s, quests shared by %s, played together %s", tostring(rules.controls),
+		tostring(rules.room), tostring(rules.share or "anyone"), on[1] and table.concat(on, ", ") or "nothing")
 end
 Peers.DescribeRules = DescribeRules
 
+--- Whether a quest this character accepts is shared with the party, per the rule: anyone's,
+--- the leader's only, or nobody's.
+function Peers:MayShare()
+	local share = self:Rules().share or "anyone"
+	if share == "anyone" then return true end
+	if share == "leader" then return self:AmLeader() end
+	return false
+end
+
 --- Set a rule: `controls` ("anyone", "leader", "nobody"), `room` (a member's key, or "none"),
---- or `sync` with `kind` and whether it is on. In a party, the leader's to set, and every
+--- `share` ("anyone", "leader", "nobody"), or `sync` with `kind` and whether it is on. In a party, the leader's to set, and every
 --- member is told; outside one, this computer's own for the next party it starts.
 function Peers:SetRule(name, value, on)
 	local session = self:Session()
@@ -721,7 +732,7 @@ function Peers:SetRule(name, value, on)
 	return true
 end
 
-Comm:On("PS", function(sender, channel, controls, room, flags)
+Comm:On("PS", function(sender, channel, controls, room, flags, share)
 	local key = PartySync:NameKey(sender)
 	local session = Peers:Session()
 	if not (session and session.leader == key) then
@@ -730,6 +741,8 @@ Comm:On("PS", function(sender, channel, controls, room, flags)
 	local rules = session.rules
 	rules.controls = controls ~= "" and controls or "leader"
 	rules.room = room ~= "" and room or "none"
+	-- A leader on 0.4.0 sends no `share`: the rule it never had is the default.
+	rules.share = share ~= nil and share ~= "" and share or "anyone"
 	rules.sync = rules.sync or {}
 	flags = tostring(flags or "")
 	for i, kind in ipairs(SYNC_KINDS) do

@@ -61,7 +61,7 @@ L.OPT_SYNC_BOOKS_TIP = "Pages one of you reads. Everyone needs the same Spoken B
 
 L.OPT_SECTION_QUESTS = "Quests"
 L.OPT_AUTO_SHARE = "Share Quests I Accept"
-L.OPT_AUTO_SHARE_TIP = "When this character leads, a quest it accepts from an NPC is shared with the party at once."
+L.OPT_AUTO_SHARE_TIP = "A quest this character accepts from an NPC is shared with the party at once, when the party's Quests Are Shared By rule allows it."
 L.OPT_AUTO_ACCEPT = "Accept Quests the Party Shares"
 L.OPT_AUTO_ACCEPT_TIP = "A quest shared by someone in your Spoken party is accepted for you. Its line has just played, so it is not read again."
 
@@ -75,6 +75,9 @@ L.OPT_CONTROLS_TIP = "Whose Stop, Replay, Skip and Stop All act on every compute
 L.CONTROLS_LEADER = "The Leader"
 L.CONTROLS_ANYONE = "Anyone"
 L.CONTROLS_NOBODY = "Nobody"
+L.OPT_SHARE = "Quests Are Shared By"
+L.OPT_SHARE_TIP = "Whose accepted quests are shared with the party. Anyone: each member shares the quests it accepts from an NPC. Each computer can still switch its own sharing off under Quests."
+L.SHARE_ANYONE = "Anyone"
 L.OPT_ROOM = "Who Plays the Sound"
 L.OPT_ROOM_TIP = "Two computers in one room: one plays the voice and the others show the player and its captions without sound, so there is no echo."
 L.ROOM_ME = "This Computer"

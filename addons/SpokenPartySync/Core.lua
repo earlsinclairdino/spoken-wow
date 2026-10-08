@@ -40,6 +40,8 @@ local function Rules()
 		controls = "leader",
 		-- Which computer plays the sound: a member's NameKey, or "none" for every computer.
 		room = "none",
+		-- Whose accepted quests are shared with the party: "anyone", "leader" or "nobody".
+		share = "anyone",
 		-- Which kinds of line are played together. Each one off still plays here, alone.
 		sync = { quests = true, gossip = true, zones = true, books = true },
 	}

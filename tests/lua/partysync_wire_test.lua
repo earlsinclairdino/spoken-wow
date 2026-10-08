@@ -129,7 +129,7 @@ local id = P.Last("IV", "Bob Stranger").fields[3]
 P.Receive(stub, "Bob Stranger", "IA", id)
 Expect("...and one that answers our invitation joins it", ns2.Peers:IsMember("Bob Stranger"), true)
 Expect("...and is sent the roster", Fields(P.Last("RO", "Bob Stranger")), id .. "|tata throwaway|Tata Throwaway;Bob Stranger")
-Expect("...and the rules", Fields(P.Last("PS", "Bob Stranger")), "leader|none|1111")
+Expect("...and the rules", Fields(P.Last("PS", "Bob Stranger")), "leader|none|1111|anyone")
 
 ---------------------------------------------------------------- the portrait menu
 local entries = {}

@@ -34,8 +34,8 @@ group, joining a raid, or questing apart.
   Follow** (anyone's, only the leader's, or nobody's: with Nobody the lines play through and
   the player's buttons are greyed for everyone, the leader included; with Only the Leader
   they are greyed for the others, with the reason on hover), **Who Plays the Sound** (below),
-  and which kinds of line are **Played Together**. The others see the rules greyed on their
-  page.
+  **Quests Are Shared By** (anyone, the default; only the leader; or nobody), and which kinds of
+  line are **Played Together**. The others see the rules greyed on their page.
 - **Lines played together.** A quest line, greeting or gossip, zone lore or book page queued
   on one computer is announced to the others. They rebuild it from their own voice packs and
   hold it. When it reaches the front of the queue, the computer that queued it says when to
@@ -46,9 +46,10 @@ group, joining a raid, or questing apart.
   and the captions without sound.
 - **Never twice.** Talking to the same NPC right after the other did does not replay the line.
   When two of you start the same line at once, the leader's copy is played.
-- **Quests.** The leader shares a quest it accepts from an NPC with the party; a quest a member
-  shares is accepted for you, without its line being read again. Both are settings of each
-  computer's own.
+- **Quests.** A member shares a quest it accepts from an NPC with the party, as Quests Are
+  Shared By allows (anyone, by default); a quest a member shares is accepted for you, without
+  its line being read again. Each computer can switch either off for itself (Share Quests I
+  Accept, Accept Quests the Party Shares).
 - **Same room.** The leader chooses which computer plays the sound (**Sound**, wherever Lead
   is). The others switch Spoken to captions only for as long as that computer is online,
   without changing Spoken's own setting. A member who would rather decide for itself sets
@@ -78,6 +79,7 @@ Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 | `/sps lead [<name>]` | who leads; with a name, pass the lead (the leader's to do) |
 | `/sps room [none\|me\|<name>]` | which computer plays the sound, a rule of the party's |
 | `/sps controls [anyone\|leader\|nobody]` | whose Stop, Replay and Skip act everywhere, a rule of the party's |
+| `/sps share [anyone\|leader\|nobody]` | whose accepted quests are shared with the party, a rule of the party's |
 | `/sps sound [party\|sound\|captions]` | this computer's sound: as the party decides, or its own |
 | `/sps remember [on\|off]` | the party onto the auto-form list; `on`/`off`: remember parties automatically |
 | `/sps list [add <name> \| remove <name> \| auto <name> on\|off]` | the auto-form list |
@@ -105,7 +107,7 @@ two parts and no realm: a whisper goes to the bare "First Last". The prefix is
 | `HI` | version, reply, session, own | hello: at login, when the group changes, to the auto-form list each heartbeat; names the party this client is in, and whether it decides its own sound |
 | `IV` / `IA` / `ID` | session | invite to the party, accepted, declined or left or removed (one naming another party is stale) |
 | `RO` | session, leader, members | the roster, from the leader, whenever it changes; a member not in it is out |
-| `PS` | controls, room, sync | the rules, from the leader: whose controls, which computer plays the sound, four flags for the kinds played together |
+| `PS` | controls, room, sync, share | the rules, from the leader: whose controls, which computer plays the sound, four flags for the kinds played together, whose accepted quests are shared (missing from a 0.4.0 leader: anyone) |
 | `RM` | | "I added you to my auto-form list": the other side is asked whether to auto-accept |
 | `LN` | id, src, event, questID, npcID, length, flags, textParts, name, title | a line queued; `src` is q, z or b |
 | `TX` | id, seq, total, text | its words, in pieces |
