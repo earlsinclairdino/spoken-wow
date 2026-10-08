@@ -72,7 +72,16 @@ local roller
 -- rather than waiting for a timer; one that never replies keeps the book. `asked` holds when
 -- a creature was first and last asked: the watcher below captures on every mouseover, and
 -- each of those must not become another SetCreature.
+--
+-- The model is one for every creature, and one not cached yet does not always read 0: built
+-- over another, it can go on answering the other's appearance until its own arrives. On
+-- 2026-10-06 Stormpike's Delivery, played from the quest log, showed the face of the giver
+-- primed just before (a human for a dwarf), and kept it for the session. So the model is
+-- cleared before each creature, and an answer that is still the appearance it showed for the
+-- creature before this one is not taken: the next ask tries again. Two creatures sharing one
+-- appearance, asked one after the other, cost the second the book, never a wrong face.
 local displays, asked = {}, {}
+local lastAsked
 local RETRY_SECONDS = 0.05
 local GIVE_UP_SECONDS = 5
 
@@ -99,9 +108,15 @@ local function DisplayFor(creature)
     if times and (now - times.first > GIVE_UP_SECONDS or now - times.last < RETRY_SECONDS) then return end
     if not times then times = { first = now }; asked[creature] = times end
     times.last = now
+    if lastAsked ~= creature then
+        -- What the model still shows of the creature it was last built as.
+        times.stale = model:GetDisplayInfo()
+        lastAsked = creature
+    end
+    if model.ClearModel then model:ClearModel() end
     model:SetCreature(creature)
     local display = model:GetDisplayInfo()
-    if display and display > 0 then
+    if display and display > 0 and display ~= times.stale then
         displays[creature] = display
         return display
     end

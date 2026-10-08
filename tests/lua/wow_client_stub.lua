@@ -26,6 +26,9 @@ local world = {
     creatureDisplays = {},
     -- True for a creature the client has not cached yet: GetDisplayInfo reads 0.
     displaysUncached = false,
+    -- npcId -> true for a creature not cached yet that the model, built over another, answers
+    -- with the other's appearance (and ClearModel does not reset), as the Forever beta did.
+    staleCreatures = {},
     unitSex = 2,          -- UnitSex: 1 unknown, 2 male, 3 female
     creatureType = "Humanoid",
     panels = {},
@@ -464,9 +467,11 @@ function _G.CreateFrame(kind, name, parent)
         function f:SetCreature(id)
             self.creature = id
             setCreatureCount = setCreatureCount + 1
+            if world.staleCreatures[id] then return end
             local displays = world.creatureDisplays[id]
             self.display = displays and displays[(setCreatureCount - 1) % #displays + 1] or nil
         end
+        function f:ClearModel() self.creature = nil end
         function f:GetDisplayInfo()
             if world.displaysUncached then return 0 end
             return self.display or 0
