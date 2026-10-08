@@ -354,6 +354,27 @@ memberRows[2].lead:Click()
 Expect("her Lead on the page passes her the lead", Fields(P.Last("RO", LALA)), P.SESSION .. "|lala throwaway|Tata Throwaway;Lala Throwaway")
 Expect("...after which this character's buttons grey", memberRows[2].remove:IsEnabled(), false)
 Expect("the auto-form block is there, empty", ns.listRows ~= nil and not ns.listRows[1].label:IsShown(), true)
+
+-- Hovering every button on the page, with the client's tooltip, which takes text only
+-- (2026-10-08: the list's Remove, which has no tooltip, raised "bad argument #1 to 'SetText'").
+local setText = GameTooltip.SetText
+GameTooltip.SetText = function(self, text, ...)
+	assert(type(text) == "string", "bad argument #1 to 'SetText'")
+	return setText(self, text, ...)
+end
+local function Hover(button)
+	return (pcall(button:GetScript("OnEnter"), button))
+end
+ns.Autoform:Add("Bob Stranger")
+ns:RefreshOptions()
+Expect("hovering the list's Remove, which has no tooltip, raises nothing", Hover(ns.listRows[1].remove), true)
+Expect("...nor its Auto-accept", Hover(ns.listRows[1].auto), true)
+Expect("hovering a member's buttons raises nothing", Hover(memberRows[2].remove) and Hover(memberRows[2].lead), true)
+P.Receive(stub, LALA, "RO", P.SESSION, "Tata Throwaway", "Lala Throwaway;Tata Throwaway")
+ns:RefreshOptions()
+Expect("...nor, leading, the Remove that has no tooltip for the leader", Hover(memberRows[2].remove), true)
+GameTooltip.SetText = setText
+P.Receive(stub, LALA, "RO", P.SESSION, "Lala Throwaway", "Lala Throwaway;Tata Throwaway")
 ns.optionsPanel:Hide()
 
 -- Her portrait's menu.
