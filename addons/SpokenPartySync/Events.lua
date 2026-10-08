@@ -1,9 +1,9 @@
 -- The login that wires the addon up, and the events it listens to.
 --
--- ADDON_LOADED is where SpokenPartySyncDB becomes readable. PLAYER_ENTERING_WORLD is where the
--- rest is set up: late, as the other Spoken addons do, because the Settings API, the player's
--- API and the modules' sources are all there by then. A source registered later still is
--- found through the player's SOURCE_REGISTERED.
+-- ADDON_LOADED is where SpokenPartySyncDB and SpokenPartySyncCharDB become readable.
+-- PLAYER_ENTERING_WORLD is where the rest is set up: late, as the other Spoken addons do,
+-- because the Settings API, the player's API and the modules' sources are all there by then.
+-- A source registered later still is found through the player's SOURCE_REGISTERED.
 
 local ADDON_NAME, PartySync = ...
 
@@ -52,8 +52,8 @@ local function QueueHello()
 				roster[key] = true
 				if not lastRoster[key] and Peers:IsMember(key) then
 					local version = PartySync.version
-					local db = PartySync:DB()
-					Comm:Whisper(Peers:MemberName(key), "HI", version, 0, db.lead, db.roomSpeaker)
+					local party = PartySync:Party()
+					Comm:Whisper(Peers:MemberName(key), "HI", version, 0, party.lead, party.roomSpeaker)
 				end
 			end
 		end

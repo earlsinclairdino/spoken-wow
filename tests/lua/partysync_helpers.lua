@@ -83,8 +83,10 @@ local function ClientAPI(stub)
 end
 
 --- A fresh client: Spoken, Spoken Quests with a test pack, Spoken Party Sync, logged in.
---- `lookup` is the pack's file -> length table.
-function M.Boot(stub, lookup)
+--- `lookup` is the pack's file -> length table. `saved`, when given, holds the saved variables
+--- the client reads at login: `account` (SpokenPartySyncDB) and `character`
+--- (SpokenPartySyncCharDB); either left out starts empty.
+function M.Boot(stub, lookup, saved)
 	-- The last scenario's copy of the addon would hear this one's messages and answer too.
 	if M.ns and M.ns.eventFrame then M.ns.eventFrame:UnregisterAllEvents() end
 	stub.SetClient("11509"); stub.ResetSound(); stub.ResetTimers(); stub.ResetUIActions()
@@ -93,7 +95,8 @@ function M.Boot(stub, lookup)
 	M.client.units, M.client.leader, M.client.inInstance = {}, nil, false
 	M.client.offererIsPlayer, M.client.offerer = false, nil
 	ClientAPI(stub)
-	_G.SpokenPartySyncDB = nil
+	_G.SpokenPartySyncDB = saved and saved.account or nil
+	_G.SpokenPartySyncCharDB = saved and saved.character or nil
 	local VO, env = stub.LoadQuests(QUESTS, SPOKEN)
 	-- The Spoken Developer module, where the tree has it (it keeps the debug log Party Sync
 	-- writes into); without it the log tests check that Party Sync does without.

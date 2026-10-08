@@ -89,8 +89,9 @@ function Diagnostics:Lines(detailed)
 	local speaker = Room:Speaker()
 	Add("leader: %s (%s); controls: %s; sound: %s", Name(leader), tostring(why), tostring(db.controls),
 		speaker and Name(speaker) or "every computer")
-	Add("this computer: %s, lead %s, room %s%s", tostring(PartySync:MyKey()), tostring(db.lead),
-		Room:Describe(db.roomSpeaker), Room:IsSilent() and ", captions only" or "")
+	local party = PartySync:Party()
+	Add("this computer: %s, lead %s, room %s%s", tostring(PartySync:MyKey()), tostring(party.lead),
+		Room:Describe(party.roomSpeaker), Room:IsSilent() and ", captions only" or "")
 	Add("played together: quests %s, gossip %s, zones %s, books %s; auto share %s, auto accept %s",
 		OnOff(db.sync.quests ~= false), OnOff(db.sync.gossip ~= false), OnOff(db.sync.zones ~= false),
 		OnOff(db.sync.books ~= false), OnOff(db.autoShare), OnOff(db.autoAccept))

@@ -262,7 +262,7 @@ Expect("her start starts it", P.started[1] ~= nil, true)
 
 -- This side leading: hers yields, so this side ignores her announcement.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:DB().lead = "me"
+ns:Party().lead = "me"
 P.Party(stub, ns)
 VO.Player:Enqueue(QuestLine(VO, 103))
 clip = Spoken:GetCurrent()
@@ -283,7 +283,7 @@ local function Logged(text)
 end
 
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:DB().lead = "me"
+ns:Party().lead = "me"
 P.Party(stub, ns)
 VO.Player:Enqueue(QuestLine(VO, 101))
 stub.Advance(0.55)
@@ -331,6 +331,18 @@ Expect("with nobody's controls shared, hers do nothing here", Spoken:IsPaused(),
 Expect("...and the log says why", Logged("sync stop from lala throwaway ignored: the controls are not shared here"), true)
 P.Receive(stub, "Bob Stranger", "RS")
 Expect("a stranger's replay is logged as ignored", Logged("replay from bob stranger ignored: not in the party"), true)
+
+-- Her Stop for a line this computer never had: stopped, the queue here would hold the next line
+-- until someone pressed Replay (2026-10-08).
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+P.Receive(stub, LALA, "PZ")
+Expect("the leader's Stop with nothing queued here stops nothing", Spoken:IsPaused(), false)
+Expect("...and the log says so", Logged("sync stop from lala throwaway: nothing queued here, ignored"), true)
+VO.Player:Enqueue(QuestLine(VO, 101))
+Expect("the next line queued here is still told to start", P.Last("GO", LALA) ~= nil, true)
+stub.Advance(0.55)
+Expect("...and plays", P.started[1] ~= nil, true)
 
 ---------------------------------------------------------------- settings
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)

@@ -702,7 +702,7 @@ end
 --- when there is no party to tell, which is not worth a line in the log.
 function Sync:WhyKept()
 	if not self:Live() then
-		return next(PartySync:DB().members) ~= nil and "nobody in the party online" or false
+		return next(PartySync:Party().members) ~= nil and "nobody in the party online" or false
 	end
 	local policy = PartySync:DB().controls
 	if policy == "anyone" then return nil end
@@ -765,6 +765,10 @@ Comm:On("PZ", function(sender)
 	local why = Sync:WhyRefused(sender)
 	if why then
 		Trace("stop from %s ignored: %s", tostring(key), why)
+	elseif not Head() then
+		-- A stopped queue stays stopped, and the next line queued here would wait for a Replay
+		-- nobody knows to press: their Stop was for a line this computer never had.
+		Trace("stop from %s: nothing queued here, ignored", key)
 	elseif Spoken():IsPaused() then
 		Trace("stop from %s: already stopped here", key)
 	else

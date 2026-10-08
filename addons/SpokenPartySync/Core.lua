@@ -32,28 +32,38 @@ PartySync.version = GetAddOnMeta and GetAddOnMeta(ADDON_NAME, "Version") or "dev
 -- The Spoken player API version this was written against.
 local REQUIRED_API = 1
 
+-- This computer's settings, the same for every character on the account.
 local function Defaults()
 	return {
-		-- NameKey -> { name, added }. Whoever is in here plays lines with this character; anyone
-		-- else running the addon is told about at most once. Kept by name, not by group: the
-		-- players this is for are always the same characters, and a name survives leaving the
-		-- group, joining a raid, or not grouping at all.
-		members = {},
-		-- "auto" (whoever leads the group, else the first name), "me", or "follow" (never me).
-		lead = "auto",
 		-- Which kinds of line are played together. Each one off still plays here, alone.
 		sync = { quests = true, gossip = true, zones = true, books = true },
 		autoShare = true,
 		autoAccept = true,
 		-- Whose Stop, Replay, Skip and Stop All act everywhere: "leader", "anyone" or "nobody".
 		controls = "leader",
-		-- Two computers in one room: "" follows what the others chose, "me" plays the sound here,
-		-- "none" plays it everywhere, a member's NameKey plays it there and only captions here.
-		roomSpeaker = "",
 		window = { show = "problems", scale = 1 },
 	}
 end
 PartySync.Defaults = Defaults
+
+-- The character's party, saved per character: the other members know this character by its
+-- name, and take a line, a choice or a control from no other, so another character on this
+-- computer is in no party until it is invited.
+local function PartyDefaults()
+	return {
+		-- NameKey -> { name, added }. Whoever is in here plays lines with this character; anyone
+		-- else running the addon is told about at most once. Kept by name, not by group: the
+		-- players this is for are always the same characters, and a name survives leaving the
+		-- group, joining a raid, or not grouping at all.
+		members = {},
+		-- "auto" (whoever leads the group, else the first name), "me", "follow" (never me), or a
+		-- member's NameKey.
+		lead = "auto",
+		-- Two computers in one room: "" follows what the others chose, "me" plays the sound here,
+		-- "none" plays it everywhere, a member's NameKey plays it there and only captions here.
+		roomSpeaker = "",
+	}
+end
 
 local function Fill(target, defaults)
 	for key, value in pairs(defaults) do
@@ -67,14 +77,22 @@ end
 
 function PartySync:InitDB()
 	SpokenPartySyncDB = SpokenPartySyncDB or {}
-	local db = SpokenPartySyncDB
+	SpokenPartySyncCharDB = SpokenPartySyncCharDB or {}
+	local db, party = SpokenPartySyncDB, SpokenPartySyncCharDB
+	-- Up to 0.3.0 the party was kept with the account, so whichever character logged in spoke
+	-- for it and the members refused it. The first character to log in since keeps that party.
+	if type(db.members) == "table" and (type(party.members) ~= "table" or next(party.members) == nil) then
+		party.members, party.lead, party.roomSpeaker = db.members, db.lead, db.roomSpeaker
+	end
+	db.members, db.lead, db.roomSpeaker = nil, nil, nil
 	Fill(db, Defaults())
+	Fill(party, PartyDefaults())
 	-- 0.1.0 kept one companion by name, sometimes with the quotes it was typed with. Saved
 	-- variables do come back on Forever, so it outlived that version: it becomes a member.
 	if type(db.companion) == "string" then
 		local name = self:CleanName(db.companion)
 		if name ~= "" and not self:IsSelf(name) then
-			db.members[self:NameKey(name)] = { name = name, added = time and time() or 0 }
+			party.members[self:NameKey(name)] = { name = name, added = time and time() or 0 }
 		end
 		db.companion = nil
 	end
@@ -85,20 +103,31 @@ function PartySync:InitDB()
 	return db
 end
 
---- Everything back to its defaults but the party itself.
+--- Everything back to its defaults but the party's members and the collected logs.
 function PartySync:ResetOptions()
 	local db = SpokenPartySyncDB
 	if not db then return end
-	local members, collected = db.members, db.collected
+	local collected = db.collected
 	for key in pairs(db) do db[key] = nil end
 	Fill(db, Defaults())
-	db.members, db.collected = members or {}, collected
+	db.collected = collected
+	local party = SpokenPartySyncCharDB
+	if party then
+		local defaults = PartyDefaults()
+		party.lead, party.roomSpeaker = defaults.lead, defaults.roomSpeaker
+	end
 	self:Changed()
 end
 
 local fallback = Defaults()
 function PartySync:DB()
 	return SpokenPartySyncDB or fallback
+end
+
+local partyFallback = PartyDefaults()
+--- This character's party: its members, who leads and which computer plays the sound.
+function PartySync:Party()
+	return SpokenPartySyncCharDB or partyFallback
 end
 
 function PartySync:Print(message, ...)
