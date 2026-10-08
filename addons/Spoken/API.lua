@@ -463,6 +463,17 @@ function Spoken:AddGate(fn)
     SoundQueue:AddGate(fn)
 end
 
+--- A feature addon's say over Stop, Replay and Skip: fn(clip) -> reason | nil, asked about the
+--- head. While it answers, the three do nothing here and the player's skins grey them, with the
+--- reason in their tooltip: a line a party plays together may be its leader's to stop.
+function Spoken:SetControlGate(fn)
+    SoundQueue:SetControlGate(fn)
+end
+
+function Spoken:WhyNoControl()
+    return SoundQueue:WhyNoControl()
+end
+
 --- A player-wide gate opened: start what it held now rather than at the next once-a-second
 --- retry. Gates are only asked again when the queue moves, and a gate opening is not a move.
 --- Additive, like everything below: guard on the field.

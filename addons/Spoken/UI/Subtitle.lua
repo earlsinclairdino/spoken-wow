@@ -851,6 +851,8 @@ function Subtitle:BuildControls()
         pause.glyph:SetAlpha(1)
         GameTooltip:SetOwner(pause, "ANCHOR_TOP")
         GameTooltip:SetText(SoundQueue:IsPaused() and L.REPLAY or L.STOP)
+        local why = SoundQueue:WhyNoControl()
+        if why then GameTooltip:AddLine(why, 1, .5, .5, true) end
         GameTooltip:Show()
     end)
     self.pause = pause
@@ -875,6 +877,8 @@ function Subtitle:BuildControls()
         skip.glyph:SetAlpha(1)
         GameTooltip:SetOwner(skip, "ANCHOR_TOP")
         GameTooltip:SetText(L.BIND_SKIP)
+        local why = SoundQueue:WhyNoControl()
+        if why then GameTooltip:AddLine(why, 1, .5, .5, true) end
         GameTooltip:Show()
     end)
     self.skip = skip

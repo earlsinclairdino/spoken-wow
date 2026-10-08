@@ -212,6 +212,8 @@ function PlayerFrame:InitPortrait()
         local stopped = SoundQueue:IsPaused()
         GameTooltip:SetText(stopped and L.REPLAY or L.STOP)
         GameTooltip:AddLine(stopped and L.REPLAY_TOOLTIP or L.STOP_TOOLTIP, 1, 1, 1, true)
+        local why = SoundQueue:WhyNoControl()
+        if why then GameTooltip:AddLine(why, 1, .5, .5, true) end
         GameTooltip:Show()
     end)
     self.frame.portrait.pause:HookScript("OnLeave", function(button)

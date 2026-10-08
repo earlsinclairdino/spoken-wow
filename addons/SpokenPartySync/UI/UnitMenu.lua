@@ -7,7 +7,7 @@
 
 local _, PartySync = ...
 
-local Peers, L = PartySync.Peers, PartySync.L
+local Peers, Autoform, L = PartySync.Peers, PartySync.Autoform, PartySync.L
 
 local UnitMenu = {}
 PartySync.UnitMenu = UnitMenu
@@ -53,23 +53,33 @@ local function Modify(_, rootDescription, contextData)
 	if rootDescription.CreateTitle then
 		rootDescription:CreateTitle(L.MENU_TITLE)
 	end
+	local key = PartySync:NameKey(name)
 	if Peers:IsMember(name) then
-		-- Both chosen for the whole party; offered unless it is already so.
-		local key = PartySync:NameKey(name)
-		if not Peers:IsLeader(key) then
-			rootDescription:CreateButton(L.MENU_LEAD, function() Peers:ChooseLead(key) end)
+		-- The leader's: the lead, the sound and the roster. Offered unless it is already so.
+		if Peers:AmLeader() then
+			if not Peers:IsLeader(key) then
+				rootDescription:CreateButton(L.MENU_LEAD, function() Peers:PassLead(key) end)
+			end
+			if PartySync.Room and PartySync.Room:Speaker() ~= key then
+				rootDescription:CreateButton(L.MENU_SOUND, function() PartySync.Room:Choose(key) end)
+			end
+			rootDescription:CreateButton(L.MENU_REMOVE, function()
+				if Peers:RemoveMember(name) then
+					PartySync:Print("%s is out of your Spoken party", PartySync:ShortName(name))
+				end
+			end)
 		end
-		if PartySync.Room and PartySync.Room:Speaker() ~= key then
-			rootDescription:CreateButton(L.MENU_SOUND, function() PartySync.Room:Choose(key) end)
-		end
-		rootDescription:CreateButton(L.MENU_REMOVE, function()
-			Peers:RemoveMember(name)
-			PartySync:Print("%s left your Spoken party", PartySync:ShortName(name))
-		end)
-	else
+	elseif Peers:MayInvite() then
 		rootDescription:CreateButton(L.MENU_INVITE, function()
 			local sent, answer = Peers:Invite(name)
 			PartySync:Print("invitation to %s: %s", PartySync:ShortName(name), sent and "sent" or tostring(answer))
+		end)
+	end
+	if not Autoform:Entry(key) then
+		rootDescription:CreateButton(L.MENU_REMEMBER, function()
+			if Autoform:Add(name) then
+				PartySync:Print("%s is on the auto-form list", PartySync:ShortName(name))
+			end
 		end)
 	end
 end

@@ -1,23 +1,31 @@
--- The party: who plays lines with this character, whether they can hear us, how far away they
--- are, and who leads.
+-- The party: a session with a leader, who is in it and online, how far away they are, and the
+-- rules the leader sets for everyone.
+--
+-- A party begins with an invitation and lasts until fewer than two are left. Whoever invites
+-- first leads: only the leader invites, removes, passes the lead and sets the rules, and the
+-- leader owns the roster, which every change is sent out from, so every member sees the same
+-- party. A member keeps the session in its saved variables, so a /reload rejoins it. Should
+-- the leader vanish, the first by name among those still online stands in and says so.
 --
 -- Messages:
 --
---   HI  version, reply, lead, room
+--   HI  version, reply, session, own
 --                           hello. Whispered to every member at login and when the group
 --                           changes, broadcast to the group so others running the addon can
 --                           be told about it; answered by whisper. reply=1 marks the answer,
---                           which is never answered. `lead` and `room` are this client's
---                           settings, which the others need to agree on who leads and which
---                           computer plays the sound. Sent again as a reply when either changes.
---   CH  kind, value         a choice made for the whole party: `lead` (a member's key, or
---                           "auto") or `room` (a member's key, or "none": every computer).
---                           Each member saves the same, so the last choice is everyone's; a
---                           key that is the receiver's own becomes its "me". "Never this one"
---                           and "as chosen elsewhere" are one computer's and never sent.
---   IV  version             an invitation to the party. Asked of the player in a popup.
---   IA                      accepted: both sides keep the other as a member.
---   ID                      declined, or removed: both sides forget the other.
+--                           which is never answered. `session` is the party this client is
+--                           in, or empty; `own` is 1 while it decides the sound by itself.
+--   IV  version, session    an invitation to the party `session`. Asked of the player in a
+--                           popup, unless the auto-form list accepts it.
+--   IA  session             accepted: the leader adds them and sends the roster.
+--   ID  session             declined, left, or removed. One about another party is stale.
+--   RO  session, leader, members
+--                           the roster, from the leader: who leads and who is in, names
+--                           separated by semicolons. A member not in it has been removed.
+--   PS  controls, room, sync
+--                           the rules, from the leader: whose controls act everywhere, which
+--                           computer plays the sound, and which kinds of line are played
+--                           together (four flags: quests, gossip, zones, books).
 --   PI  token               ping. Answered by PO with the same token, on the channel it came in
 --                           on, so `/sps latency` can time the two paths separately.
 --   PO  token               pong. The round trip is timed on the sender's own clock, so the two
@@ -42,10 +50,21 @@ local LOST_SECONDS = 65
 local BURST_REPORT_SECONDS = 3
 -- Until a round trip has been measured: about what the Forever beta takes (0.9 to 1.1 s).
 local DEFAULT_RTT = 1000
+-- How long an invitation stands, as long as its popup.
+local INVITE_SECONDS = 125
+-- A member in the party this long is dropped when its hello names another party or none. A
+-- hello sent just before it accepted may arrive after.
+local JOIN_GRACE = 10
 
--- key -> { name, version, lastSeen, rtt, rtts = { whisper = ms, group = ms }, state, lead, room }
+local SYNC_KINDS = { "quests", "gossip", "zones", "books" }
+
+-- key -> { name, version, lastSeen, rtt, rtts = { whisper = ms, group = ms }, state, session, own }
 -- state: "online" | "lost" | "offline" (the client said there is no such player online)
 Peers.list = {}
+
+local function Autoform()
+	return PartySync.Autoform
+end
 
 local function Changed()
 	PartySync:Changed()
@@ -98,6 +117,7 @@ function Peers:MarkOffline(name)
 		if self:IsMember(key) and was == "online" then
 			PartySync:Problem("presence:" .. key, format(L.PROBLEM_OFFLINE_FMT, peer.name))
 		end
+		self:Gone(key, "offline")
 		Changed()
 	end
 end
@@ -110,23 +130,110 @@ function Peers:Rtt(key)
 end
 
 --------------------------------------------------------------------------------
+-- The session
+--------------------------------------------------------------------------------
+
+-- key -> when they joined this session, for JOIN_GRACE. Not saved: after a /reload everyone
+-- has been in for long enough.
+local joinedAt = {}
+-- key -> { at, id }: invitations this client sent and has had no answer to.
+local invited = {}
+
+--- The party this character is in, or nil.
+function Peers:Session()
+	return PartySync:Party().session
+end
+
+function Peers:InParty()
+	return self:Session() ~= nil
+end
+
+function Peers:SessionId()
+	local session = self:Session()
+	return session and session.id or ""
+end
+
+--- How many are in the party, this character included.
+function Peers:Count()
+	local session = self:Session()
+	local n = 0
+	if session then
+		for _ in pairs(session.members) do n = n + 1 end
+	end
+	return n
+end
+
+local function MyName()
+	return PartySync:ShortName(PartySync:UnitChatName("player"))
+end
+
+local function NewSession(rules)
+	local me = PartySync:MyKey()
+	local session = {
+		id = format("%s-%d", me, time and time() or math.floor(GetTime())),
+		leader = me,
+		members = { [me] = MyName() },
+		rules = PartySync.Copy(rules or PartySync:DB().rules),
+	}
+	PartySync:Party().session = session
+	PartySync:Trace("party", "party %s started here, with the rules controls %s, room %s", session.id,
+		tostring(session.rules.controls), tostring(session.rules.room))
+	return session
+end
+
+--- The party is over, or this character is out of it.
+function Peers:EndSession(why, quiet)
+	local session = self:Session()
+	if not session then return end
+	PartySync:Trace("party", "party %s ended here: %s", session.id, tostring(why))
+	PartySync:Party().session = nil
+	joinedAt = {}
+	if not quiet then
+		PartySync:Print("%s", why)
+	end
+	Changed()
+end
+
+--------------------------------------------------------------------------------
 -- Members
 --------------------------------------------------------------------------------
 
+--- Whether `name` is another member of this character's party.
 function Peers:IsMember(name)
 	local key = PartySync:NameKey(name)
-	return key ~= nil and PartySync:Party().members[key] ~= nil
+	local session = self:Session()
+	return key ~= nil and session ~= nil and session.members[key] ~= nil and key ~= PartySync:MyKey()
 end
 
---- Iterates `key, member` over the party, this character excluded.
+--- Iterates `key, name` over the party, this character excluded.
 function Peers:Members()
-	return pairs(PartySync:Party().members)
+	local session = self:Session()
+	local members = session and session.members or {}
+	local me = PartySync:MyKey()
+	local key, name
+	return function()
+		repeat
+			key, name = next(members, key)
+		until key == nil or key ~= me
+		return key, name
+	end
+end
+
+--- Every member's key, this character first, then the others by name.
+function Peers:MemberKeys()
+	local keys = {}
+	for key in self:Members() do table.insert(keys, key) end
+	table.sort(keys)
+	local me = PartySync:MyKey()
+	if me and self:Session() then table.insert(keys, 1, me) end
+	return keys
 end
 
 function Peers:MemberName(key)
-	local member = PartySync:Party().members[key]
+	local session = self:Session()
 	local peer = self.list[key]
-	return (member and member.name) or (peer and peer.name) or key
+	local list = Autoform() and Autoform():Entry(key)
+	return (session and session.members[key]) or (peer and peer.name) or (list and list.name) or key
 end
 
 --- The members heard from and not lost since, by key.
@@ -146,35 +253,138 @@ function Peers:AnyOnline()
 	return self:OnlineMembers()[1] ~= nil
 end
 
---- Returns false, changing nothing, for this character's own name.
-function Peers:AddMember(name)
-	name = PartySync:CleanName(name)
-	local key = PartySync:NameKey(name)
-	if not key or PartySync:IsSelf(name) then
-		return false
+local function SessionWord()
+	return Peers:SessionId()
+end
+
+--- Whether this character leads its party, or may start one.
+function Peers:MayInvite()
+	local session = self:Session()
+	return session == nil or session.leader == PartySync:MyKey()
+end
+
+--- Tell every member the roster: who leads and who is in. The leader's to send.
+function Peers:SendRoster()
+	local session = self:Session()
+	if not session then return end
+	local names = {}
+	for key, name in pairs(session.members) do
+		if key ~= PartySync:MyKey() then table.insert(names, name) end
 	end
-	local members = PartySync:Party().members
-	if not members[key] then
-		members[key] = { name = PartySync:WhisperName(name), added = time and time() or 0 }
+	table.sort(names)
+	table.insert(names, 1, MyName())
+	local joined = table.concat(names, ";")
+	for key in self:Members() do
+		Comm:Whisper(self:MemberName(key), "RO", session.id, session.leader, joined)
+	end
+end
+
+local function SyncFlags(rules)
+	local flags = {}
+	for i, kind in ipairs(SYNC_KINDS) do
+		flags[i] = (rules.sync == nil or rules.sync[kind] ~= false) and "1" or "0"
+	end
+	return table.concat(flags)
+end
+
+--- Tell `key`, or every member, the rules. The leader's to send.
+function Peers:SendRules(key)
+	local session = self:Session()
+	if not session then return end
+	local rules = session.rules
+	local targets = key and { key } or self:OnlineMembers()
+	for _, target in ipairs(targets) do
+		Comm:Whisper(self:MemberName(target), "PS", rules.controls or "leader", rules.room or "none", SyncFlags(rules))
+	end
+end
+
+local function Join(key, name)
+	local session = Peers:Session()
+	session.members[key] = name
+	joinedAt[key] = GetTime()
+	PartySync:Trace("party", "%s joined the party", key)
+	Peers:Seen(name)
+	PartySync:Print("%s is in your Spoken party", PartySync:ShortName(name))
+	Peers:SendRoster()
+	Peers:SendRules(key)
+	if Autoform() then Autoform():AutoRemember() end
+	Changed()
+end
+
+--- `key` is no longer in the party: left, removed, offline or lost. The leader tells the rest;
+--- a member only drops them, and takes the lead when the leader is the one gone.
+function Peers:Gone(key, why)
+	local session = self:Session()
+	if not (session and session.members[key]) or key == PartySync:MyKey() then
+		return
+	end
+	local name = session.members[key]
+	session.members[key] = nil
+	joinedAt[key] = nil
+	PartySync:Trace("party", "%s left the party (%s)", key, tostring(why))
+	PartySync:Resolve("presence:" .. key)
+	local me = PartySync:MyKey()
+	if session.leader == key then
+		local standIn = self:Leader()
+		if standIn == me then
+			session.leader = me
+			PartySync:Trace("party", "leader: %s (stands in for %s, who is %s)", me, key, tostring(why))
+			PartySync:Print("%s is gone: you lead the Spoken party now", PartySync:ShortName(name))
+		end
+	end
+	if self:Count() < 2 then
+		self:EndSession(format("The Spoken party ended: %s is gone.", PartySync:ShortName(name)))
+		return
+	end
+	if session.leader == me then
+		self:SendRoster()
 	end
 	Changed()
+end
+
+--- Remove `name` from the party and tell them. The leader's to do.
+function Peers:RemoveMember(name)
+	local key = PartySync:NameKey(name)
+	local session = self:Session()
+	if not (key and session and session.members[key]) then
+		return false, "not in the party"
+	end
+	if session.leader ~= PartySync:MyKey() then
+		return false, L.ONLY_LEADER_REMOVES
+	end
+	local who = self:MemberName(key)
+	PartySync:Trace("party", "%s removed from the party here", key)
+	Comm:Whisper(who, "ID", session.id)
+	self:Gone(key, "removed here")
 	return true
 end
 
---- Forget `name` and tell them, so their side forgets this one too.
-function Peers:RemoveMember(name, quiet)
-	local key = PartySync:NameKey(name)
-	if not key or not PartySync:Party().members[key] then
+--- Leave the party. A leader hands the lead to the first by name before going.
+function Peers:Leave()
+	local session = self:Session()
+	if not session then
 		return false
 	end
-	local who = self:MemberName(key)
-	PartySync:Trace("party", "%s left the party%s", key, quiet and ", by their choice" or ", removed here")
-	PartySync:Party().members[key] = nil
-	if not quiet then
-		Comm:Whisper(who, "ID")
+	local me = PartySync:MyKey()
+	local others = {}
+	for key in self:Members() do table.insert(others, key) end
+	table.sort(others)
+	if session.leader == me and others[1] then
+		session.leader = others[1]
+		session.members[me] = nil
+		PartySync:Trace("party", "leaving the party: lead passed to %s", others[1])
+		-- The roster without this character: the others carry on under the new leader.
+		local names = {}
+		for _, key in ipairs(others) do table.insert(names, session.members[key]) end
+		for _, key in ipairs(others) do
+			Comm:Whisper(self:MemberName(key), "RO", session.id, session.leader, table.concat(names, ";"))
+		end
+	else
+		for _, key in ipairs(others) do
+			Comm:Whisper(self:MemberName(key), "ID", session.id)
+		end
 	end
-	PartySync:Resolve("presence:" .. key)
-	Changed()
+	self:EndSession("You left the Spoken party.")
 	return true
 end
 
@@ -182,61 +392,75 @@ end
 -- Hello
 --------------------------------------------------------------------------------
 
---- This client's settings as the others need them: whether it asked to lead, and which
---- computer it says plays the sound.
-local function Settings()
-	local party = PartySync:Party()
-	return party.lead or "auto", party.roomSpeaker or ""
+local function Own()
+	local own = PartySync:DB().soundOwn
+	return (own ~= nil and own ~= "") and 1 or 0
 end
 
 --- To the group, for whoever runs the addon there.
 function Peers:Hello()
-	local lead, room = Settings()
-	return Comm:Broadcast("HI", PartySync.version, 0, lead, room)
+	return Comm:Broadcast("HI", PartySync.version, 0, SessionWord(), Own())
+end
+
+--- To `name`, by whisper: a member at login, or someone on the auto-form list who may be
+--- online by now.
+function Peers:Greet(name, reply)
+	return Comm:Whisper(name, "HI", PartySync.version, reply and 1 or 0, SessionWord(), Own())
 end
 
 --- To every member by name. One that is offline costs a "No player named" message, which
 --- Comm keeps out of the chat window and reads as offline.
 function Peers:HelloMembers(reply)
-	local lead, room = Settings()
 	for key in self:Members() do
-		Comm:Whisper(self:MemberName(key), "HI", PartySync.version, reply and 1 or 0, lead, room)
+		self:Greet(self:MemberName(key), reply)
 	end
 end
 
---- A setting the others read has changed: tell the members who are online.
+--- Something the others read in the hello has changed: tell the members who are online.
 function Peers:Announce()
-	local lead, room = Settings()
-	PartySync:Trace("party", "lead %s, room %s: told %s", lead, room ~= "" and room or "as chosen elsewhere",
-		self:OnlineMembers()[1] and table.concat(self:OnlineMembers(), ", ") or "nobody online")
 	for _, key in ipairs(self:OnlineMembers()) do
-		Comm:Whisper(self:MemberName(key), "HI", PartySync.version, 1, lead, room)
+		self:Greet(self:MemberName(key), true)
 	end
 	Changed()
 end
 
+--- Logged in with a party saved: say hello to its members, who have until the first missed
+--- heartbeats to answer.
+function Peers:Resume()
+	local session = self:Session()
+	if not session then return end
+	self.resumedAt = GetTime()
+	PartySync:Trace("party", "party %s resumed: %d member(s), %s leads", session.id, self:Count(), tostring(session.leader))
+	self:HelloMembers()
+end
+
 local told = {}
 
-Comm:On("HI", function(sender, channel, version, reply, lead, room)
+Comm:On("HI", function(sender, channel, version, reply, sessionId, own)
 	local known = Peers:Get(sender)
 	local wasOnline = known and known.state == "online"
 	local peer = Peers:Seen(sender, version)
 	if not peer then return end
-	local changed = peer.lead ~= (lead or "auto") or peer.room ~= (room or "")
-	peer.lead, peer.room = lead or "auto", room or ""
+	sessionId = sessionId or ""
+	local changed = peer.session ~= sessionId or peer.own ~= (own == "1")
+	peer.session, peer.own = sessionId, own == "1"
 	local key = PartySync:NameKey(sender)
 	if Peers:IsMember(sender) then
 		if not wasOnline then
 			PartySync:Print("%s is here (Spoken Party Sync %s)", PartySync:ShortName(sender), tostring(version))
 		end
-	elseif not told[key] then
+		-- In another party, or in none: gone from this one. A hello sent just before they
+		-- accepted may arrive after, so a newcomer is given a moment.
+		if sessionId ~= Peers:SessionId() and (not joinedAt[key] or GetTime() - joinedAt[key] > JOIN_GRACE) then
+			Peers:Gone(key, sessionId == "" and "in no party now" or "in another party")
+		end
+	elseif not told[key] and not (Autoform() and Autoform():Entry(key)) then
 		told[key] = true
 		PartySync:Print("%s runs Spoken Party Sync too: /sps invite %s to play lines together",
 			PartySync:ShortName(sender), PartySync:ShortName(sender))
 	end
 	if reply ~= "1" then
-		local myLead, myRoom = Settings()
-		Comm:Whisper(sender, "HI", PartySync.version, 1, myLead, myRoom)
+		Peers:Greet(sender, true)
 	end
 	if changed then
 		Changed()
@@ -248,9 +472,10 @@ end)
 --------------------------------------------------------------------------------
 
 local POPUP = "SPOKENPARTYSYNC_INVITE"
-local invited = {}   -- key -> when this client invited them
 
-function Peers:Invite(name)
+--- Invite `name`. Starts a party, with `rules`, when this character is in none; refused when
+--- another member leads.
+function Peers:Invite(name, rules)
 	name = PartySync:CleanName(name)
 	local key = PartySync:NameKey(name)
 	if not key then
@@ -259,29 +484,43 @@ function Peers:Invite(name)
 	if PartySync:IsSelf(name) then
 		return false, "that is this character"
 	end
-	invited[key] = GetTime()
-	local sent, answer = Comm:Whisper(name, "IV", PartySync.version)
-	PartySync:Trace("party", "invited %s: %s", key, sent and "sent" or tostring(answer))
+	local session = self:Session()
+	if session and session.leader ~= PartySync:MyKey() then
+		return false, L.ONLY_LEADER_INVITES
+	end
+	if session and session.members[key] then
+		return false, "already in the party"
+	end
+	session = session or NewSession(rules)
+	invited[key] = { at = GetTime(), id = session.id }
+	local sent, answer = Comm:Whisper(name, "IV", PartySync.version, session.id)
+	PartySync:Trace("party", "invited %s to %s: %s", key, session.id, sent and "sent" or tostring(answer))
+	Changed()
 	return sent, answer
 end
 
-local function Join(name)
-	PartySync:Trace("party", "%s joined the party", tostring(PartySync:NameKey(name)))
-	Peers:AddMember(name)
+function Peers:AcceptInvite(name, id)
+	if not (name and id and id ~= "") then return end
+	local key = PartySync:NameKey(name)
+	Comm:Whisper(name, "IA", id)
+	local session = {
+		id = id,
+		leader = key,
+		members = { [PartySync:MyKey()] = MyName(), [key] = PartySync:WhisperName(name) },
+		-- Until the leader's rules arrive.
+		rules = PartySync.Rules(),
+	}
+	PartySync:Party().session = session
+	joinedAt[key] = GetTime()
+	PartySync:Trace("party", "joined %s's party %s", key, id)
 	Peers:Seen(name)
-	PartySync:Print("%s is in your Spoken party", PartySync:ShortName(name))
-	Peers:HelloMembers(true)
+	PartySync:Print("You are in %s's Spoken party", PartySync:ShortName(name))
+	Changed()
 end
 
-function Peers:AcceptInvite(name)
+function Peers:DeclineInvite(name, id)
 	if not name then return end
-	Comm:Whisper(name, "IA")
-	Join(name)
-end
-
-function Peers:DeclineInvite(name)
-	if not name then return end
-	Comm:Whisper(name, "ID")
+	Comm:Whisper(name, "ID", id or "")
 end
 
 local function DefinePopup()
@@ -292,10 +531,10 @@ local function DefinePopup()
 		text = L.INVITE_POPUP,
 		button1 = ACCEPT or "Accept",
 		button2 = DECLINE or "Decline",
-		OnAccept = function(_, data) Peers:AcceptInvite(data) end,
+		OnAccept = function(_, data) Peers:AcceptInvite(data.name, data.id) end,
 		OnCancel = function(_, data, reason)
 			-- Only a click is an answer; a popup that timed out or was replaced says nothing.
-			if reason == "clicked" then Peers:DeclineInvite(data) end
+			if reason == "clicked" then Peers:DeclineInvite(data.name, data.id) end
 		end,
 		timeout = 120,
 		whileDead = true,
@@ -304,95 +543,226 @@ local function DefinePopup()
 	}
 end
 
-Comm:On("IV", function(sender, channel, version)
+--- Whether this character is in a party of one it has only just started: two members of an
+--- auto-form list inviting each other at once each stand in one, and the lower name's wins.
+local function Alone()
+	local session = Peers:Session()
+	return session ~= nil and Peers:Count() == 1
+end
+
+Comm:On("IV", function(sender, channel, version, sessionId)
 	Peers:Seen(sender, version)
-	-- Already a member: the other side lost its list (a new install, another computer), and
-	-- asking again would be a question with one answer.
-	if Peers:IsMember(sender) then
-		Comm:Whisper(sender, "IA")
-		Peers:HelloMembers(true)
+	local key = PartySync:NameKey(sender)
+	sessionId = sessionId or ""
+	local session = Peers:Session()
+	if session then
+		if session.id == sessionId then
+			-- Already a member: the other side lost its list (a new install, another computer), and
+			-- asking again would be a question with one answer.
+			Comm:Whisper(sender, "IA", sessionId)
+			return
+		end
+		if Alone() and key < PartySync:MyKey() then
+			PartySync:Trace("party", "%s's invitation crosses this party of one: theirs wins", key)
+			invited = {}
+			Peers:EndSession("their invitation came first", true)
+		else
+			PartySync:Trace("party", "%s's invitation to %s declined: already in a party", key, sessionId)
+			PartySync:Print("%s invited you to a Spoken party, but you are in one already", PartySync:ShortName(sender))
+			Comm:Whisper(sender, "ID", sessionId)
+			return
+		end
+	end
+	if Autoform() and Autoform():Accepts(key) then
+		PartySync:Trace("party", "%s's invitation accepted from the auto-form list", key)
+		Peers:AcceptInvite(sender, sessionId)
 		return
 	end
 	DefinePopup()
 	if StaticPopup_Show then
-		StaticPopup_Show(POPUP, PartySync:ShortName(sender), nil, PartySync:WhisperName(sender))
+		StaticPopup_Show(POPUP, PartySync:ShortName(sender), nil, { name = PartySync:WhisperName(sender), id = sessionId })
 	end
 end)
 
-Comm:On("IA", function(sender)
+Comm:On("IA", function(sender, channel, sessionId)
 	local key = PartySync:NameKey(sender)
-	-- Only an answer to a question this client asked, or a member re-linking.
-	if not (invited[key] or Peers:IsMember(sender)) then
+	local session = Peers:Session()
+	-- Only an answer to a question this client asked, for the party it leads.
+	if not (session and session.leader == PartySync:MyKey() and (sessionId == "" or sessionId == session.id)) then
+		return
+	end
+	if not (invited[key] or session.members[key]) then
 		return
 	end
 	invited[key] = nil
-	Join(sender)
+	if session.members[key] then
+		-- A member re-linking: the roster again, in case theirs is stale.
+		Peers:SendRoster()
+		Peers:SendRules(key)
+		return
+	end
+	Join(key, PartySync:WhisperName(sender))
 end)
 
-Comm:On("ID", function(sender)
+Comm:On("ID", function(sender, channel, sessionId)
 	local key = PartySync:NameKey(sender)
-	if invited[key] then
+	sessionId = sessionId or ""
+	local session = Peers:Session()
+	local pending = invited[key]
+	if pending and (sessionId == "" or sessionId == pending.id) then
 		invited[key] = nil
 		PartySync:Trace("party", "%s declined the invitation", tostring(key))
 		PartySync:Print("%s declined", PartySync:ShortName(sender))
+		return
 	end
-	if Peers:IsMember(sender) then
-		Peers:RemoveMember(sender, true)
-		PartySync:Print("%s left your Spoken party", PartySync:ShortName(sender))
+	-- About another party, or an invitation long gone: not this party's business.
+	if not (session and session.members[key]) or (sessionId ~= "" and sessionId ~= session.id) then
+		return
 	end
+	if session.leader == key then
+		Peers:EndSession(format("%s removed you from the Spoken party.", PartySync:ShortName(sender)))
+		return
+	end
+	PartySync:Print("%s left your Spoken party", PartySync:ShortName(sender))
+	Peers:Gone(key, "left")
+end)
+
+--------------------------------------------------------------------------------
+-- The roster and the rules
+--------------------------------------------------------------------------------
+
+Comm:On("RO", function(sender, channel, sessionId, leader, members)
+	local key = PartySync:NameKey(sender)
+	local session = Peers:Session()
+	if not (session and session.id == sessionId and session.members[key]) then
+		return
+	end
+	local me = PartySync:MyKey()
+	local roster = {}
+	for name in tostring(members or ""):gmatch("[^;]+") do
+		local k = PartySync:NameKey(name)
+		if k then roster[k] = PartySync:WhisperName(name) end
+	end
+	if not roster[me] then
+		Peers:EndSession(format("%s removed you from the Spoken party.", PartySync:ShortName(sender)))
+		return
+	end
+	local was = session.leader
+	local newLeader = PartySync:NameKey(leader) or was
+	-- Only the leader, or whoever stands in for a leader that is gone, speaks for the roster.
+	if key ~= was and key ~= newLeader then
+		PartySync:Trace("party", "roster from %s ignored: %s leads", key, tostring(was))
+		return
+	end
+	for k, name in pairs(roster) do
+		if not session.members[k] then
+			joinedAt[k] = GetTime()
+			PartySync:Print("%s is in your Spoken party", PartySync:ShortName(name))
+		end
+	end
+	for k in pairs(session.members) do
+		if not roster[k] then
+			PartySync:Resolve("presence:" .. k)
+			joinedAt[k] = nil
+		end
+	end
+	session.members = roster
+	session.leader = newLeader
+	PartySync:Trace("party", "roster from %s: %s leads, %d member(s)", key, newLeader, Peers:Count())
+	if newLeader ~= was then
+		PartySync:Print("%s leads the Spoken party now", newLeader == me and "You" or PartySync:ShortName(roster[newLeader] or leader))
+	end
+	if Peers:Count() < 2 then
+		Peers:EndSession("The Spoken party ended: nobody else is left.")
+		return
+	end
+	if Autoform() then Autoform():AutoRemember() end
+	Changed()
+end)
+
+--- The rules in force: the party's, or this computer's own for the party it would start.
+function Peers:Rules()
+	local session = self:Session()
+	return session and session.rules or PartySync:DB().rules
+end
+
+local function DescribeRules(rules)
+	local on = {}
+	for _, kind in ipairs(SYNC_KINDS) do
+		if rules.sync == nil or rules.sync[kind] ~= false then table.insert(on, kind) end
+	end
+	return format("controls %s, sound %s, played together %s", tostring(rules.controls), tostring(rules.room),
+		on[1] and table.concat(on, ", ") or "nothing")
+end
+Peers.DescribeRules = DescribeRules
+
+--- Set a rule: `controls` ("anyone", "leader", "nobody"), `room` (a member's key, or "none"),
+--- or `sync` with `kind` and whether it is on. In a party, the leader's to set, and every
+--- member is told; outside one, this computer's own for the next party it starts.
+function Peers:SetRule(name, value, on)
+	local session = self:Session()
+	if session and session.leader ~= PartySync:MyKey() then
+		return false, L.ONLY_LEADER_RULES
+	end
+	local rules = session and session.rules or PartySync:DB().rules
+	if name == "sync" then
+		rules.sync = rules.sync or {}
+		rules.sync[value] = on and true or false
+		PartySync:TraceSetting("play together " .. tostring(value), rules.sync[value])
+	else
+		rules[name] = value
+		PartySync:TraceSetting(name, tostring(value))
+	end
+	if session then
+		self:SendRules()
+		if Autoform() then Autoform():AutoRemember() end
+	end
+	Changed()
+	return true
+end
+
+Comm:On("PS", function(sender, channel, controls, room, flags)
+	local key = PartySync:NameKey(sender)
+	local session = Peers:Session()
+	if not (session and session.leader == key) then
+		return
+	end
+	local rules = session.rules
+	rules.controls = controls ~= "" and controls or "leader"
+	rules.room = room ~= "" and room or "none"
+	rules.sync = rules.sync or {}
+	flags = tostring(flags or "")
+	for i, kind in ipairs(SYNC_KINDS) do
+		local flag = flags:sub(i, i)
+		if flag ~= "" then rules.sync[kind] = flag == "1" end
+	end
+	PartySync:Trace("party", "rules from %s: %s", key, DescribeRules(rules))
+	if PartySync.Room then PartySync.Room:Update() end
+	Changed()
 end)
 
 --------------------------------------------------------------------------------
 -- Who leads
 --------------------------------------------------------------------------------
---
--- Every client works this out for itself from the same facts -- each member's lead setting,
--- carried in its hello, and the group's leader -- so they agree without a vote. The leader's
--- Stop, Replay, Skip and Stop All reach everyone, it shares the quests it accepts, and when two
--- of the party start the same line at once, the leader's copy is the one played.
 
-local function IsGroupLeader(key)
-	if not UnitIsGroupLeader then
-		return false
-	end
-	if key == PartySync:MyKey() then
-		return UnitIsGroupLeader("player") and true or false
-	end
-	local unit = PartySync:UnitFor(Peers:MemberName(key))
-	return unit ~= nil and UnitIsGroupLeader(unit) and true or false
-end
-
---- The leader's key, this character's included, and why it leads; nil only before the name is
---- known.
+--- The leader's key and why, or nil without a party. A leader that is gone is stood in for by
+--- the first by name of those still here, this character included, so every member agrees.
 function Peers:Leader()
+	local session = self:Session()
 	local me = PartySync:MyKey()
-	if not me then
-		return nil
+	if not (session and me) then
+		return nil, "no party"
 	end
-	local wishes = { [me] = PartySync:Party().lead or "auto" }
-	for _, key in ipairs(self:OnlineMembers()) do
-		wishes[key] = self.list[key].lead or "auto"
+	local leader = session.leader
+	local peer = self.list[leader]
+	if leader == me or (peer and peer.state == "online") or (session.members[leader] and not peer
+		and self.resumedAt and GetTime() - self.resumedAt <= LOST_SECONDS) then
+		return leader, "leads the party"
 	end
-	local keys = {}
-	for key in pairs(wishes) do table.insert(keys, key) end
+	local keys = self:OnlineMembers()
+	table.insert(keys, me)
 	table.sort(keys)
-	-- A wish can name a member (chosen for the party with Lead): as good as their own "me".
-	local named = {}
-	for _, key in ipairs(keys) do
-		local wish = wishes[key]
-		if wishes[wish] ~= nil and not named[wish] then named[wish] = key end
-	end
-	for _, key in ipairs(keys) do
-		if wishes[key] == "me" then return key, "asked to lead" end
-		if named[key] then return key, named[key] == key and "asked to lead" or ("named by " .. named[key]) end
-	end
-	for _, key in ipairs(keys) do
-		if wishes[key] ~= "follow" and IsGroupLeader(key) then return key, "leads the group" end
-	end
-	for _, key in ipairs(keys) do
-		if wishes[key] ~= "follow" then return key, "first by name" end
-	end
-	return keys[1], "everyone follows: first by name"
+	return keys[1], format("stands in for %s", tostring(leader))
 end
 
 local lastLeader
@@ -406,90 +776,44 @@ function Peers:CheckLeader()
 	end
 end
 
---- The choices "Who Leads" offers: automatic, this character, never this one, each member.
-function Peers:LeadChoices()
-	local list = { "auto", "me", "follow" }
-	local keys = {}
-	for key in self:Members() do table.insert(keys, key) end
-	table.sort(keys)
-	for _, key in ipairs(keys) do table.insert(list, key) end
-	return list
-end
-
-function Peers:DescribeLead(choice)
-	if choice == nil or choice == "auto" then return L.LEAD_AUTO end
-	if choice == "me" then return L.LEAD_ME end
-	if choice == "follow" then return L.LEAD_FOLLOW end
-	return format(L.LEAD_MEMBER_FMT, self:MemberName(choice))
-end
-
---- Tell every member online about a choice made here for the whole party (CH).
-function Peers:SendChoice(kind, value)
-	for _, key in ipairs(self:OnlineMembers()) do
-		Comm:Whisper(self:MemberName(key), "CH", kind, value)
-	end
-end
-
---- Who leads, chosen here: "auto", "me", "follow" or a member's key. All but "follow", which
---- only says this character never leads, are chosen for the whole party: every member online
---- is told and saves the same.
-function Peers:ChooseLead(choice)
-	local me = PartySync:MyKey()
-	if choice == nil or choice == "" then choice = "auto" end
-	if choice == me then choice = "me" end
-	PartySync:Party().lead = choice
-	PartySync:TraceSetting("lead", choice)
-	if choice ~= "follow" then
-		self:SendChoice("lead", choice == "me" and me or choice)
-	end
-	self:Announce()
-end
-
---- A choice another member made for the party, in this client's own terms: "me" for this
---- character's key, the key for another member, the word for a word. Nil for a name that is
---- not in this party.
-local function Translate(sender, value, words)
-	if value == nil or value == "" then return nil end
-	if words[value] then return value end
-	if value == PartySync:MyKey() then return "me" end
-	if Peers:IsMember(value) then return value end
-	return nil
-end
-
-local LEAD_WORDS, ROOM_WORDS = { auto = true }, { none = true }
-
-Comm:On("CH", function(sender, channel, kind, value)
-	if not Peers:IsMember(sender) then return end
-	local who = PartySync:ShortName(sender)
-	if kind == "lead" then
-		local choice = Translate(sender, value, LEAD_WORDS)
-		if not choice then
-			PartySync:Trace("party", "%s chose %s to lead: not in this party, ignored", PartySync:NameKey(sender), tostring(value))
-			return
-		end
-		PartySync:Party().lead = choice
-		PartySync:Trace("party", "%s chose who leads: %s", PartySync:NameKey(sender), choice)
-		Peers:Announce()
-		PartySync:Print("%s chose who leads the party: %s", who, choice == "me" and "you"
-			or Peers:DescribeLead(choice))
-	elseif kind == "room" and PartySync.Room then
-		local choice = Translate(sender, value, ROOM_WORDS)
-		if not choice then
-			PartySync:Trace("party", "%s chose %s to play the sound: not in this party, ignored", PartySync:NameKey(sender), tostring(value))
-			return
-		end
-		PartySync:Trace("party", "%s chose who plays the sound: %s", PartySync:NameKey(sender), choice)
-		PartySync.Room:Set(choice)
-		PartySync:Print("%s chose who plays the sound: %s", who, PartySync.Room:Describe(choice))
-	end
-end)
-
 function Peers:IsLeader(key)
 	return key ~= nil and self:Leader() == key
 end
 
 function Peers:AmLeader()
 	return self:IsLeader(PartySync:MyKey())
+end
+
+--- Hand the lead to `name`, a member. The leader's to do.
+function Peers:PassLead(name)
+	local key = PartySync:NameKey(name)
+	local session = self:Session()
+	if not (key and session and session.members[key]) then
+		return false, "not in the party"
+	end
+	if session.leader ~= PartySync:MyKey() then
+		return false, L.ONLY_LEADER_PASSES
+	end
+	if key == session.leader then
+		return false, "already leads"
+	end
+	session.leader = key
+	PartySync:Trace("party", "lead passed to %s", key)
+	self:SendRoster()
+	if Autoform() then Autoform():AutoRemember() end
+	Changed()
+	return true
+end
+
+--- A party of one with no invitation standing is no party: it goes quietly.
+function Peers:DropEmpty()
+	if not Alone() then return end
+	local now = GetTime()
+	for key, pending in pairs(invited) do
+		if now - pending.at <= INVITE_SECONDS then return end
+		invited[key] = nil
+	end
+	self:EndSession("nobody joined", true)
 end
 
 --------------------------------------------------------------------------------
@@ -711,6 +1035,7 @@ function Peers:Tick()
 				PartySync:Trace("party", "%s lost: not heard from for %d s", key, LOST_SECONDS)
 				if self:IsMember(key) then
 					PartySync:Problem("presence:" .. key, format(L.PROBLEM_LOST_FMT, peer.name))
+					self:Gone(key, "lost")
 				end
 				Changed()
 			elseif now - (peer.lastSeen or 0) >= HEARTBEAT_SECONDS - 1 then
@@ -718,6 +1043,19 @@ function Peers:Tick()
 			end
 		end
 	end
+	-- A member of a party resumed at login that never answered the hello.
+	if self.resumedAt and now - self.resumedAt > LOST_SECONDS then
+		for key, name in self:Members() do
+			if not self.list[key] then
+				PartySync:Trace("party", "%s never answered since login", key)
+				PartySync:Problem("presence:" .. key, format(L.PROBLEM_LOST_FMT, name))
+				self:Gone(key, "never answered since login")
+			end
+		end
+		self.resumedAt = nil
+	end
+	self:DropEmpty()
+	if Autoform() then Autoform():Tick() end
 end
 
 function Peers:Setup()

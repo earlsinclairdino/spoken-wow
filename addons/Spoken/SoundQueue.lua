@@ -114,7 +114,29 @@ function SoundQueue:SetPaused(value)
     end
 end
 
+-- A feature addon's say over the head: fn(clip) -> reason | nil. While it answers, Stop,
+-- Replay and Skip do nothing here and the skins grey them, with the reason in their tooltip:
+-- a line a party plays together may be its leader's to stop.
+local controlGate
+
+function SoundQueue:SetControlGate(fn)
+    controlGate = fn
+end
+
+--- Why the head cannot be stopped, replayed or skipped here, or nil when it can.
+function SoundQueue:WhyNoControl()
+    local head = self:GetCurrentSound()
+    if not (head and controlGate) then
+        return nil
+    end
+    local ok, reason = pcall(controlGate, head)
+    return ok and reason or nil
+end
+
 function SoundQueue:CanBePaused()
+    if self:WhyNoControl() then
+        return false
+    end
     -- A silent head (captions only) has no sound to stop, so nothing stands in the way.
     local head = self:GetCurrentSound()
     return not self:IsPlaying() or head.handle ~= nil or head.silent == true
@@ -323,6 +345,9 @@ end
 --- End the head and let the backlog run. A stopped queue plays again: skipping is asking for
 --- the next line.
 function SoundQueue:Skip()
+    if self:WhyNoControl() then
+        return false
+    end
     self:SetPaused(false)
     return self:RemoveSoundFromQueue(self:GetCurrentSound())
 end
@@ -721,7 +746,7 @@ end
 local PAUSE_FADE_MS = 400
 
 function SoundQueue:PauseQueue()
-    if self:IsPaused() then
+    if self:IsPaused() or self:WhyNoControl() then
         return false
     end
     self:SetPaused(true)
@@ -756,7 +781,7 @@ function SoundQueue:PauseQueue()
 end
 
 function SoundQueue:ResumeQueue()
-    if not self:IsPaused() then
+    if not self:IsPaused() or self:WhyNoControl() then
         return false
     end
     self:SetPaused(false)

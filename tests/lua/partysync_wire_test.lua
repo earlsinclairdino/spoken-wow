@@ -25,17 +25,17 @@ Expect("this character in its whole name is itself", ns:IsSelf("Tata Throwaway")
 Expect("...and by its first name, as UnitName gives it", ns:IsSelf("Tata"), true)
 Expect("...and with the backend realm a sender may carry", ns:IsSelf("Tata Throwaway-ClassicBetaPvE2"), true)
 Expect("the other character is not", ns:IsSelf("Lala Throwaway"), false)
-Expect("this character cannot be its own member", ns.Peers:AddMember("tata throwaway"), false)
+Expect("this character cannot invite itself", (ns.Peers:Invite("tata throwaway")), false)
 
 ---------------------------------------------------------------- the 0.1 companion
 _G.SpokenPartySyncDB = { companion = '"lala throwaway"', windowShown = true }
 _G.SpokenPartySyncCharDB = nil
 ns:InitDB()
-Expect("a companion saved by 0.1 becomes a member", ns.Peers:IsMember("Lala Throwaway"), true)
-Expect("...under its cleaned name", ns:Party().members["lala throwaway"].name, "Lala Throwaway")
+Expect("a companion saved by 0.1 goes on the auto-form list", ns.Autoform:Entry("Lala Throwaway") ~= nil, true)
+Expect("...under its cleaned name", ns.Autoform:Entry("Lala Throwaway").name, "Lala Throwaway")
 Expect("...and the old field goes", ns:DB().companion, nil)
 Expect("a window left open by 0.1 stays shown", ns:DB().window.show, "always")
-Expect("the other settings get their defaults", ns:DB().controls, "leader")
+Expect("the other settings get their defaults", ns:DB().rules.controls, "leader")
 
 ---------------------------------------------------------------- text in fields
 local awkward = "Line one\nTabbed\there, a pipe | and a backslash \\ -- naïve"
@@ -91,36 +91,45 @@ Expect("...until the rest are out, in order", #P.Sent("BU") == 14 and P.Last("BU
 P.client.inInstance = false
 
 ---------------------------------------------------------------- offline
-ns.Peers:AddMember("Lala Throwaway")
-P.Receive(stub, "Lala Throwaway", "HI", "0.2.0", 1, "auto", "")
+P.Party(stub, ns)
 Expect("a member's hello puts them online", ns.Peers.list["lala throwaway"].state, "online")
 ns.Comm:Whisper("Lala Throwaway", "PI", "t2")
 stub.FireEvent("CHAT_MSG_SYSTEM", "No player named 'Lala Throwaway' is currently playing.")
 Expect("the client's \"No player named\" after our whisper marks them offline", ns.Peers.list["lala throwaway"].state, "offline")
+Expect("...and a party of two is over with one gone", ns.Peers:InParty(), false)
 stub.Advance(5)
 P.Receive(stub, "Lala Throwaway", "HI", "0.2.0", 1, "auto", "")
 stub.FireEvent("CHAT_MSG_SYSTEM", "No player named 'Lala Throwaway' is currently playing.")
 Expect("...but not the same message long after any whisper", ns.Peers.list["lala throwaway"].state, "online")
 
 ---------------------------------------------------------------- invitations
+local function Fields(message) return message and table.concat(message.fields, "|", 2) or nil end
 local ns2 = P.Boot(stub, LOOKUP)
-P.Receive(stub, "Lala Throwaway", "IV", "0.2.0")
+P.Receive(stub, "Lala Throwaway", "IV", "0.4.0", "lala throwaway-9")
 local popup = stub.popups[#stub.popups]
 Expect("an invitation asks the player", popup and popup.key, "SPOKENPARTYSYNC_INVITE")
 Expect("...naming who asks", popup.args[1], "Lala Throwaway")
 popup.dialog.OnAccept(nil, popup.args[3])
 Expect("accepting makes them a member", ns2.Peers:IsMember("Lala Throwaway"), true)
-Expect("...and says so to them", P.Last("IA") and P.Last("IA").target, "Lala Throwaway")
+Expect("...and says so to them, naming the party", P.Last("IA") and P.Last("IA").target .. "|" .. P.Last("IA").fields[2], "Lala Throwaway|lala throwaway-9")
+Expect("...whose leader they are", ns2.Peers:Leader(), "lala throwaway")
 P.Clear()
-P.Receive(stub, "Lala Throwaway", "IV", "0.2.0")
+P.Receive(stub, "Lala Throwaway", "IV", "0.4.0", "lala throwaway-9")
 Expect("a member asking again is answered without a question", P.Last("IA") ~= nil, true)
-P.Receive(stub, "Lala Throwaway", "ID")
-Expect("a member leaving is forgotten", ns2.Peers:IsMember("Lala Throwaway"), false)
-P.Receive(stub, "Bob Stranger", "IA")
+P.Receive(stub, "Bob Stranger", "IV", "0.4.0", "bob stranger-1")
+Expect("another party's invitation is declined while in one", P.Last("ID") and P.Last("ID").target, "Bob Stranger")
+Expect("...and this party stands", ns2.Peers:IsMember("Lala Throwaway"), true)
+P.Receive(stub, "Lala Throwaway", "ID", "lala throwaway-9")
+Expect("the leader removing this character ends the party here", ns2.Peers:InParty(), false)
+P.Receive(stub, "Bob Stranger", "IA", "x")
 Expect("an acceptance nobody asked for is ignored", ns2.Peers:IsMember("Bob Stranger"), false)
-ns2.Peers:Invite("Bob Stranger")
-P.Receive(stub, "Bob Stranger", "IA")
-Expect("...and one that answers our invitation is not", ns2.Peers:IsMember("Bob Stranger"), true)
+P.Clear()
+Expect("inviting starts a party led here", (ns2.Peers:Invite("Bob Stranger")) and ns2.Peers:AmLeader(), true)
+local id = P.Last("IV", "Bob Stranger").fields[3]
+P.Receive(stub, "Bob Stranger", "IA", id)
+Expect("...and one that answers our invitation joins it", ns2.Peers:IsMember("Bob Stranger"), true)
+Expect("...and is sent the roster", Fields(P.Last("RO", "Bob Stranger")), id .. "|tata throwaway|Tata Throwaway;Bob Stranger")
+Expect("...and the rules", Fields(P.Last("PS", "Bob Stranger")), "leader|none|1111")
 
 ---------------------------------------------------------------- the portrait menu
 local entries = {}
@@ -145,29 +154,27 @@ Expect("an NPC gets no entry", entries[1], nil)
 -- speak for its party: each character keeps its own (2026-10-08, Tata logged out, Williams in,
 -- and Lala's computer refused every line Williams sent).
 local ACCOUNT_030 = { members = { ["lala throwaway"] = { name = "Lala Throwaway", added = 0 } },
-	lead = "lala throwaway", roomSpeaker = "me", controls = "anyone" }
+	lead = "lala throwaway", roomSpeaker = "me", controls = "anyone", sync = { quests = true, gossip = false, zones = true, books = true } }
 local ns3 = P.Boot(stub, LOOKUP, { account = ACCOUNT_030 })
-Expect("a party 0.3.0 kept with the account becomes this character's", ns3.Peers:IsMember("Lala Throwaway"), true)
-Expect("...with who leads", ns3:Party().lead, "lala throwaway")
-Expect("...and which computer plays the sound", ns3:Party().roomSpeaker, "me")
+Expect("a party 0.3 kept with the account becomes this character's auto-form list", ns3.Autoform:Entry("Lala Throwaway") ~= nil, true)
+Expect("...accepted without asking, as a member was", ns3.Autoform:Accepts("Lala Throwaway"), true)
+Expect("...with who led", ns3.Autoform:List().leader, "lala throwaway")
+Expect("...and which computer played the sound", ns3.Autoform:List().rules.room, "tata throwaway")
 Expect("...and leaves the account", ACCOUNT_030.members == nil and ACCOUNT_030.lead == nil
-	and ACCOUNT_030.roomSpeaker == nil, true)
-Expect("...whose own settings stay", ns3:DB().controls, "anyone")
+	and ACCOUNT_030.roomSpeaker == nil and ACCOUNT_030.controls == nil and ACCOUNT_030.sync == nil, true)
+Expect("...whose controls and kinds become this computer's rules", ns3:DB().rules.controls .. "|" .. tostring(ns3:DB().rules.sync.gossip), "anyone|false")
+Expect("...and it is in no party", ns3.Peers:InParty(), false)
 
 ns3 = P.Boot(stub, LOOKUP)
-ns3.Peers:AddMember("Lala Throwaway")
-ns3.Peers:ChooseLead("me")
+ns3.Autoform:Add("Lala Throwaway")
 local account, character = _G.SpokenPartySyncDB, _G.SpokenPartySyncCharDB
-Expect("a member is saved with the character", character.members["lala throwaway"] ~= nil, true)
-Expect("...and not with the account", account.members, nil)
+Expect("the auto-form list is saved with the character", character.list.members["lala throwaway"] ~= nil, true)
+Expect("...and not with the account", account.list, nil)
 -- Another character: the same account file, a character file of its own.
 ns3 = P.Boot(stub, LOOKUP, { account = account })
-Expect("another character on this computer is in no party", ns3.Peers:IsMember("Lala Throwaway"), false)
-Expect("...so nobody else counts for who leads", ns3.Peers:Leader(), "tata throwaway")
-Expect("...and it has no lead chosen", ns3:Party().lead, "auto")
+Expect("another character on this computer has its own, empty list", ns3.Autoform:Keys()[1], nil)
 ns3 = P.Boot(stub, LOOKUP, { account = account, character = character })
-Expect("the first character logging back in has its party again", ns3.Peers:IsMember("Lala Throwaway"), true)
-Expect("...and its choice of who leads", ns3:Party().lead, "me")
+Expect("the first character logging back in has its list again", ns3.Autoform:Entry("Lala Throwaway") ~= nil, true)
 
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll party sync wire tests passed")

@@ -38,6 +38,7 @@ local METHODS = {
     "IsPlaying", "IsPaused", "GetHeldReason",
     "Pause", "Resume", "TogglePause", "Skip", "StopAll", "AddGate", "MuteChannel", "MuteGameDialogueAhead",
     "RecheckGates", "IsCaptionsOnly", "SetCaptionsOnly", "SetCaptionsOnlyOverride",
+    "SetControlGate", "WhyNoControl",
     -- callbacks
     "RegisterCallback", "UnregisterCallback",
     -- packs
@@ -113,6 +114,23 @@ Expect("a player-wide gate holds the clip", Spoken:IsPlaying(waiting), false)
 shut = false
 Spoken:RecheckGates()
 Expect("RecheckGates starts it as soon as the gate opens", Spoken:IsPlaying(waiting), true)
+Spoken:StopAll()
+
+-- A control gate: while it answers for the head, Stop, Replay and Skip do nothing, and the
+-- skins have its reason for their tooltips.
+local theirs = "Only the leader can stop it"
+Spoken:SetControlGate(function(clip) return theirs end)
+local guarded = H.Clip()
+src:Enqueue(guarded)
+Expect("a control gate says why the head cannot be stopped", Spoken:WhyNoControl(), theirs)
+Spoken:Pause()
+Expect("...and Stop does nothing", Spoken:IsPaused(), false)
+Expect("...nor does Skip", Spoken:Skip() == false and Spoken:GetCurrent() == guarded, true)
+theirs = nil
+Expect("with the gate open there is no reason", Spoken:WhyNoControl(), nil)
+Spoken:Pause()
+Expect("...and Stop works again", Spoken:IsPaused(), true)
+Spoken:SetControlGate(nil)
 Spoken:StopAll()
 
 -- The override lasts the session and leaves the player's own setting alone.
