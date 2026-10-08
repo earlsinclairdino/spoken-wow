@@ -39,8 +39,9 @@ end
 
 local function Tooltip(frame, text)
 	frame:SetScript("OnEnter", function(self)
-		local tip = type(text) == "function" and text() or text
-		if not tip then return end
+		local tip = text
+		if type(tip) == "function" then tip = tip() end
+		if type(tip) ~= "string" then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetText(tip, nil, nil, nil, nil, true)
 		GameTooltip:Show()
@@ -147,7 +148,10 @@ local function MembersBlock(parent)
 	block.none:SetText(L.OPT_MEMBERS_NONE)
 
 	local function LeaderOr(text)
-		return function() return Peers:AmLeader() and text or OnlyLeader() end
+		return function()
+			if Peers:AmLeader() then return text end
+			return OnlyLeader()
+		end
 	end
 	block.rows = {}
 	for i = 1, ROWS do
