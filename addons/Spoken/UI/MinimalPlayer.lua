@@ -180,7 +180,7 @@ function MinimalPlayer:Initialize(original)
     Removable(self.title, 12, .88, .84, .76)
     self.title:SetScript("OnClick", function(_, button)
         if button == "RightButton" then self:ToggleMenu()
-        elseif self:HasClip() then SoundQueue:RemoveSoundFromQueue(self.clip) end
+        elseif self:HasClip() and not SoundQueue:WhyNoControl() then SoundQueue:RemoveSoundFromQueue(self.clip) end
     end)
     self.title:SetScript("OnEnter", function()
         if not self:HasClip() then return end
@@ -479,7 +479,7 @@ function MinimalPlayer:UpdateControls()
     if not self.clip then return end
     local paused, playing = SoundQueue:IsPaused(), SoundQueue:IsPlaying()
     Actions.Glyph(self.pause:GetNormalTexture(), Actions.HeadState())
-    self.pause:GetNormalTexture():SetAlpha((paused or MouseIsOver(self.pause)) and .9 or 0)
+    Actions.GateGlyph(self.pause:GetNormalTexture(), (paused or MouseIsOver(self.pause)) and .9 or 0)
     self.pause.wash:SetShown(paused and not playing)
     self.bar:SetStatusBarColor(paused and .48 or .86, paused and .44 or .67, paused and .32 or .14)
     local held = not paused and not playing and SoundQueue:GetHeldReason(self.clip)

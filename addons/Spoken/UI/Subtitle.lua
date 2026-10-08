@@ -848,7 +848,7 @@ function Subtitle:BuildControls()
         self:UpdatePause()
     end)
     pause:SetScript("OnEnter", function()
-        pause.glyph:SetAlpha(1)
+        if pause:IsEnabled() then pause.glyph:SetAlpha(1) end
         GameTooltip:SetOwner(pause, "ANCHOR_TOP")
         GameTooltip:SetText(SoundQueue:IsPaused() and L.REPLAY or L.STOP)
         local why = SoundQueue:WhyNoControl()
@@ -874,7 +874,7 @@ function Subtitle:BuildControls()
         SoundQueue:Skip()
     end)
     skip:SetScript("OnEnter", function()
-        skip.glyph:SetAlpha(1)
+        if skip:IsEnabled() then skip.glyph:SetAlpha(1) end
         GameTooltip:SetOwner(skip, "ANCHOR_TOP")
         GameTooltip:SetText(L.BIND_SKIP)
         local why = SoundQueue:WhyNoControl()
@@ -882,6 +882,7 @@ function Subtitle:BuildControls()
         GameTooltip:Show()
     end)
     self.skip = skip
+    self:UpdatePause()
 
     -- Report, in the same ring, with the action's own bug icon: what the windows show in their
     -- corner, and what it does is the action's, as there.
@@ -906,6 +907,10 @@ end
 
 function Subtitle:UpdatePause()
     Actions.SetPlayGlyph(self.pause, Actions.HeadState())
+    -- Greyed while the line is not this computer's to stop or skip (a party's leader's, say).
+    local live = SoundQueue:WhyNoControl() == nil
+    Actions.SetRoundEnabled(self.pause, live)
+    if self.skip then Actions.SetRoundEnabled(self.skip, live) end
 end
 
 -- Locked, the subtitle lets clicks through to the world but still knows the pointer is over

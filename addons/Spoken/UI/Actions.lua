@@ -196,6 +196,28 @@ function Actions.RoundPicture(button, icon)
     button.vignette = vignette
 end
 
+--- A round button greyed and unclickable, or live again. Its hover still fires, so its tooltip
+--- can say why it does nothing.
+function Actions.SetRoundEnabled(button, enabled)
+    enabled = enabled and true or false
+    if (button:IsEnabled() and true or false) == enabled then return end
+    if button.SetMotionScriptsWhileDisabled then button:SetMotionScriptsWhileDisabled(true) end
+    if enabled then button:Enable() else button:Disable() end
+    for _, texture in ipairs({ button.glyph, button.bar, button.ring }) do
+        if texture.SetDesaturated then texture:SetDesaturated(not enabled) end
+    end
+    button.glyph:SetAlpha(enabled and 0.85 or 0.35)
+    if button.bar then button.bar:SetAlpha(enabled and 1 or 0.35) end
+end
+
+--- A portrait's Stop glyph, greyed while the head is not this computer's to stop: `alpha` is
+--- what the skin would show, dimmed then.
+function Actions.GateGlyph(texture, alpha)
+    local gated = SoundQueue:WhyNoControl() ~= nil
+    if texture.SetDesaturated then texture:SetDesaturated(gated) end
+    texture:SetAlpha(gated and alpha * 0.45 or alpha)
+end
+
 --- The round Play and Report buttons, as feature addons ask for them (Spoken:CreateRoundButton),
 --- and "icon", with `icon` in the ring, cut round to sit inside it.
 function Actions.NewRound(parent, kind, name, icon)

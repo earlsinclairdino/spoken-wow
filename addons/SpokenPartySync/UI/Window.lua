@@ -375,7 +375,13 @@ function PartySync:RefreshWindow()
 	text:SetText(rest)
 	frame:SetHeight((text:GetStringHeight() or 0) + 2 * PAD + 20 + rowsHeight)
 	if frame.pause and frame.pause.SetPlaying then
-		frame.pause:SetPlaying(_G.Spoken:GetNowPlaying() ~= nil and not _G.Spoken:IsPaused())
+		local Spoken = _G.Spoken
+		frame.pause:SetPlaying(Spoken:GetNowPlaying() ~= nil and not Spoken:IsPaused())
+		-- Greyed, as the player's own are, while the line is the leader's to stop.
+		local why = Spoken.WhyNoControl and Spoken:WhyNoControl()
+		if frame.pause.SetMotionScriptsWhileDisabled then frame.pause:SetMotionScriptsWhileDisabled(true) end
+		SetEnabled(frame.pause, why == nil)
+		frame.pause.tooltip = why and (L.WINDOW_PAUSE .. "\n|cffff8080" .. why .. "|r") or L.WINDOW_PAUSE
 	end
 	frame:Show()
 end
