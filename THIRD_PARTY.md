@@ -86,6 +86,10 @@ None of this is the project's to license, and the MIT grant does not reach it.
 - **Stop and Replay glyphs** (`addons/Spoken/Textures/GlyphStop.tga`, `GlyphReplay.tga`): drawn
   for this project in the gold of the player's play and pause glyphs; Stop is built from the
   pause glyph's bar.
+- **Party Sync glyphs** (`addons/SpokenPartySync/Textures/`): a chain linked and broken
+  (`GlyphLinked.tga`, `GlyphUnlinked.tga`, for Follow the Party) and the quest mark in a
+  circle of arrows (`GlyphShareQuests.tga`, for Share Everyone's Quests), drawn for this project with
+  the face of the Stop glyph as their gold.
 - **Link icons** (`addons/Spoken/Textures/Link*.tga`): the GitHub, Discord, CurseForge, Wago and
   Buy Me a Coffee logos, each on a square of its brand colour. GitHub's and Discord's shapes come
   from [Dashboard Icons](https://github.com/homarr-labs/dashboard-icons), CurseForge's and Buy Me

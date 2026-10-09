@@ -138,17 +138,29 @@ ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 ns:ShowWindow(true)
 window = _G.SpokenPartySyncWindow
 Expect("out of a party there is no Follow the Party button", window.follow.shown, false)
+Expect("...nor Share Everyone's Quests", window.share.shown, false)
 P.Party(stub, ns)
 ns:ShowWindow(true)
 Expect("in one, it says this computer follows the party", window.follow.shown and window.follow.state, "follow")
 Expect("...in its tooltip", window.follow.tip.title, ns.L.FOLLOW_ON_TITLE)
-Expect("...with the group glyph", window.follow.glyph.texture:find("FriendOnlineIcon", 1, true) ~= nil, true)
+-- The glyph as a file this addon carries: the game's own icons drew nothing on Forever.
+local function Shipped(texture)
+	local file = texture and texture:match("^Interface\\AddOns\\SpokenPartySync\\(.+)$")
+	local handle = file and io.open(here .. "/../../addons/SpokenPartySync/" .. file:gsub("\\", "/") .. ".tga", "rb")
+	if handle then handle:close() end
+	return handle ~= nil
+end
+Expect("...with a linked chain", window.follow.glyph.texture:find("GlyphLinked", 1, true) ~= nil, true)
+Expect("...a file the addon carries", Shipped(window.follow.glyph.texture), true)
+Expect("...shown through the cell its glyph is drawn in, as Stop's is",
+	table.concat(window.follow.glyph.texCoord, ","), table.concat({ 0, 93 / 128, 0, 93 / 128 }, ","))
 Expect("...and in the window's text", ns:WindowText():find(ns.L.FOLLOW_ON_WORD, 1, true) ~= nil, true)
 window.follow:Click()
 Expect("a click plays this computer's own sound, every kind of it", ns.Room:OwnSummary(), "plays")
 Expect("...which the button then says", window.follow.state .. "|" .. window.follow.tip.title, "own|" .. ns.L.FOLLOW_OFF_TITLE)
 Expect("...with what that does", window.follow.tip.body, ns.L.FOLLOW_OFF_TIP_PLAYS)
-Expect("...and a speaker", window.follow.glyph.texture:find("VoiceChat-Speaker", 1, true) ~= nil, true)
+Expect("...and the chain broken", window.follow.glyph.texture:find("GlyphUnlinked", 1, true) ~= nil, true)
+Expect("...the addon carries too", Shipped(window.follow.glyph.texture), true)
 window.follow:Click()
 Expect("a second click follows the party again", ns.Room:IsOwn(), false)
 ns.Room:SetOwnChannel("music", "muted")

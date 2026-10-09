@@ -50,7 +50,11 @@ group, joining a raid, or questing apart.
 - **Quests.** A member shares a quest it accepts from an NPC with the party, as Quests Are
   Shared By allows (anyone, by default); a quest a member shares is accepted for you, without
   its line being read again. Each computer can switch either off for itself (Auto-share Quests
-  I Accept, Auto-accept Shared Quests).
+  I Accept, Auto-accept Shared Quests). **Share Everyone's Quests** (the window's title menu,
+  `/sps quests`) has every member share every quest the game lets it share, one every two
+  seconds; a member's row asks that member alone (**Ask ... to Share Quests**, **Share My
+  Quests** on your own). Anyone may ask; the rule still decides who shares, and the game shares
+  only with members in its own group.
 - **Same room.** The leader chooses which computer plays each kind of sound: the voice
   (Spoken's lines), the music, the effects, the ambience and the NPCs' dialog. Each is played
   by every computer, by one (while it is online), or by every computer but some. **Play All
@@ -80,9 +84,10 @@ group, joining a raid, or questing apart.
   remembered rules; a party already running has its leader invite the newcomer.
 - **The window** ("Spoken Party"). Its title, or a right-click anywhere in it that is not a
   button, opens a menu (Settings, Remember This Party, Compact, Leave Party); beside it, how
-  the last line played together went (in sync, late, missed), Follow the Party (a group icon;
-  a speaker while this computer plays its own sound) and the player's Stop/Replay (both in a
-  party only), and a small close cross. Under the title, the rules as chips (Audio, Playback,
+  the last line played together went (in sync, late, missed), Share Everyone's Quests (the
+  quest mark in a circle of arrows), Follow the Party (a linked chain; broken while this computer
+  plays its own sound) and the player's Stop/Replay (all three in a party only), and a small
+  close cross. Under the title, the rules as chips (Audio, Playback,
   Quests; on a second row when they do not fit), the leader's to change, with this computer's
   own sound in the Audio menu for everyone. Then a row per member with one tag (no answer for
   how long, voice, leads, own audio; the rest on hover) and a menu on click (Make Leader, Play
@@ -113,6 +118,7 @@ Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 | `/sps controls [anyone\|leader\|nobody]` | who controls playback (Stop, Replay, Skip) everywhere, a rule of the party's |
 | `/sps share [anyone\|leader\|nobody]` | whose accepted quests are shared with the party, a rule of the party's |
 | `/sps sound [<channel>\|all] [party\|plays\|muted]` | this computer's own choice (the voice without a channel; `sound`/`captions` still work) |
+| `/sps quests [me\|<name>]` | everyone shares every quest now; `me` here alone, a name asks that member |
 | `/sps remember` | the party into your usual party, or the one that just ended, as the window offers |
 | `/sps list [add <name> \| remove <name> \| auto <name> on\|off]` | your usual party |
 | `/sps sync` | the lines played together this session, and each member's state |
@@ -141,6 +147,7 @@ two parts and no realm: a whisper goes to the bare "First Last". The prefix is
 | `RO` | session, leader, members | the roster, from the leader, whenever it changes; a member not in it is out |
 | `PS` | controls, room, sync, share, audio | the rules, from the leader: whose controls, who plays the voice, four flags for the kinds played together, whose accepted quests are shared (missing from a 0.4.0 leader: anyone), and who plays each game channel (`music=<owner>;effects=...;ambience=...;dialog=...`, missing before 0.5: every computer). An owner is `none` (every computer), a member's key, or `-<key>,<key>` (every computer but those) |
 | `RM` | | "I added you to my usual party": the other side is asked whether to auto-accept |
+| `SQ` / `SA` | `SA`: count, why | "share every quest you can"; the answer: how many, or none and why (`rule`, `group`, `none`) |
 | `LN` | id, src, event, questID, npcID, length, flags, textParts, name, title | a line queued; `src` is q, z or b |
 | `TX` | id, seq, total, text | its words, in pieces |
 | `GO` | id, startInMs | start it |

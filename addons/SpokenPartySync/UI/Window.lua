@@ -10,6 +10,7 @@
 local _, PartySync = ...
 
 local Peers, Sync, Room, Autoform, L = PartySync.Peers, PartySync.Sync, PartySync.Room, PartySync.Autoform, PartySync.L
+local Accept = PartySync.Accept
 
 -- The round button and its glyph even-sized: an odd glyph centred in it falls on half pixels and
 -- draws off-centre and clipped.
@@ -38,12 +39,16 @@ local ALERT = [[Interface\DialogFrame\UI-Dialog-Icon-AlertNew]]
 local MENU_ARROW = [[Interface\ChatFrame\ChatFrameExpandArrow]]
 -- The small grey cross the game clears a text box with: a close that does not pull the eye.
 local CLOSE_ICON = [[Interface\FriendsFrame\ClearBroadcastIcon]]
--- Following the party: the game's group icon. Its own sound: a speaker.
+-- Following the party: a linked chain. Its own sound: the chain broken. Drawn in the gold of
+-- Spoken's Stop glyph beside them, in the same 93-wide cell of a 128 canvas: the game's own icons
+-- drew nothing on Forever.
 local FOLLOW_GLYPHS = {
-	follow = { atlases = { "socialqueuing-icon-group", "groupfinder-icon-friend" },
-		file = [[Interface\FriendsFrame\UI-Toast-FriendOnlineIcon]] },
-	own = { atlases = { "voicechat-icon-speaker" }, file = [[Interface\COMMON\VoiceChat-Speaker]] },
+	follow = [[Interface\AddOns\SpokenPartySync\Textures\GlyphLinked]],
+	own = [[Interface\AddOns\SpokenPartySync\Textures\GlyphUnlinked]],
 }
+-- The quest giver's mark in a circle of arrows: every member shares every quest.
+local SHARE_GLYPH = [[Interface\AddOns\SpokenPartySync\Textures\GlyphShareQuests]]
+local GLYPH_CELL = 93 / 128
 
 local CONTROLS = { leader = L.CONTROLS_LEADER, anyone = L.CONTROLS_ANYONE, nobody = L.CONTROLS_NOBODY }
 local STATE_WORDS = { lost = L.STATE_LOST, offline = L.STATE_OFFLINE }
@@ -245,6 +250,12 @@ local function StopModel()
 	return stop
 end
 
+--- Why Share Everyone's Quests does nothing now, or nil.
+local function WhyNoShareAll()
+	if not Peers:InParty() then return L.OPT_IN_PARTY end
+	return Peers:Rules().share == "nobody" and L.SHARE_NOBODY or nil
+end
+
 local OWN_TIPS = { plays = L.FOLLOW_OFF_TIP_PLAYS, muted = L.FOLLOW_OFF_TIP_MUTED }
 
 --- The header's switch between following the party's sound and playing this computer's own.
@@ -306,6 +317,7 @@ function PartySync:WindowModel()
 		model.health = health and { word = HEALTH[health][1], colour = HEALTH[health][2], kind = health }
 		model.chips = ChipsModel()
 		model.follow = FollowModel()
+		model.share = { reason = WhyNoShareAll() }
 		model.members = {}
 		local me, leader = self:MyKey(), Peers:Leader()
 		for _, key in ipairs(Peers:MemberKeys()) do
@@ -410,6 +422,8 @@ function PartySync:WindowTitleMenu()
 		{ text = L.OPT_REMEMBER, tip = L.OPT_REMEMBER_TIP,
 			reason = (not inParty and L.OPT_IN_PARTY) or (Autoform:Remembered() and L.REMEMBERED_ALREADY) or nil,
 			onClick = function() Autoform:Remember() end },
+		{ text = L.MENU_SHARE_ALL, tip = L.MENU_SHARE_ALL_TIP,
+			reason = WhyNoShareAll(), onClick = function() Accept:AskAll() end },
 		{ text = L.MENU_WINDOW_COMPACT, checked = DB().compact == true,
 			onClick = function() PartySync:SetWindowCompact(not DB().compact) end },
 		{ text = L.OPT_LEAVE, tip = L.OPT_LEAVE_TIP, reason = not inParty and L.OPT_IN_PARTY or nil,
@@ -429,6 +443,9 @@ function PartySync:WindowMemberMenu(key)
 			reason = only or (Room:Summary() == key and format(L.ALREADY_SOUND_FMT, name)) or nil,
 			onClick = function() Room:SetAll(key) end },
 	}
+	table.insert(entries, { text = isMe and L.MENU_SHARE_MINE or format(L.MENU_ASK_SHARE_FMT, name),
+		tip = isMe and L.MENU_SHARE_MINE_TIP or L.MENU_ASK_SHARE_TIP, reason = Accept:WhyNotAsk(key),
+		onClick = function() Accept:Ask(key) end })
 	if isMe then
 		table.insert(entries, { text = L.OPT_LEAVE, tip = L.OPT_LEAVE_TIP, onClick = function() Peers:Leave() end })
 	else
@@ -698,23 +715,13 @@ local function NewSub()
 	return text
 end
 
---- The first of `atlases` this client has, else `file`.
-local function SetGlyph(texture, atlases, file)
-	if texture.SetAtlas and C_Texture and C_Texture.GetAtlasInfo then
-		for _, atlas in ipairs(atlases) do
-			if C_Texture.GetAtlasInfo(atlas) then
-				texture:SetAtlas(atlas)
-				return
-			end
-		end
-	end
-	texture:SetTexture(file)
-	-- A round button's glyph keeps the coordinates of the cell it was made with otherwise.
-	texture:SetTexCoord(0, 1, 0, 1)
-end
-
 local function SetAlertGlyph(texture)
-	SetGlyph(texture, { "services-icon-warning" }, ALERT)
+	local atlas = "services-icon-warning"
+	if texture.SetAtlas and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas) then
+		texture:SetAtlas(atlas)
+	else
+		texture:SetTexture(ALERT)
+	end
 end
 
 local function Height(fontString, least)
@@ -885,6 +892,10 @@ local function Create()
 		end)
 		Tipped(follow)
 		frame.follow = follow
+		local share = Spoken:CreateRoundButton(frame, "play")
+		share:SetScript("OnClick", function() Accept:AskAll() end)
+		Tipped(share)
+		frame.share = share
 	end
 
 	frame.chips = {}
@@ -912,6 +923,18 @@ local function Create()
 	frame.line.state:SetJustifyH("RIGHT")
 	frame.more = NewSub()
 	return frame
+end
+
+--- One of the header's round buttons with a glyph of this addon's, sized as Stop is, just left
+--- of `right`.
+local function PlaceGlyphButton(button, right, metrics, texture)
+	button:SetSize(metrics.round, metrics.round)
+	button.glyph:SetSize(metrics.glyph + 2, metrics.glyph + 2)
+	button.glyph:SetTexture(texture)
+	button.glyph:SetTexCoord(0, GLYPH_CELL, 0, GLYPH_CELL)
+	button:ClearAllPoints()
+	button:SetPoint("RIGHT", right, "LEFT", -6, 0)
+	button:Show()
 end
 
 local function DrawHeader(model, metrics)
@@ -952,17 +975,20 @@ local function DrawHeader(model, metrics)
 
 	local follow = frame.follow
 	if follow and model.follow and pause then
-		local glyph = FOLLOW_GLYPHS[model.follow.state]
-		follow:SetSize(metrics.round, metrics.round)
-		follow.glyph:SetSize(metrics.glyph + 2, metrics.glyph + 2)
-		SetGlyph(follow.glyph, glyph.atlases, glyph.file)
-		follow:ClearAllPoints()
-		follow:SetPoint("RIGHT", pause, "LEFT", -6, 0)
+		PlaceGlyphButton(follow, pause, metrics, FOLLOW_GLYPHS[model.follow.state])
 		follow.state = model.follow.state
 		follow.tip = { title = model.follow.title, body = model.follow.body }
-		follow:Show()
 	elseif follow then
 		follow:Hide()
+	end
+
+	local share = frame.share
+	if share and model.share and follow then
+		PlaceGlyphButton(share, follow, metrics, SHARE_GLYPH)
+		if model.share.reason then share:Disable() else share:Enable() end
+		share.tip = { title = L.MENU_SHARE_ALL, body = L.MENU_SHARE_ALL_TIP, reason = model.share.reason }
+	elseif share then
+		share:Hide()
 	end
 	return metrics.top + metrics.header
 end
