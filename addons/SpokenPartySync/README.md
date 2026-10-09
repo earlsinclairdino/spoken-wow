@@ -33,7 +33,7 @@ group, joining a raid, or questing apart.
 - **The party's rules**, the leader's to set, applied on every computer: **Who Controls Playback**
   (Anyone, the default; The Leader; or Nobody: with Nobody the lines play through and the
   player's buttons are greyed for everyone, the leader included; with The Leader they are
-  greyed for the others, with the reason on hover), **Who Plays the Sound** (below),
+  greyed for the others, with the reason on hover), **Who Plays** each kind of sound (below),
   **Quests Are Shared By** (anyone, the default; only the leader; or nobody), and which kinds of
   line are **Played Together**. The others see the rules greyed on their page.
 - **Lines played together.** A quest line, greeting or gossip, zone lore or book page queued
@@ -50,11 +50,20 @@ group, joining a raid, or questing apart.
   Shared By allows (anyone, by default); a quest a member shares is accepted for you, without
   its line being read again. Each computer can switch either off for itself (Auto-share Quests
   I Accept, Auto-accept Shared Quests).
-- **Same room.** The leader chooses which computer plays the sound (**Sound**, wherever Lead
-  is). The others switch Spoken to captions only for as long as that computer is online,
-  without changing Spoken's own setting. A member who would rather decide for itself sets
-  **This Computer's Sound** (plays the voice, or captions only), on the page or in the window's
-  Audio menu, whoever leads; the party sees "own audio" beside its name.
+- **Same room.** The leader chooses which computer plays each kind of sound: the voice
+  (Spoken's lines), the music, the effects, the ambience and the NPCs' dialog. Each is played
+  by every computer, by one (while it is online), or by every computer but some. **Play All
+  Sound On** (the page), **Play Sound Here** (a member's row in the window), **Sound** (the
+  page's party block) and the window's Audio menu put them all on one computer. A computer
+  that does not play the voice shows Spoken's lines as captions, without changing Spoken's own
+  setting; one that does not play a game channel has its switch (`Sound_EnableMusic`,
+  `Sound_EnableSFX`, `Sound_EnableAmbience`, `Sound_EnableDialog`) off while in the party. The
+  player's value is kept first and put back when the party ends or the rule changes, at logout
+  and `/reload`, and at the next login after a crash; volumes are never touched. A member who
+  would rather decide for itself sets **This Computer** (each channel, or all of them: as the
+  party decides, plays it, or muted), on the page or in the window's Audio menu, whoever leads;
+  the party sees "own audio" beside its name. A "no voice file" problem in the window offers
+  **Mute There**: every computer but that one plays the voice.
 - **The usual party.** Who to form a party with as soon as you are both online, per
   character. **Remember This Party** puts the party's members on it, with who led and the
   rules; **Remember Parties Automatically** does that as the party changes. Each member added
@@ -84,10 +93,10 @@ Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 | `/sps invite <name>` | invite a character (starts a party, led here, when in none); `/sps remove <name>`, `/sps leave` |
 | `/sps members` | the party, who is online, who leads, which computer has the sound |
 | `/sps lead [<name>]` | who leads; with a name, pass the lead (the leader's to do) |
-| `/sps room [none\|me\|<name>]` | which computer plays the sound, a rule of the party's |
+| `/sps audio [voice\|music\|effects\|ambience\|dialog\|all] [none\|me\|<name>]` | who plays a channel (all of them without one), a rule of the party's; `/sps room` is the voice's |
 | `/sps controls [anyone\|leader\|nobody]` | who controls playback (Stop, Replay, Skip) everywhere, a rule of the party's |
 | `/sps share [anyone\|leader\|nobody]` | whose accepted quests are shared with the party, a rule of the party's |
-| `/sps sound [party\|sound\|captions]` | this computer's sound: as the party decides, or its own |
+| `/sps sound [<channel>\|all] [party\|plays\|muted]` | this computer's own choice (the voice without a channel; `sound`/`captions` still work) |
 | `/sps remember [on\|off]` | the party into your usual party; `on`/`off`: remember parties automatically |
 | `/sps list [add <name> \| remove <name> \| auto <name> on\|off]` | your usual party |
 | `/sps sync` | the lines played together this session, and each member's state |
@@ -111,10 +120,10 @@ two parts and no realm: a whisper goes to the bare "First Last". The prefix is
 
 | Kind | Fields | |
 |---|---|---|
-| `HI` | version, reply, session, own | hello: at login, when the group changes, to the usual party each heartbeat; names the party this client is in, and whether it decides its own sound |
+| `HI` | version, reply, session, own, plays | hello: at login, when the group changes, to the usual party each heartbeat, and when what it plays changes; names the party this client is in, whether it decides any channel itself, and the channels it plays (`v m e a d`, `-` for none; missing before 0.5: the rules decide) |
 | `IV` / `IA` / `ID` | session | invite to the party, accepted, declined or left or removed (one naming another party is stale) |
 | `RO` | session, leader, members | the roster, from the leader, whenever it changes; a member not in it is out |
-| `PS` | controls, room, sync, share | the rules, from the leader: whose controls, which computer plays the sound, four flags for the kinds played together, whose accepted quests are shared (missing from a 0.4.0 leader: anyone) |
+| `PS` | controls, room, sync, share, audio | the rules, from the leader: whose controls, who plays the voice, four flags for the kinds played together, whose accepted quests are shared (missing from a 0.4.0 leader: anyone), and who plays each game channel (`music=<owner>;effects=...;ambience=...;dialog=...`, missing before 0.5: every computer). An owner is `none` (every computer), a member's key, or `-<key>,<key>` (every computer but those) |
 | `RM` | | "I added you to my usual party": the other side is asked whether to auto-accept |
 | `LN` | id, src, event, questID, npcID, length, flags, textParts, name, title | a line queued; `src` is q, z or b |
 | `TX` | id, seq, total, text | its words, in pieces |
@@ -190,7 +199,8 @@ them merged on one timeline in a box to copy from, each line headed by whose it 
 | `Lines.lua` | a line's description and its rebuild |
 | `Sync.lua` | announcing, holding, starting together, acknowledgements, controls and their gate |
 | `Accept.lua` | quests shared and accepted |
-| `Room.lua` | one computer plays the sound, or this one decides for itself |
+| `Room.lua` | who plays each channel: the party's rule, or this computer's own choice |
+| `Channels.lua` | the game's sound switches, off where the rule says, and back as the player had them |
 | `Diagnostics.lua` | the party's state as lines, for `/sps status` and Spoken's diagnostics |
 | `UI/Window.lua`, `UI/Options.lua`, `UI/UnitMenu.lua` | the window, the settings page, the portrait menu |
 | `UI/Layout.lua` | byte-identical in every Spoken addon |

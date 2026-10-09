@@ -9,12 +9,14 @@
 --
 -- Messages:
 --
---   HI  version, reply, session, own
+--   HI  version, reply, session, own, plays
 --                           hello. Whispered to every member at login and when the group
 --                           changes, broadcast to the group so others running the addon can
 --                           be told about it; answered by whisper. reply=1 marks the answer,
 --                           which is never answered. `session` is the party this client is
---                           in, or empty; `own` is 1 while it decides the sound by itself.
+--                           in, or empty; `own` is 1 while it decides a channel by itself;
+--                           `plays` the channels it plays, a letter each (v voice, m music,
+--                           e effects, a ambience, d dialog), "-" for none.
 --   IV  version, session    an invitation to the party `session`. Asked of the player in a
 --                           popup, unless the usual party accepts it.
 --   IA  session             accepted: the leader adds them and sends the roster.
@@ -22,11 +24,13 @@
 --   RO  session, leader, members
 --                           the roster, from the leader: who leads and who is in, names
 --                           separated by semicolons. A member not in it has been removed.
---   PS  controls, room, sync, share
+--   PS  controls, room, sync, share, audio
 --                           the rules, from the leader: whose controls act everywhere, which
---                           computer plays the sound, which kinds of line are played together
---                           (four flags: quests, gossip, zones, books), and whose accepted
---                           quests are shared with the party.
+--                           computer plays the voice, which kinds of line are played together
+--                           (four flags: quests, gossip, zones, books), whose accepted quests
+--                           are shared with the party, and who plays the game's channels
+--                           ("music=<owner>;effects=...;ambience=...;dialog=..."). An owner is
+--                           "none" (every computer), a key, or "-<key>,<key>" (all but those).
 --   PI  token               ping. Answered by PO with the same token, on the channel it came in
 --                           on, so `/sps latency` can time the two paths separately.
 --   PO  token               pong. The round trip is timed on the sender's own clock, so the two
@@ -293,6 +297,16 @@ function Peers:SendRoster()
 	end
 end
 
+local AUDIO_CHANNELS = { "music", "effects", "ambience", "dialog" }
+
+local function AudioField(rules)
+	local parts = {}
+	for _, channel in ipairs(AUDIO_CHANNELS) do
+		table.insert(parts, channel .. "=" .. (rules.audio and rules.audio[channel] or "none"))
+	end
+	return table.concat(parts, ";")
+end
+
 local function SyncFlags(rules)
 	local flags = {}
 	for i, kind in ipairs(SYNC_KINDS) do
@@ -308,8 +322,8 @@ function Peers:SendRules(key)
 	local rules = session.rules
 	local targets = key and { key } or self:OnlineMembers()
 	for _, target in ipairs(targets) do
-		Comm:Whisper(self:MemberName(target), "PS", rules.controls or "leader", rules.room or "none", SyncFlags(rules),
-			rules.share or "anyone")
+		Comm:Whisper(self:MemberName(target), "PS", rules.controls or "anyone", rules.room or "none", SyncFlags(rules),
+			rules.share or "anyone", AudioField(rules))
 	end
 end
 
@@ -408,19 +422,22 @@ end
 --------------------------------------------------------------------------------
 
 local function Own()
-	local own = PartySync:DB().soundOwn
-	return (own ~= nil and own ~= "") and 1 or 0
+	return PartySync.Room:IsOwn() and 1 or 0
+end
+
+local function Plays()
+	return PartySync.Room:PlaysLetters()
 end
 
 --- To the group, for whoever runs the addon there.
 function Peers:Hello()
-	return Comm:Broadcast("HI", PartySync.version, 0, SessionWord(), Own())
+	return Comm:Broadcast("HI", PartySync.version, 0, SessionWord(), Own(), Plays())
 end
 
 --- To `name`, by whisper: a member at login, or someone in the usual party who may be
 --- online by now.
 function Peers:Greet(name, reply)
-	return Comm:Whisper(name, "HI", PartySync.version, reply and 1 or 0, SessionWord(), Own())
+	return Comm:Whisper(name, "HI", PartySync.version, reply and 1 or 0, SessionWord(), Own(), Plays())
 end
 
 --- To every member by name. One that is offline costs a "No player named" message, which
@@ -451,14 +468,16 @@ end
 
 local told = {}
 
-Comm:On("HI", function(sender, channel, version, reply, sessionId, own)
+Comm:On("HI", function(sender, channel, version, reply, sessionId, own, plays)
 	local known = Peers:Get(sender)
 	local wasOnline = known and known.state == "online"
 	local peer = Peers:Seen(sender, version)
 	if not peer then return end
 	sessionId = sessionId or ""
-	local changed = peer.session ~= sessionId or peer.own ~= (own == "1")
-	peer.session, peer.own = sessionId, own == "1"
+	-- A hello from before 0.5 says nothing of what it plays: the rules are read for it instead.
+	plays = (plays ~= nil and plays ~= "") and plays or nil
+	local changed = peer.session ~= sessionId or peer.own ~= (own == "1") or peer.plays ~= plays
+	peer.session, peer.own, peer.plays = sessionId, own == "1", plays
 	local key = PartySync:NameKey(sender)
 	if Peers:IsMember(sender) then
 		if not wasOnline then
@@ -733,8 +752,14 @@ local function DescribeRules(rules)
 	for _, kind in ipairs(SYNC_KINDS) do
 		if rules.sync == nil or rules.sync[kind] ~= false then table.insert(on, kind) end
 	end
-	return format("controls %s, sound %s, quests shared by %s, played together %s", tostring(rules.controls),
-		tostring(rules.room), tostring(rules.share or "anyone"), on[1] and table.concat(on, ", ") or "nothing")
+	local audio = {}
+	for _, channel in ipairs(AUDIO_CHANNELS) do
+		local owner = rules.audio and rules.audio[channel] or "none"
+		if owner ~= "none" then table.insert(audio, format(", %s %s", channel, owner)) end
+	end
+	return format("controls %s, sound %s, quests shared by %s, played together %s%s", tostring(rules.controls),
+		tostring(rules.room), tostring(rules.share or "anyone"), on[1] and table.concat(on, ", ") or "nothing",
+		table.concat(audio))
 end
 Peers.DescribeRules = DescribeRules
 
@@ -755,23 +780,14 @@ function Peers:WhyNoShare()
 	return (self:Rules().share or "anyone") == "leader" and L.SHARE_LEADER or L.SHARE_NOBODY
 end
 
---- Set a rule: `controls` ("anyone", "leader", "nobody"), `room` (a member's key, or "none"),
---- `share` ("anyone", "leader", "nobody"), or `sync` with `kind` and whether it is on. In a party, the leader's to set, and every
---- member is told; outside one, this computer's own for the next party it starts.
-function Peers:SetRule(name, value, on)
+--- Change the rules with `change(rules)`. In a party, the leader's to do, and every member is
+--- told; outside one, this computer's own for the next party it starts.
+function Peers:EditRules(change)
 	local session = self:Session()
 	if session and session.leader ~= PartySync:MyKey() then
 		return false, L.ONLY_LEADER_RULES
 	end
-	local rules = session and session.rules or PartySync:DB().rules
-	if name == "sync" then
-		rules.sync = rules.sync or {}
-		rules.sync[value] = on and true or false
-		PartySync:TraceSetting("play together " .. tostring(value), rules.sync[value])
-	else
-		rules[name] = value
-		PartySync:TraceSetting(name, tostring(value))
-	end
+	change(session and session.rules or PartySync:DB().rules)
 	if session then
 		self:SendRules()
 		if Autoform() then Autoform():AutoRemember() end
@@ -780,7 +796,30 @@ function Peers:SetRule(name, value, on)
 	return true
 end
 
-Comm:On("PS", function(sender, channel, controls, room, flags, share)
+--- Set a rule: `controls` ("anyone", "leader", "nobody"), `room` (who plays the voice),
+--- `share` ("anyone", "leader", "nobody"), `sync` with a kind and whether it is on, or `audio`
+--- with a channel and its owner ("none", a member's key, or "-<key>,<key>").
+function Peers:SetRule(name, value, on)
+	return self:EditRules(function(rules)
+		if name == "sync" then
+			rules.sync = rules.sync or {}
+			rules.sync[value] = on and true or false
+			PartySync:TraceSetting("play together " .. tostring(value), rules.sync[value])
+		elseif name == "audio" and value == "voice" then
+			rules.room = on
+			PartySync:TraceSetting("room", tostring(on))
+		elseif name == "audio" then
+			rules.audio = rules.audio or {}
+			rules.audio[value] = on
+			PartySync:TraceSetting(tostring(value) .. " on", tostring(on))
+		else
+			rules[name] = value
+			PartySync:TraceSetting(name, tostring(value))
+		end
+	end)
+end
+
+Comm:On("PS", function(sender, channel, controls, room, flags, share, audio)
 	local key = PartySync:NameKey(sender)
 	local session = Peers:Session()
 	if not (session and session.leader == key) then
@@ -796,6 +835,12 @@ Comm:On("PS", function(sender, channel, controls, room, flags, share)
 	for i, kind in ipairs(SYNC_KINDS) do
 		local flag = flags:sub(i, i)
 		if flag ~= "" then rules.sync[kind] = flag == "1" end
+	end
+	-- A leader before 0.5 sends no channels: every computer plays them.
+	rules.audio = {}
+	for _, channel in ipairs(AUDIO_CHANNELS) do rules.audio[channel] = "none" end
+	for name, owner in tostring(audio or ""):gmatch("([^;=]+)=([^;]*)") do
+		if rules.audio[name] and owner ~= "" then rules.audio[name] = owner end
 	end
 	PartySync:Trace("party", "rules from %s: %s", key, DescribeRules(rules))
 	if PartySync.Room then PartySync.Room:Update() end

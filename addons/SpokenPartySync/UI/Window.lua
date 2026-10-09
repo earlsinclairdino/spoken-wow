@@ -60,25 +60,21 @@ end
 -- What it says
 --------------------------------------------------------------------------------
 
---- Whether `key`'s computer plays the voice, as far as this one knows, in words for its tooltip.
-local function PlaysText(key, isMe, peer)
-	local plays
-	if isMe then
-		plays = not Room:IsSilent()
-	elseif peer and peer.own then
-		return L.ROW_PLAYS_OWN
-	else
-		local speaker = Room:Speaker()
-		plays = speaker == nil or speaker == key
+--- What `key`'s computer plays, as far as this one knows, in words for its tooltip.
+local function PlaysText(key)
+	local names = {}
+	for _, channel in ipairs(Room.CHANNELS) do
+		if Room:Plays(channel, key) then table.insert(names, Room:Name(channel):lower()) end
 	end
-	return plays and format(L.ROW_PLAYS_FMT, L.CHANNEL_VOICE:lower()) or L.ROW_PLAYS_NONE
+	return names[1] and format(L.ROW_PLAYS_FMT, table.concat(names, ", ")) or L.ROW_PLAYS_NONE
 end
 
 --- One member: a dot, the name, and one tag -- what most needs saying, a silence before the
 --- voice, the voice before the lead -- with everything else for the tooltip.
-local function MemberModel(key, isMe, leader, speaker)
+local function MemberModel(key, isMe, leader)
 	local peer = not isMe and Peers.list[key] or nil
-	local leads, voice = key == leader, key == speaker
+	-- "voice" says who plays it only where not every computer does.
+	local leads, voice = key == leader, Room:Owner("voice") ~= "none" and Room:Plays("voice", key)
 	local own = (isMe and Room:IsOwn()) or (peer ~= nil and peer.own == true)
 	local member = { key = key, isMe = isMe, dot = "online", rtt = peer and peer.rtt,
 		name = PartySync:ShortName(isMe and PartySync:UnitChatName("player") or Peers:MemberName(key)) }
@@ -107,7 +103,7 @@ local function MemberModel(key, isMe, leader, speaker)
 	if leads then table.insert(member.tags, L.TAG_LEAD) end
 	if voice then table.insert(member.tags, L.TAG_SOUND) end
 	if own then table.insert(member.tags, L.TAG_OWN_SOUND) end
-	member.plays = PlaysText(key, isMe, peer)
+	member.plays = PlaysText(key)
 	return member
 end
 
@@ -176,10 +172,19 @@ local function QueueModel()
 	return line
 end
 
---- A problem's fixes: asking a silent member again or removing them, else dismissing it.
+--- A problem's fixes: asking a silent member again or removing them, taking the voice off a
+--- computer that has no file for it, else dismissing it.
 local function ProblemActions(problem)
 	local key = problem.key
 	local who = key:match("^answer:(.+)$") or key:match("^presence:(.+)$")
+	local missing = key:match("^missing:(.+)$")
+	if missing and Peers:IsMember(missing) and Room:Plays("voice", missing) then
+		return { {
+			label = L.ACTION_MUTE, tip = L.ACTION_MUTE_TIP,
+			reason = not Peers:MayInvite() and OnlyLeader() or nil,
+			run = function() Room:Exclude("voice", missing); PartySync:Resolve(key) end,
+		} }
+	end
 	if not who then
 		return { { label = L.ACTION_DISMISS, tip = L.ACTION_DISMISS_TIP, run = function() PartySync:Resolve(key) end } }
 	end
@@ -217,26 +222,35 @@ local HEALTH = {
 	missed = { L.HEALTH_MISSED, RED },
 }
 
---- Who has which sound, as short as a chip allows: "Every Computer", "This Computer", "Lala".
-local function ShortOwner(choice)
-	if choice == nil or choice == "" or choice == "none" then return L.ROOM_NOBODY end
-	if choice == PartySync:MyKey() then return L.ROOM_ME end
-	return PartySync:FirstName(Peers:MemberName(choice))
+--- Who plays what, a line a channel, or one line when every channel is on the same computer.
+local function AudioLines()
+	local lines = {}
+	local summary = Room:Summary()
+	if summary ~= "mixed" then
+		table.insert(lines, format(L.AUDIO_RULE_FMT, L.MENU_ALL_SOUND, Room:Describe(summary)))
+	else
+		for _, channel in ipairs(Room.CHANNELS) do
+			table.insert(lines, format(L.AUDIO_RULE_FMT, Room:Name(channel), Room:Describe(Room:Owner(channel))))
+		end
+	end
+	local own = {}
+	for _, channel in ipairs(Room.CHANNELS) do
+		local value = Room:OwnValue(channel)
+		if value ~= "" then table.insert(own, Room:Name(channel) .. " " .. Room:DescribeOwn(value):lower()) end
+	end
+	if own[1] then table.insert(lines, format(L.AUDIO_OWN_FMT, table.concat(own, ", "))) end
+	table.insert(lines, L.CHIP_AUDIO_TIP)
+	return table.concat(lines, "\n")
 end
 
 local function ChipsModel()
 	local rules = Peers:Rules()
 	local rulesReason = not Peers:MayInvite() and L.OPT_RULES_LEADER or nil
-	local audioLines = { format(L.AUDIO_RULE_FMT, L.CHANNEL_VOICE, Room:Describe(rules.room)) }
-	if Room:IsOwn() then
-		table.insert(audioLines, format(L.AUDIO_OWN_FMT, Room:DescribeOwn(PartySync:DB().soundOwn)))
-	end
-	table.insert(audioLines, L.CHIP_AUDIO_TIP)
 	local shareReason = Peers:WhyNoShare()
 	return {
 		-- Live for everyone: whoever does not lead still decides this computer's own sound in it.
-		audio = { text = format(L.CHIP_AUDIO_FMT, ShortOwner(rules.room)), title = L.CHIP_AUDIO_TITLE,
-			body = table.concat(audioLines, "\n") },
+		audio = { text = format(L.CHIP_AUDIO_FMT, Room:Short(Room:Summary())), title = L.CHIP_AUDIO_TITLE,
+			body = AudioLines() },
 		playback = { text = format(L.CHIP_PLAYBACK_FMT, CONTROLS[rules.controls] or tostring(rules.controls)),
 			title = L.OPT_CONTROLS, body = L.OPT_CONTROLS_TIP, reason = rulesReason },
 		quests = { text = (PartySync:DB().autoShare and not shareReason) and L.CHIP_QUESTS_ON or L.CHIP_QUESTS_OFF,
@@ -252,9 +266,9 @@ function PartySync:WindowModel()
 		model.health = health and { word = HEALTH[health][1], colour = HEALTH[health][2], kind = health }
 		model.chips = ChipsModel()
 		model.members = {}
-		local me, leader, speaker = self:MyKey(), Peers:Leader(), Room:Speaker()
+		local me, leader = self:MyKey(), Peers:Leader()
 		for _, key in ipairs(Peers:MemberKeys()) do
-			table.insert(model.members, MemberModel(key, key == me, leader, speaker))
+			table.insert(model.members, MemberModel(key, key == me, leader))
 		end
 		model.line = QueueModel()
 	end
@@ -299,7 +313,7 @@ local function Text(model)
 end
 
 --------------------------------------------------------------------------------
--- Menus: lists of { text, onClick, radio | checked, tip, reason } or { title }
+-- Menus: lists of { text, onClick, radio | checked, tip, reason, children } or { title }
 --------------------------------------------------------------------------------
 --
 -- An entry with a reason is greyed and does nothing but say why, on hover and when clicked.
@@ -339,8 +353,8 @@ function PartySync:WindowMemberMenu(key)
 			reason = only or (Peers:IsLeader(key) and format(L.ALREADY_LEADS_FMT, name)) or nil,
 			onClick = function() Peers:PassLead(key) end },
 		{ text = L.MENU_PLAY_HERE, tip = L.OPT_SOUND_BTN_TIP,
-			reason = only or (Room:Speaker() == key and format(L.ALREADY_SOUND_FMT, name)) or nil,
-			onClick = function() Room:Choose(key) end },
+			reason = only or (Room:Summary() == key and format(L.ALREADY_SOUND_FMT, name)) or nil,
+			onClick = function() Room:SetAll(key) end },
 	}
 	if not isMe then
 		table.insert(entries, { text = L.MENU_REMOVE_MEMBER, tip = format(L.ACTION_REMOVE_TIP_FMT, name), reason = only,
@@ -350,19 +364,42 @@ function PartySync:WindowMemberMenu(key)
 	return entries
 end
 
+--- The party's rule for each channel (the leader's), a shortcut putting all of them on one
+--- computer, then this computer's own choices, which are everyone's.
 function PartySync:WindowAudioMenu()
 	local reason = not Peers:MayInvite() and L.OPT_RULES_LEADER or nil
-	local current = Peers:Rules().room or "none"
-	local entries = { { title = L.MENU_WHO_PLAYS_VOICE } }
-	for _, choice in ipairs(Room:Choices()) do
-		table.insert(entries, { text = Room:Describe(choice), radio = choice == current, reason = reason,
-			tip = L.OPT_ROOM_TIP, onClick = function() Room:Choose(choice) end })
+	local entries = { { title = L.MENU_WHO_PLAYS } }
+	for _, channel in ipairs(Room.CHANNELS) do
+		local current = Room:Owner(channel)
+		local owners = {}
+		for _, owner in ipairs(Room:Choices(current)) do
+			table.insert(owners, { text = Room:Describe(owner), radio = owner == current, reason = reason,
+				onClick = function() Room:Set(channel, owner) end })
+		end
+		table.insert(entries, { text = format(L.AUDIO_RULE_FMT, Room:Name(channel), Room:Short(current)),
+			tip = Room:Tip(channel), children = owners })
+	end
+	for _, owner in ipairs(Room:Choices()) do
+		table.insert(entries, { text = format(L.ALL_ON_FMT, Room:Short(owner)), reason = reason, tip = L.OPT_ALL_SOUND_TIP,
+			onClick = function() Room:SetAll(owner) end })
 	end
 	table.insert(entries, { title = L.MENU_THIS_COMPUTER })
-	local own = self:DB().soundOwn or ""
-	for _, value in ipairs({ "", "sound", "captions" }) do
-		table.insert(entries, { text = Room:DescribeOwn(value), radio = value == own, tip = L.OPT_SOUND_OWN_TIP,
-			onClick = function() Room:SetOwn(value) end })
+	local summary = Room:OwnSummary()
+	local all = {}
+	for _, value in ipairs(Room:OwnChoices()) do
+		table.insert(all, { text = Room:DescribeOwn(value), radio = value == summary, onClick = function() Room:SetOwnAll(value) end })
+	end
+	table.insert(entries, { text = format(L.AUDIO_RULE_FMT, L.MENU_ALL_SOUND, Room:DescribeOwn(summary)),
+		tip = L.OPT_SOUND_OWN_TIP, children = all })
+	for _, channel in ipairs(Room.CHANNELS) do
+		local own = Room:OwnValue(channel)
+		local choices = {}
+		for _, value in ipairs(Room:OwnChoices(channel)) do
+			table.insert(choices, { text = Room:DescribeOwn(value), radio = value == own,
+				onClick = function() Room:SetOwnChannel(channel, value) end })
+		end
+		table.insert(entries, { text = format(L.AUDIO_RULE_FMT, Room:Name(channel), Room:DescribeOwn(own)),
+			tip = Room:Tip(channel), children = choices })
 	end
 	return entries
 end
@@ -386,9 +423,10 @@ local function EntryTooltip(entry)
 	end
 end
 
---- One entry into the game's menu. Greyed by its text's colour rather than disabled, so its
---- tooltip still says why and a click says it again in chat.
-local function AddEntry(root, entry)
+--- One entry into the game's menu, its children as a submenu. Greyed by its text's colour rather
+--- than disabled, so its tooltip still says why and a click says it again in chat.
+local AddEntry
+AddEntry = function(root, entry)
 	if entry.title then
 		root:CreateTitle(entry.title)
 		return
@@ -402,7 +440,12 @@ local function AddEntry(root, entry)
 		end
 	end
 	local description
-	if entry.radio ~= nil then
+	if entry.children then
+		description = root:CreateButton(text)
+		for _, child in ipairs(entry.children) do
+			AddEntry(description, child)
+		end
+	elseif entry.radio ~= nil then
 		description = root:CreateRadio(text, function() return entry.radio end, Run)
 	elseif entry.checked ~= nil then
 		description = root:CreateCheckbox(text, function() return entry.checked end, Run)
@@ -974,19 +1017,10 @@ function PartySync:SetWindowCompact(on)
 	self:RefreshWindow()
 end
 
---- Once the saved variables are in. A once-a-second check keeps the problems, the silences and
---- the round trips current and lets the window go once the last problem has lingered enough.
+--- Once the saved variables are in. Redrawn on every change and once a second (Events.lua), which
+--- lets the window go once the last problem has lingered enough.
 function PartySync:SetupWindow()
 	if self.windowReady then return end
 	self.windowReady = true
-	local elapsed = 0
-	local ticker = CreateFrame("Frame")
-	ticker:SetScript("OnUpdate", function(_, dt)
-		elapsed = elapsed + (dt or 0)
-		if elapsed >= 1 then
-			elapsed = 0
-			PartySync:RefreshWindow()
-		end
-	end)
 	self:RefreshWindow()
 end

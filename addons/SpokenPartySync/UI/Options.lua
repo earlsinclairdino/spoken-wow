@@ -98,7 +98,7 @@ local function UpdateMembers()
 	local keys = Peers:MemberKeys()
 	membersBlock.none:SetShown(keys[1] == nil)
 	local me = PartySync:MyKey()
-	local speaker = Room:Speaker()
+	local summary = Room:Summary()
 	local leads = Peers:AmLeader()
 	for i, row in ipairs(membersBlock.rows) do
 		local key = keys[i]
@@ -109,7 +109,7 @@ local function UpdateMembers()
 			row.key, row.isMe = key, isMe
 			local tags = {}
 			if Peers:IsLeader(key) then table.insert(tags, L.TAG_LEAD) end
-			if speaker == key then table.insert(tags, L.TAG_SOUND) end
+			if Room:Owner("voice") ~= "none" and Room:Plays("voice", key) then table.insert(tags, L.TAG_SOUND) end
 			if (isMe and Room:IsOwn()) or (not isMe and peer and peer.own) then table.insert(tags, L.TAG_OWN_SOUND) end
 			local tagText = tags[1] and ("  |cffffd060" .. table.concat(tags, ", ") .. "|r") or ""
 			if isMe then
@@ -122,7 +122,7 @@ local function UpdateMembers()
 			row.sound:Show()
 			-- The leader's to press, and nothing to choose where it is already so.
 			SetEnabled(row.lead, leads and not Peers:IsLeader(key))
-			SetEnabled(row.sound, leads and speaker ~= key)
+			SetEnabled(row.sound, leads and summary ~= key)
 			row.remove:SetShown(not isMe)
 			SetEnabled(row.remove, leads)
 		else
@@ -163,7 +163,7 @@ local function MembersBlock(parent)
 			if not ok then PartySync:Print("%s", tostring(why)) end
 		end)
 		row.sound = RowButton(block, row, i, 354, 70, L.OPT_SOUND_BTN, LeaderOr(L.OPT_SOUND_BTN_TIP), function(r)
-			local ok, why = Room:Choose(r.key)
+			local ok, why = Room:SetAll(r.key)
 			if not ok then PartySync:Print("%s", tostring(why)) end
 		end)
 		row.remove = RowButton(block, row, i, 428, 90, L.OPT_REMOVE, LeaderOr(nil), function(r)
@@ -340,13 +340,24 @@ function PartySync:SetupOptions()
 		function() return Peers:Rules().controls or "anyone" end,
 		function(value) Peers:SetRule("controls", value) end, refresh,
 		function(value) return CONTROLS[value] or value end))
-	self.roomDropdown = RuleRow(layout:Dropdown(L.OPT_ROOM, L.OPT_ROOM_TIP, function() return Room:Choices() end,
-		function() return Peers:Rules().room or "none" end, function(value) Room:Choose(value) end, refresh,
-		function(value) return Room:Describe(value) end))
 	RuleRow(layout:Dropdown(L.OPT_SHARE, L.OPT_SHARE_TIP, { "anyone", "leader", "nobody" },
 		function() return Peers:Rules().share or "anyone" end,
 		function(value) Peers:SetRule("share", value) end, refresh,
 		function(value) return SHARE[value] or value end))
+	layout:Note(L.OPT_WHO_NOTE)
+	-- Every channel at once, then each: "Mixed" and "every computer but ..." are offered only as
+	-- the value they already have, to show it.
+	self.roomDropdown = RuleRow(layout:Dropdown(L.OPT_ALL_SOUND, L.OPT_ALL_SOUND_TIP,
+		function() return Room:Choices(Room:Summary()) end,
+		function() return Room:Summary() end, function(value) Room:SetAll(value) end, refresh,
+		function(value) return Room:Describe(value) end))
+	layout:Indent()
+	for _, channel in ipairs(Room.CHANNELS) do
+		RuleRow(layout:Dropdown(Room:Name(channel), Room:Tip(channel), function() return Room:Choices(Room:Owner(channel)) end,
+			function() return Room:Owner(channel) end, function(value) Room:Set(channel, value) end, refresh,
+			function(value) return Room:Describe(value) end))
+	end
+	layout:Outdent()
 	layout:Note(L.OPT_SYNC_NOTE)
 	layout:Indent()
 	SyncBox("quests", L.OPT_SYNC_QUESTS, L.OPT_SYNC_QUESTS_TIP)
@@ -356,9 +367,20 @@ function PartySync:SetupOptions()
 	layout:Outdent()
 
 	layout:Section(L.OPT_SECTION_SOUND)
-	layout:Dropdown(L.OPT_SOUND_OWN, L.OPT_SOUND_OWN_TIP, { "", "sound", "captions" },
-		function() return DB().soundOwn or "" end, function(value) Room:SetOwn(value) end, refresh,
+	layout:Dropdown(L.OPT_SOUND_OWN, L.OPT_SOUND_OWN_TIP, function()
+			local choices = Room:OwnChoices()
+			if Room:OwnSummary() == "mixed" then table.insert(choices, "mixed") end
+			return choices
+		end,
+		function() return Room:OwnSummary() end, function(value) Room:SetOwnAll(value) end, refresh,
 		function(value) return Room:DescribeOwn(value) end)
+	layout:Indent()
+	for _, channel in ipairs(Room.CHANNELS) do
+		layout:Dropdown(Room:Name(channel), Room:Tip(channel), Room:OwnChoices(channel),
+			function() return Room:OwnValue(channel) end, function(value) Room:SetOwnChannel(channel, value) end, refresh,
+			function(value) return Room:DescribeOwn(value) end)
+	end
+	layout:Outdent()
 
 	layout:Section(L.OPT_SECTION_LIST)
 	layout:Note(L.OPT_LIST_NOTE)

@@ -335,9 +335,9 @@ P.Receive(stub, LALA, "RO", P.SESSION, "Tata Throwaway", "Lala Throwaway;Tata Th
 Expect("the roster can hand this character the lead", ns.Peers:AmLeader(), true)
 P.Clear()
 ns.Peers:SetRule("controls", "leader")
-Expect("leading, a rule set here goes to her", Fields(P.Last("PS", LALA)), "leader|lala throwaway|1011|anyone")
+Expect("leading, a rule set here goes to her", Fields(P.Last("PS", LALA)), "leader|lala throwaway|1011|anyone|music=none;effects=none;ambience=none;dialog=none")
 ns.Room:Choose("me")
-Expect("...as does the sound", Fields(P.Last("PS", LALA)), "leader|tata throwaway|1011|anyone")
+Expect("...as does the sound", Fields(P.Last("PS", LALA)), "leader|tata throwaway|1011|anyone|music=none;effects=none;ambience=none;dialog=none")
 Expect("...which comes back here", Spoken:IsCaptionsOnly(), false)
 P.Clear()
 ns.Peers:PassLead(LALA)
@@ -367,7 +367,8 @@ Expect("...and this character's says it leads already", MemberEntry(ns:MyKey(), 
 	format(ns.L.ALREADY_LEADS_FMT, "Tata Throwaway"))
 P.Clear()
 MemberEntry("lala throwaway", ns.L.MENU_PLAY_HERE).onClick()
-Expect("her Play Sound Here gives her computer the sound, for the party", Fields(P.Last("PS", LALA)), "anyone|lala throwaway|1111|anyone")
+Expect("her Play Sound Here gives her computer all the sound, for the party", Fields(P.Last("PS", LALA)),
+	"anyone|lala throwaway|1111|anyone|music=lala throwaway;effects=lala throwaway;ambience=lala throwaway;dialog=lala throwaway")
 Expect("...and then says it is so", MemberEntry("lala throwaway", ns.L.MENU_PLAY_HERE).reason,
 	format(ns.L.ALREADY_SOUND_FMT, "Lala Throwaway"))
 MemberEntry("lala throwaway", ns.L.MENU_MAKE_LEADER).onClick()

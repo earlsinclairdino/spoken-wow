@@ -60,8 +60,8 @@ local function Modify(_, rootDescription, contextData)
 			if not Peers:IsLeader(key) then
 				rootDescription:CreateButton(L.MENU_LEAD, function() Peers:PassLead(key) end)
 			end
-			if PartySync.Room and PartySync.Room:Speaker() ~= key then
-				rootDescription:CreateButton(L.MENU_SOUND, function() PartySync.Room:Choose(key) end)
+			if PartySync.Room and PartySync.Room:Summary() ~= key then
+				rootDescription:CreateButton(L.MENU_SOUND, function() PartySync.Room:SetAll(key) end)
 			end
 			rootDescription:CreateButton(L.MENU_REMOVE, function()
 				if Peers:RemoveMember(name) then

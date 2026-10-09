@@ -22,8 +22,12 @@ end
 local function Entry(entries, text)
 	for _, entry in ipairs(entries) do
 		if entry.text == text then return entry end
+		local found = entry.children and Entry(entry.children, text)
+		if found then return found end
 	end
 end
+local ALL_FIVE = "voice, music, effects, ambience, npc dialog"
+local GAME_FOUR = "music, effects, ambience, npc dialog"
 
 local ns, VO, env, Spoken
 local function Member(key)
@@ -47,11 +51,15 @@ Expect("...this character, with nothing to say, has no tag", Member(me).tag, nil
 P.Receive(stub, LALA, "PS", "anyone", "lala throwaway", "1111", "anyone")
 Expect("the voice comes before the lead: one tag only", Member("lala throwaway").tag, ns.L.TAG_SOUND)
 Expect("...both in the tooltip", table.concat(Member("lala throwaway").tags, ","), "leads,voice")
-Expect("...which says what her computer plays", Member("lala throwaway").plays, format(ns.L.ROW_PLAYS_FMT, "voice"))
-Expect("...and what this one does", Member(me).plays, ns.L.ROW_PLAYS_NONE)
-ns.Room:SetOwn("sound")
+Expect("...which says what her computer plays", Member("lala throwaway").plays, format(ns.L.ROW_PLAYS_FMT, ALL_FIVE))
+Expect("...and what this one does", Member(me).plays, format(ns.L.ROW_PLAYS_FMT, GAME_FOUR))
+ns.Room:SetOwn("captions")
 Expect("this computer deciding its own sound says so", Member(me).tag, ns.L.TAG_OWN_SOUND)
-Expect("...and plays the voice again", Member(me).plays, format(ns.L.ROW_PLAYS_FMT, "voice"))
+Expect("...and still plays no voice", Member(me).plays, format(ns.L.ROW_PLAYS_FMT, GAME_FOUR))
+ns.Room:SetOwn("sound")
+Expect("...playing it after all, the voice is what it says", Member(me).tag, ns.L.TAG_SOUND)
+Expect("...its own choice in the tooltip", table.concat(Member(me).tags, ","), "voice,own audio")
+ns.Room:SetOwn("")
 stub.Advance(30)
 ns:RefreshWindow()
 local quiet = ns.Peers:Quiet("lala throwaway")
@@ -79,7 +87,7 @@ local audio = ns:WindowAudioMenu()
 Expect("...where the party's rule is greyed for a member", Entry(audio, ns.L.ROOM_NOBODY).reason, ns.L.OPT_RULES_LEADER)
 Entry(audio, ns.L.SOUND_OWN_CAPTIONS).onClick()
 Expect("...and this computer's own choice is not", ns:DB().soundOwn, "captions")
-Expect("...which the audio chip's tooltip tells", ns.windowModel.chips.audio.body:find(ns.L.SOUND_OWN_CAPTIONS, 1, true) ~= nil, true)
+Expect("...which the audio chip's tooltip tells", ns.windowModel.chips.audio.body:find(ns.L.SOUND_OWN_CAPTIONS:lower(), 1, true) ~= nil, true)
 P.Receive(stub, LALA, "PS", "anyone", "none", "1111", "leader")
 Expect("with only the leader sharing quests, a member's Quests chip is greyed", ns.windowModel.chips.quests.reason, ns.L.SHARE_LEADER)
 Expect("...and reads Manual", ns.windowModel.chips.quests.text, ns.L.CHIP_QUESTS_OFF)
@@ -88,7 +96,7 @@ Expect("leading, the playback chip is live", ns.windowModel.chips.playback.reaso
 Expect("...and the share chip too", ns.windowModel.chips.quests.text, ns.L.CHIP_QUESTS_ON)
 P.Clear()
 Entry(ns:WindowPlaybackMenu(), ns.L.CONTROLS_NOBODY).onClick()
-Expect("the playback menu sets the rule for the party", Fields(P.Last("PS", LALA)), "nobody|none|1111|leader")
+Expect("the playback menu sets the rule for the party", Fields(P.Last("PS", LALA)), "nobody|none|1111|leader|music=none;effects=none;ambience=none;dialog=none")
 Expect("...which the chip then reads", ns.windowModel.chips.playback.text, "Playback: Nobody")
 window.chips.quests:Click()
 Expect("the quests chip switches this computer's sharing", ns:DB().autoShare, false)
@@ -124,7 +132,7 @@ ns:RefreshWindow()
 Expect("a member with no voice file for the next one is shown under it", ns.windowModel.line.progress[1]
 	and ns.windowModel.line.progress[1].text, ns.L.PEER_MISSING)
 Expect("...and the sync reads missed", ns.windowModel.health.kind, "missed")
-Expect("...with the problem below, and a way to dismiss it", Labels(ns.windowModel.problems[1]), ns.L.ACTION_DISMISS)
+Expect("...with the problem below, and its fix: her computer off the voice", Labels(ns.windowModel.problems[1]), ns.L.ACTION_MUTE)
 
 -- A line started elsewhere: its progress is the other computer's to show.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
@@ -228,24 +236,27 @@ P.Party(stub, ns)
 ns:ShowWindow(true)
 window = _G.SpokenPartySyncWindow
 local made = {}
+-- The game's menu as its generator sees it: every entry recorded, submenus included.
+local Add
+local function NewDescription(kind, text, a, b)
+	local description = { kind = kind, text = text, a = a, b = b }
+	function description:SetTooltip(fn) self.tooltip = fn end
+	description.CreateTitle, description.CreateButton = Add("title"), Add("button")
+	description.CreateRadio, description.CreateCheckbox = Add("radio"), Add("checkbox")
+	table.insert(made, description)
+	return description
+end
+Add = function(kind)
+	return function(_, text, a, b) return NewDescription(kind, text, a, b) end
+end
 _G.MenuUtil = { CreateContextMenu = function(owner, generate)
 	made = {}
-	local root = {}
-	local function Add(kind)
-		return function(_, text, a, b)
-			local description = { kind = kind, text = text, a = a, b = b }
-			function description:SetTooltip(fn) self.tooltip = fn end
-			table.insert(made, description)
-			return description
-		end
-	end
-	root.CreateTitle, root.CreateButton = Add("title"), Add("button")
-	root.CreateRadio, root.CreateCheckbox = Add("radio"), Add("checkbox")
-	generate(owner, root)
+	generate(owner, NewDescription("root"))
 end }
 local function Made(text)
 	for _, description in ipairs(made) do
-		if description.text and description.text:find(text, 1, true) then return description end
+		local plain = description.text and description.text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+		if plain == text then return description end
 	end
 end
 window.chips.audio:Click()

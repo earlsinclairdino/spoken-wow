@@ -16,8 +16,9 @@ PartySync.eventFrame = frame
 -- file. Each one is registered on its own, and a failure is kept for `/sps api` to report
 -- rather than taking the rest of the wiring down with it.
 PartySync.missingEvents = {}
-for _, event in ipairs({ "ADDON_LOADED", "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "PARTY_LEADER_CHANGED",
-	"CHAT_MSG_ADDON", "CHAT_MSG_SYSTEM", "QUEST_DETAIL", "QUEST_ACCEPTED", "QUEST_ACCEPT_CONFIRM" }) do
+for _, event in ipairs({ "ADDON_LOADED", "PLAYER_ENTERING_WORLD", "PLAYER_LOGOUT", "GROUP_ROSTER_UPDATE",
+	"PARTY_LEADER_CHANGED", "CHAT_MSG_ADDON", "CHAT_MSG_SYSTEM", "QUEST_DETAIL", "QUEST_ACCEPTED",
+	"QUEST_ACCEPT_CONFIRM" }) do
 	if not pcall(frame.RegisterEvent, frame, event) then
 		table.insert(PartySync.missingEvents, event)
 	end
@@ -62,6 +63,25 @@ end
 
 local started = false
 
+-- Once a second: problems age, silences grow, round trips come in, and a game channel the party
+-- keeps off is switched off again if something switched it back on.
+local function EverySecond()
+	PartySync.Channels:Apply()
+	PartySync:RefreshWindow()
+end
+
+local function StartTicker()
+	local elapsed = 0
+	local ticker = CreateFrame("Frame")
+	ticker:SetScript("OnUpdate", function(_, dt)
+		elapsed = elapsed + (dt or 0)
+		if elapsed >= 1 then
+			elapsed = 0
+			EverySecond()
+		end
+	end)
+end
+
 local function Start()
 	PartySync.LogBook:Setup()
 	PartySync.Diagnostics:Setup()
@@ -76,9 +96,12 @@ local function Start()
 	PartySync:SetupMinimapEntries()
 	PartySync.UnitMenu:Setup()
 	PartySync:SetupWindow()
+	-- A client that stopped without logging out left the game's channels as the party had them.
+	PartySync.Channels:RestoreAll()
 	Room:Update()
 	Peers:Resume()
 	PartySync.Autoform:Tick()
+	StartTicker()
 	started = true
 end
 
@@ -92,6 +115,9 @@ frame:SetScript("OnEvent", function(_, event, ...)
 		end
 	elseif event == "GROUP_ROSTER_UPDATE" then
 		QueueHello()
+	elseif event == "PLAYER_LOGOUT" then
+		-- Fires on /reload too, before the client saves its settings: the channels go back first.
+		PartySync.Channels:RestoreAll()
 	elseif event == "PARTY_LEADER_CHANGED" then
 		-- Changed() writes the new leader in the debug log, where it moved.
 		PartySync:Changed()

@@ -24,6 +24,7 @@ Lines.lua
 Sync.lua
 Accept.lua
 Room.lua
+Channels.lua
 Diagnostics.lua
 UI\Layout.lua
 UI\Options.lua

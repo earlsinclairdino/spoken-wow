@@ -74,11 +74,26 @@ local function Lines()
 end
 
 local ROOM_WORDS = { me = "me", here = "me", none = "none", every = "none", all = "none", off = "none" }
-local OWN_WORDS = { party = "", sound = "sound", captions = "captions" }
+local CHANNEL_WORDS = { voice = "voice", music = "music", effects = "effects", sfx = "effects", ambience = "ambience",
+	dialog = "dialog", all = "all" }
+-- What /sps sound takes, by the channel it is for: the voice keeps its own words.
+local OWN_WORDS = {
+	voice = { party = "", sound = "sound", plays = "sound", captions = "captions", muted = "captions" },
+	other = { party = "", sound = "plays", plays = "plays", captions = "muted", muted = "muted" },
+}
+
+--- "<channel> <rest>" or just "<rest>": the channel named first, if one is.
+local function ChannelAndRest(rest)
+	local first, second = rest:match("^(%S*)%s*(.-)$")
+	local channel = CHANNEL_WORDS[(first or ""):lower()]
+	if channel then return channel, second or "" end
+	return nil, rest
+end
 local CONTROL_WORDS = { anyone = true, leader = true, nobody = true }
 
 local function Help()
-	PartySync:Print("party: /sps invite <name> | remove <name> | leave | members | lead [<name>] (pass the lead) | room [none|me|<name>] | controls [anyone|leader|nobody] | share [anyone|leader|nobody] | sound [party|sound|captions] (this computer's)")
+	PartySync:Print("party: /sps invite <name> | remove <name> | leave | members | lead [<name>] (pass the lead) | controls [anyone|leader|nobody] | share [anyone|leader|nobody]")
+	PartySync:Print("sound: /sps audio [voice|music|effects|ambience|dialog|all] [none|me|<name>] (who plays it, the party's rule) | room [none|me|<name>] (the voice) | sound [<channel>|all] [party|plays|muted] (this computer's)")
 	PartySync:Print("usual party: /sps remember [on|off] (the party, or the setting) | list [add <name> | remove <name> | auto <name> on|off]")
 	PartySync:Print("lines: /sps sync (what played together) | test <questID> (queue a quest's accept line here)")
 	PartySync:Print("window and settings: /sps window | compact [on|off] | settings")
@@ -147,15 +162,38 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 			local ok, why = Room:Choose(choice)
 			if not ok then PartySync:Print("%s", tostring(why)) end
 		end
-		PartySync:Print("who plays the sound: %s", Room:Describe(Peers:Rules().room))
-	elseif cmd == "sound" then
-		local word = OWN_WORDS[rest:lower()]
-		if rest ~= "" and not word then
-			PartySync:Print("/sps sound party|sound|captions")
-			return
+		PartySync:Print("who plays the voice: %s", Room:Describe(Room:Owner("voice")))
+	elseif cmd == "audio" then
+		local channel, who = ChannelAndRest(rest)
+		channel = channel or "all"
+		if who ~= "" then
+			local owner = ROOM_WORDS[who:lower()] or (Peers:IsMember(who) and PartySync:NameKey(who)) or nil
+			if not owner then
+				PartySync:Print("%s is not in your Spoken party", who)
+				return
+			end
+			local ok, why
+			if channel == "all" then ok, why = Room:SetAll(owner) else ok, why = Room:Set(channel, owner) end
+			if not ok then PartySync:Print("%s", tostring(why)) end
 		end
-		if word then Room:SetOwn(word) end
-		PartySync:Print("this computer's sound: %s", Room:DescribeOwn(PartySync:DB().soundOwn))
+		for _, each in ipairs(Room.CHANNELS) do
+			PartySync:Print("  %s: %s", Room:Name(each), Room:Describe(Room:Owner(each)))
+		end
+	elseif cmd == "sound" then
+		local channel, word = ChannelAndRest(rest)
+		channel = channel or "voice"
+		word = word:lower()
+		if word ~= "" then
+			local value = OWN_WORDS[channel == "voice" and "voice" or "other"][word]
+			if value == nil then
+				PartySync:Print("/sps sound [voice|music|effects|ambience|dialog|all] party|plays|muted")
+				return
+			end
+			if channel == "all" then Room:SetOwnAll(value) else Room:SetOwnChannel(channel, value) end
+		end
+		for _, each in ipairs(Room.CHANNELS) do
+			PartySync:Print("  this computer's %s: %s", Room:Name(each):lower(), Room:DescribeOwn(Room:OwnValue(each)))
+		end
 	elseif cmd == "controls" then
 		local value = rest:lower()
 		if value ~= "" then

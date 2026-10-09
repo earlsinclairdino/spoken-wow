@@ -35,6 +35,7 @@ function Diagnostics:MemberLine(key, leader)
 			table.insert(parts, "in another party")
 		end
 		if peer.own then table.insert(parts, "own audio") end
+		if peer.plays then table.insert(parts, "plays " .. peer.plays) end
 		if peer.lastSeen then
 			table.insert(parts, format("last heard %d s ago", math.floor(GetTime() - peer.lastSeen + 0.5)))
 		end
@@ -94,8 +95,8 @@ function Diagnostics:Lines(detailed)
 	Add("leader: %s (%s); sound: %s", Name(leader), tostring(why), speaker and Name(speaker) or "every computer")
 	Add("rules%s: %s", session and " (the leader's)" or " (this computer's, for a party it starts)",
 		Peers.DescribeRules(Peers:Rules()))
-	Add("this computer: %s, sound here %s%s", tostring(PartySync:MyKey()), Room:DescribeOwn(db.soundOwn),
-		Room:IsSilent() and ", captions only" or "")
+	Add("this computer: %s, sound here %s%s, plays %s", tostring(PartySync:MyKey()), Room:DescribeOwn(db.soundOwn),
+		Room:IsSilent() and ", captions only" or "", Room:PlaysLetters())
 	Add("auto share %s, auto accept %s, remember parties %s", OnOff(db.autoShare), OnOff(db.autoAccept), OnOff(db.remember))
 	local health = Sync.ready and Sync:Health()
 	if session and health then Add("last line played together: %s", health == "sync" and "in sync" or health) end

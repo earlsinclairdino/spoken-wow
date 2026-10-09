@@ -45,8 +45,11 @@ local function Rules()
 		-- Whose Stop, Replay, Skip and Stop All act on every computer: "anyone", "leader" or
 		-- "nobody" (the lines play through; nobody stops them, the leader included).
 		controls = "anyone",
-		-- Which computer plays the sound: a member's NameKey, or "none" for every computer.
+		-- Which computer plays the voice: "none" (every computer), a member's NameKey, or
+		-- "-<key>,<key>" (every computer but those).
 		room = "none",
+		-- Who plays each of the game's own channels, in the same words.
+		audio = { music = "none", effects = "none", ambience = "none", dialog = "none" },
 		-- Whose accepted quests are shared with the party: "anyone", "leader" or "nobody".
 		share = "anyone",
 		-- Which kinds of line are played together. Each one off still plays here, alone.
@@ -63,8 +66,10 @@ local function Defaults()
 		autoAccept = true,
 		-- Every party this character ends up in is added to its usual party.
 		remember = false,
-		-- "" follows the party's Who Plays the Sound; "sound" and "captions" decide it here.
+		-- "" follows the party's rule for the voice; "sound" and "captions" decide it here.
 		soundOwn = "",
+		-- The same for the game's channels: "", "plays" or "muted".
+		audioOwn = { music = "", effects = "", ambience = "", dialog = "" },
 		window = { show = "problems", scale = 1, compact = false },
 	}
 end
@@ -175,12 +180,12 @@ end
 function PartySync:ResetOptions()
 	local db = SpokenPartySyncDB
 	if not db then return end
-	local collected = db.collected
+	local collected, cvarCache = db.collected, db.cvarCache
 	-- Where the window was dragged to is not a setting on the page.
 	local point = db.window and db.window.point
 	for key in pairs(db) do db[key] = nil end
 	Fill(db, Defaults())
-	db.collected = collected
+	db.collected, db.cvarCache = collected, cvarCache
 	db.window.point = point
 	if self.SetWindowScale then self:SetWindowScale(db.window.scale) end
 	self:Changed()
