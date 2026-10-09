@@ -79,9 +79,9 @@ local CONTROL_WORDS = { anyone = true, leader = true, nobody = true }
 
 local function Help()
 	PartySync:Print("party: /sps invite <name> | remove <name> | leave | members | lead [<name>] (pass the lead) | room [none|me|<name>] | controls [anyone|leader|nobody] | share [anyone|leader|nobody] | sound [party|sound|captions] (this computer's)")
-	PartySync:Print("auto-form list: /sps remember [on|off] (the party, or the setting) | list [add <name> | remove <name> | auto <name> on|off]")
+	PartySync:Print("usual party: /sps remember [on|off] (the party, or the setting) | list [add <name> | remove <name> | auto <name> on|off]")
 	PartySync:Print("lines: /sps sync (what played together) | test <questID> (queue a quest's accept line here)")
-	PartySync:Print("window and settings: /sps window | settings")
+	PartySync:Print("window and settings: /sps window | compact [on|off] | settings")
 	PartySync:Print("debug log (Spoken's, on in Spoken > Developer): /sps logs [count] (yours and the party's, to copy) | logs pull [count] | logs clear (yours) | logs clear all (the party's too)")
 	PartySync:Print("connection tests: /sps api | ping [name|group] | latency [name] | probe [name] | hello | burst [count] [name] | status")
 end
@@ -183,9 +183,9 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 		local action, name = rest:match("^(%S*)%s*(.-)$")
 		action, name = (action or ""):lower(), name or ""
 		if action == "add" and name ~= "" then
-			PartySync:Print("%s %s", PartySync:ShortName(name), Autoform:Add(name) and "is on the auto-form list" or "cannot be added")
+			PartySync:Print("%s %s", PartySync:ShortName(name), Autoform:Add(name) and "is in your usual party" or "cannot be added")
 		elseif action == "remove" and name ~= "" then
-			PartySync:Print("%s %s", PartySync:ShortName(name), Autoform:Remove(name) and "is off the auto-form list" or "is not on the list")
+			PartySync:Print("%s %s", PartySync:ShortName(name), Autoform:Remove(name) and "is out of your usual party" or "is not in it")
 		elseif action == "auto" and name ~= "" then
 			local onOff = name:match("%s(%S+)$")
 			local who = onOff and name:sub(1, #name - #onOff - 1) or nil
@@ -199,7 +199,7 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 			local list = Autoform:List()
 			local keys = Autoform:Keys()
 			if not keys[1] then
-				PartySync:Print("the auto-form list is empty: /sps remember in a party, or /sps list add <name>")
+				PartySync:Print("your usual party is empty: /sps remember in a party, or /sps list add <name>")
 				return
 			end
 			for _, key in ipairs(keys) do
@@ -218,7 +218,7 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 		else
 			local added = PartySync.Autoform:Remember()
 			if added then
-				PartySync:Print("the party is on the auto-form list, %d new to it", added)
+				PartySync:Print("the party is in your usual party, %d new to it", added)
 			else
 				PartySync:Print("you are in no Spoken party to remember")
 			end
@@ -283,6 +283,10 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 		Status()
 	elseif cmd == "window" then
 		PartySync:ToggleWindow()
+	elseif cmd == "compact" then
+		local value = rest:lower()
+		PartySync:SetWindowCompact(value == "on" or (value ~= "off" and not PartySync:DB().window.compact))
+		PartySync:Print("compact window: %s", PartySync:DB().window.compact and "on" or "off")
 	elseif cmd == "settings" or cmd == "options" then
 		PartySync:OpenOptions()
 	else

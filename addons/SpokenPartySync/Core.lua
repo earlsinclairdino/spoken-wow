@@ -32,12 +32,19 @@ PartySync.version = GetAddOnMeta and GetAddOnMeta(ADDON_NAME, "Version") or "dev
 -- The Spoken player API version this was written against.
 local REQUIRED_API = 1
 
+-- The window's smallest size, on the page's slider too.
+local MIN_WINDOW_SCALE = 0.9
+PartySync.MIN_WINDOW_SCALE = MIN_WINDOW_SCALE
+
+-- A middle dot between the parts of one line, as the game's own tooltips join them.
+PartySync.DOT = " \194\183 "
+
 -- This computer's settings, the same for every character on the account.
 local function Rules()
 	return {
-		-- Whose Stop, Replay, Skip and Stop All act on every computer: "leader", "anyone" or
+		-- Whose Stop, Replay, Skip and Stop All act on every computer: "anyone", "leader" or
 		-- "nobody" (the lines play through; nobody stops them, the leader included).
-		controls = "leader",
+		controls = "anyone",
 		-- Which computer plays the sound: a member's NameKey, or "none" for every computer.
 		room = "none",
 		-- Whose accepted quests are shared with the party: "anyone", "leader" or "nobody".
@@ -54,11 +61,11 @@ local function Defaults()
 		rules = Rules(),
 		autoShare = true,
 		autoAccept = true,
-		-- Every party this character ends up in is added to its auto-form list.
+		-- Every party this character ends up in is added to its usual party.
 		remember = false,
 		-- "" follows the party's Who Plays the Sound; "sound" and "captions" decide it here.
 		soundOwn = "",
-		window = { show = "problems", scale = 1 },
+		window = { show = "problems", scale = 1, compact = false },
 	}
 end
 PartySync.Defaults = Defaults
@@ -96,7 +103,7 @@ end
 PartySync.Copy = Copy
 
 --- The 0.3 party, kept by name as a list of members, lead and sound choices: it becomes the
---- auto-form list, with the choices as the rules it starts a party with.
+--- usual party, with the choices as the rules it starts a party with.
 local function MigrateMembers(db, party, me)
 	if type(party.members) ~= "table" then return end
 	for key, member in pairs(party.members) do
@@ -153,6 +160,8 @@ function PartySync:InitDB()
 		if db.windowShown then db.window.show = "always" end
 		db.windowShown = nil
 	end
+	-- Smaller, the window's 10-pixel words cannot be read; a size saved before the floor rises to it.
+	db.window.scale = math.max(tonumber(db.window.scale) or 1, MIN_WINDOW_SCALE)
 	-- A session saved by a /reload: rejoined once the others answer (Peers:Resume).
 	local session = party.session
 	if session and not (type(session.id) == "string" and type(session.leader) == "string"
@@ -162,14 +171,18 @@ function PartySync:InitDB()
 	return db
 end
 
---- Everything back to its defaults but the party, the auto-form list and the collected logs.
+--- Everything back to its defaults but the party, the usual party and the collected logs.
 function PartySync:ResetOptions()
 	local db = SpokenPartySyncDB
 	if not db then return end
 	local collected = db.collected
+	-- Where the window was dragged to is not a setting on the page.
+	local point = db.window and db.window.point
 	for key in pairs(db) do db[key] = nil end
 	Fill(db, Defaults())
 	db.collected = collected
+	db.window.point = point
+	if self.SetWindowScale then self:SetWindowScale(db.window.scale) end
 	self:Changed()
 end
 
@@ -179,7 +192,7 @@ function PartySync:DB()
 end
 
 local partyFallback = PartyDefaults()
---- This character's: its party (session) and its auto-form list.
+--- This character's: its party (session) and its usual party (the list).
 function PartySync:Party()
 	return SpokenPartySyncCharDB or partyFallback
 end

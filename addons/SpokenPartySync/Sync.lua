@@ -55,6 +55,10 @@ local RECENT_SECONDS = 20
 local ANSWER_GRACE = 2
 -- How long a line that is over is kept for `/sps sync`.
 local KEEP_SECONDS = 60
+-- A member who starts a line this much after the planned start is late; under it, the two
+-- computers are heard as one.
+local LATE_MS = 100
+Sync.LATE_MS = LATE_MS
 -- How long a follower's start waits for the words still on their way. They are sent before
 -- the start, but messages arriving in one frame are not always handled in the order sent, and
 -- the captions read a line's words once, as it starts (2026-10-05, "Mirror Lake").
@@ -186,6 +190,45 @@ function Sync:Entries()
 	for _, entry in pairs(self.lines) do table.insert(list, entry) end
 	table.sort(list, function(a, b) return a.at > b.at end)
 	return list
+end
+
+--- How one line played together went: "missed" when a computer did not play it, "late" when
+--- one started late, else "sync". The driver hears from every member; a follower knows only
+--- its own start.
+local function Verdict(entry)
+	if entry.role == "driver" then
+		if entry.state == "dropped" then return "missed" end
+		local late = false
+		for _, peer in pairs(entry.peers) do
+			local state = peer.state
+			-- Dropped by everyone together is a skip, not a miss.
+			if state == "missing" or state == "noanswer" or (state == "dropped" and entry.state ~= "stopped") then
+				return "missed"
+			end
+			if (peer.late or 0) >= LATE_MS then late = true end
+		end
+		return late and "late" or "sync"
+	end
+	if entry.state == "missing" or entry.state == "dropped" or (entry.startedAt and not entry.goAt) then
+		return "missed"
+	end
+	if entry.startedAt and (entry.startedAt - entry.goAt) * 1000 >= LATE_MS then
+		return "late"
+	end
+	return "sync"
+end
+
+--- How the line played together that started (or ended) last went (Verdict), or nil when none
+--- has lately. Lines queued in one go share their `at`, so it is their start that orders them.
+function Sync:Health()
+	local newest, newestAt
+	for _, entry in ipairs(self:Entries()) do
+		local at = entry.startedAt or entry.endedAt
+		if at and (not newestAt or at > newestAt) then
+			newest, newestAt = entry, at
+		end
+	end
+	return newest and Verdict(newest) or nil
 end
 
 local function Ended(entry, state)
@@ -677,7 +720,10 @@ Comm:On("AK", function(sender, channel, id, state, ms)
 	if not (entry and entry.role == "driver") then
 		return
 	end
-	entry.peers[key] = { state = state, ms = tonumber(ms), at = GetTime() }
+	-- How late they started stays with them once they finish, for Health.
+	local before = entry.peers[key]
+	local late = state == "started" and tonumber(ms) or (before and before.late)
+	entry.peers[key] = { state = state, ms = tonumber(ms), late = late, at = GetTime() }
 	Trace("ack %s from %s: %s%s", entry.id, key, tostring(state), ms and ms ~= "" and (" " .. ms .. " ms") or "")
 	PartySync:Resolve("answer:" .. key)
 	if state == "missing" then

@@ -16,7 +16,7 @@
 --                           which is never answered. `session` is the party this client is
 --                           in, or empty; `own` is 1 while it decides the sound by itself.
 --   IV  version, session    an invitation to the party `session`. Asked of the player in a
---                           popup, unless the auto-form list accepts it.
+--                           popup, unless the usual party accepts it.
 --   IA  session             accepted: the leader adds them and sends the roster.
 --   ID  session             declined, left, or removed. One about another party is stale.
 --   RO  session, leader, members
@@ -56,6 +56,9 @@ local INVITE_SECONDS = 125
 -- A member in the party this long is dropped when its hello names another party or none. A
 -- hello sent just before it accepted may arrive after.
 local JOIN_GRACE = 10
+-- Silent past one heartbeat and the answer to its ping: the window says "no answer" and for how
+-- long, which tells whether to wait or to re-invite, until LOST_SECONDS drops them.
+local QUIET_SECONDS = HEARTBEAT_SECONDS + 5
 
 local SYNC_KINDS = { "quests", "gossip", "zones", "books" }
 
@@ -128,6 +131,16 @@ end
 function Peers:Rtt(key)
 	local peer = self.list[key]
 	return peer and peer.rtt or DEFAULT_RTT
+end
+
+--- How many seconds `key` has been silent, once that is past a heartbeat; nil while it answers.
+function Peers:Quiet(key)
+	local peer = self.list[key]
+	if not (peer and peer.state == "online" and peer.lastSeen) then
+		return nil
+	end
+	local silent = GetTime() - peer.lastSeen
+	return silent > QUIET_SECONDS and math.floor(silent) or nil
 end
 
 --------------------------------------------------------------------------------
@@ -404,7 +417,7 @@ function Peers:Hello()
 	return Comm:Broadcast("HI", PartySync.version, 0, SessionWord(), Own())
 end
 
---- To `name`, by whisper: a member at login, or someone on the auto-form list who may be
+--- To `name`, by whisper: a member at login, or someone in the usual party who may be
 --- online by now.
 function Peers:Greet(name, reply)
 	return Comm:Whisper(name, "HI", PartySync.version, reply and 1 or 0, SessionWord(), Own())
@@ -525,6 +538,33 @@ function Peers:DeclineInvite(name, id)
 	Comm:Whisper(name, "ID", id or "")
 end
 
+--- Whether this character may ask `name` again: a member, to bring them back in step, or
+--- anyone when it may invite.
+function Peers:MayReinvite(name)
+	return self:IsMember(name) or self:MayInvite()
+end
+
+--- Ask `name` again. A member who stopped answering is greeted and, from the leader, invited to
+--- the party it is in, which it answers as a member re-linking (the roster and the rules come
+--- back); someone gone from the party is invited to it. Returns what Invite returns.
+function Peers:Reinvite(name)
+	local key = PartySync:NameKey(name)
+	if not key then
+		return false, "no name"
+	end
+	local who = self:MemberName(key)
+	if not self:IsMember(key) then
+		return self:Invite(who)
+	end
+	self:Greet(who)
+	local session = self:Session()
+	if session.leader == PartySync:MyKey() then
+		Comm:Whisper(who, "IV", PartySync.version, session.id)
+	end
+	PartySync:Trace("party", "%s asked again", key)
+	return true
+end
+
 local function DefinePopup()
 	if not StaticPopupDialogs or StaticPopupDialogs[POPUP] then
 		return
@@ -546,7 +586,7 @@ local function DefinePopup()
 end
 
 --- Whether this character is in a party of one it has only just started: two members of an
---- auto-form list inviting each other at once each stand in one, and the lower name's wins.
+--- usual party inviting each other at once each stand in one, and the lower name's wins.
 local function Alone()
 	local session = Peers:Session()
 	return session ~= nil and Peers:Count() == 1
@@ -576,7 +616,7 @@ Comm:On("IV", function(sender, channel, version, sessionId)
 		end
 	end
 	if Autoform() and Autoform():Accepts(key) then
-		PartySync:Trace("party", "%s's invitation accepted from the auto-form list", key)
+		PartySync:Trace("party", "%s's invitation accepted: in the usual party, auto-accept", key)
 		Peers:AcceptInvite(sender, sessionId)
 		return
 	end
@@ -707,6 +747,14 @@ function Peers:MayShare()
 	return false
 end
 
+--- Why a quest this character accepts is not shared, per the rule; nil when it is.
+function Peers:WhyNoShare()
+	if self:MayShare() then
+		return nil
+	end
+	return (self:Rules().share or "anyone") == "leader" and L.SHARE_LEADER or L.SHARE_NOBODY
+end
+
 --- Set a rule: `controls` ("anyone", "leader", "nobody"), `room` (a member's key, or "none"),
 --- `share` ("anyone", "leader", "nobody"), or `sync` with `kind` and whether it is on. In a party, the leader's to set, and every
 --- member is told; outside one, this computer's own for the next party it starts.
@@ -739,7 +787,7 @@ Comm:On("PS", function(sender, channel, controls, room, flags, share)
 		return
 	end
 	local rules = session.rules
-	rules.controls = controls ~= "" and controls or "leader"
+	rules.controls = controls ~= "" and controls or "anyone"
 	rules.room = room ~= "" and room or "none"
 	-- A leader on 0.4.0 sends no `share`: the rule it never had is the default.
 	rules.share = share ~= nil and share ~= "" and share or "anyone"
@@ -877,15 +925,38 @@ function Peers:Ping(target, quiet, stats)
 	return sent, answer
 end
 
+--- Ping every member, and keep the round for the settings page to show beside its button.
 function Peers:PingMembers()
-	local any = false
-	for key in self:Members() do
-		any = true
+	local keys = {}
+	for key in self:Members() do table.insert(keys, key) end
+	table.sort(keys)
+	if not keys[1] then
+		self.pingRound = nil
+		PartySync:Print("nobody in your Spoken party yet: /sps invite <name>")
+		return
+	end
+	self.pingRound = { at = GetTime(), keys = keys, ms = {} }
+	for _, key in ipairs(keys) do
 		self:Ping(self:MemberName(key))
 	end
-	if not any then
-		PartySync:Print("nobody in your Spoken party yet: /sps invite <name>")
+	-- The members who never answered are only "no answer" once the wait is over.
+	C_Timer.After(PING_TIMEOUT + 0.1, function() PartySync:Changed() end)
+end
+
+--- The last PingMembers, member by member ("Lala 1145 ms", "Mira no answer"); nil before one.
+function Peers:PingSummary()
+	local round = self.pingRound
+	if not round then
+		return nil
 	end
+	local over = GetTime() - round.at >= PING_TIMEOUT
+	local parts = {}
+	for _, key in ipairs(round.keys) do
+		local ms = round.ms[key]
+		table.insert(parts, format("%s %s", PartySync:FirstName(self:MemberName(key)),
+			ms and format("%d ms", math.floor(ms + 0.5)) or (over and L.PING_NO_ANSWER or L.PING_WAITING)))
+	end
+	return table.concat(parts, PartySync.DOT)
 end
 
 Comm:On("PI", function(sender, channel, token)
@@ -917,6 +988,10 @@ Comm:On("PO", function(sender, channel, token)
 	end
 	if ping.stats and PartySync:NameKey(sender) == ping.stats.peer then
 		table.insert(ping.stats[PathOf(channel)], ms)
+	end
+	local round = Peers.pingRound
+	if round and not ping.quiet and ping.sentAt >= round.at then
+		round.ms[PartySync:NameKey(sender)] = ms
 	end
 	PartySync:Changed()
 	if not ping.quiet then

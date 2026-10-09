@@ -5,8 +5,8 @@
 -- so it reads like the others. A top-level entry of its own where the player cannot nest pages.
 -- Every setting here also has a slash command.
 --
--- The party block and the auto-form block are custom frames: a row per character with its own
--- buttons, which the layout's rows of one control each cannot draw.
+-- The party block and the usual party block are custom frames: a row per character with its
+-- own buttons, which the layout's rows of one control each cannot draw.
 
 local _, PartySync = ...
 
@@ -21,7 +21,7 @@ local MEMBER_ROWS = 4
 local ROWS = MEMBER_ROWS + 1
 local ROW_HEIGHT = 22
 local MEMBERS_HEIGHT = ROWS * ROW_HEIGHT + 34
--- The auto-form block: a row per listed character, then the name box and Add.
+-- The usual party block: a row per listed character, then the name box and Add.
 local LIST_ROWS = 5
 local LIST_HEIGHT = LIST_ROWS * ROW_HEIGHT + 34
 
@@ -184,7 +184,7 @@ local function MembersBlock(parent)
 end
 
 --------------------------------------------------------------------------------
--- The auto-form block
+-- The usual party block
 --------------------------------------------------------------------------------
 
 local function UpdateList()
@@ -248,7 +248,7 @@ local function ListBlock(parent)
 		row.remove = RowButton(block, row, i, 428, 90, L.OPT_REMOVE, nil, function(r)
 			local name = Autoform:Entry(r.key) and Autoform:Entry(r.key).name or r.key
 			if Autoform:Remove(r.key) then
-				PartySync:Print("%s is off the auto-form list", PartySync:ShortName(name))
+				PartySync:Print("%s is out of your usual party", PartySync:ShortName(name))
 			end
 			UpdateList()
 		end)
@@ -258,7 +258,7 @@ local function ListBlock(parent)
 	block.box, block.add = NameBox(block, -(LIST_ROWS * ROW_HEIGHT) - 6, L.OPT_NAME_TIP, L.OPT_LIST_ADD,
 		L.OPT_LIST_ADD_TIP, function(name)
 			if Autoform:Add(name) then
-				PartySync:Print("%s is on the auto-form list", PartySync:ShortName(name))
+				PartySync:Print("%s is in your usual party", PartySync:ShortName(name))
 			end
 			UpdateList()
 		end)
@@ -324,10 +324,20 @@ function PartySync:SetupOptions()
 		UpdateMembers()
 	end, L.OPT_LEAVE_TIP), function() return Peers:InParty() end, L.OPT_IN_PARTY)
 
+	layout:Section(L.OPT_SECTION_WINDOW)
+	layout:Dropdown(L.OPT_WINDOW_SHOW, L.OPT_WINDOW_SHOW_TIP, { "always", "syncing", "problems", "never" },
+		function() return DB().window.show end,
+		function(value) DB().window.show = value; PartySync:RefreshWindow() end, refresh,
+		function(value) return SHOW[value] or value end)
+	layout:Slider(L.OPT_WINDOW_SCALE, PartySync.MIN_WINDOW_SCALE, 1.5, 0.05,
+		function() return DB().window.scale or 1 end,
+		function(value) PartySync:SetWindowScale(value) end, nil, SpokenLayout.Percent)
+	layout:Button(L.OPT_WINDOW_OPEN, nil, function() PartySync:ShowWindow(true) end)
+
 	layout:Section(L.OPT_SECTION_RULES)
 	layout:Note(L.OPT_RULES_NOTE)
 	RuleRow(layout:Dropdown(L.OPT_CONTROLS, L.OPT_CONTROLS_TIP, { "leader", "anyone", "nobody" },
-		function() return Peers:Rules().controls or "leader" end,
+		function() return Peers:Rules().controls or "anyone" end,
 		function(value) Peers:SetRule("controls", value) end, refresh,
 		function(value) return CONTROLS[value] or value end))
 	self.roomDropdown = RuleRow(layout:Dropdown(L.OPT_ROOM, L.OPT_ROOM_TIP, function() return Room:Choices() end,
@@ -337,10 +347,13 @@ function PartySync:SetupOptions()
 		function() return Peers:Rules().share or "anyone" end,
 		function(value) Peers:SetRule("share", value) end, refresh,
 		function(value) return SHARE[value] or value end))
+	layout:Note(L.OPT_SYNC_NOTE)
+	layout:Indent()
 	SyncBox("quests", L.OPT_SYNC_QUESTS, L.OPT_SYNC_QUESTS_TIP)
 	SyncBox("gossip", L.OPT_SYNC_GOSSIP, L.OPT_SYNC_GOSSIP_TIP)
 	SyncBox("zones", L.OPT_SYNC_ZONES, L.OPT_SYNC_ZONES_TIP)
 	SyncBox("books", L.OPT_SYNC_BOOKS, L.OPT_SYNC_BOOKS_TIP)
+	layout:Outdent()
 
 	layout:Section(L.OPT_SECTION_SOUND)
 	layout:Dropdown(L.OPT_SOUND_OWN, L.OPT_SOUND_OWN_TIP, { "", "sound", "captions" },
@@ -352,11 +365,14 @@ function PartySync:SetupOptions()
 	listBlock = ListBlock(content)
 	self.listRows = listBlock.rows
 	layout:Custom(listBlock, LIST_HEIGHT)
-	layout:Requires(layout:Button(L.OPT_REMEMBER, nil, function()
+	local remember = layout:Button(L.OPT_REMEMBER, nil, function()
 		local added = Autoform:Remember()
-		if added then PartySync:Print("the party is on the auto-form list, %d new to it", added) end
+		if added then PartySync:Print("the party is in your usual party, %d new to it", added) end
 		UpdateList()
-	end, L.OPT_REMEMBER_TIP), function() return Peers:InParty() end, L.OPT_IN_PARTY)
+		refresh()
+	end, L.OPT_REMEMBER_TIP)
+	layout:Requires(remember, function() return Peers:InParty() end, L.OPT_IN_PARTY)
+	layout:Requires(remember, function() return not Autoform:Remembered() end, L.REMEMBERED_ALREADY)
 	layout:Checkbox(L.OPT_REMEMBER_AUTO, L.OPT_REMEMBER_AUTO_TIP,
 		function() return DB().remember end,
 		function(value)
@@ -367,34 +383,43 @@ function PartySync:SetupOptions()
 		end)
 
 	layout:Section(L.OPT_SECTION_QUESTS)
-	layout:Checkbox(L.OPT_AUTO_SHARE, L.OPT_AUTO_SHARE_TIP,
+	local share = layout:Checkbox(L.OPT_AUTO_SHARE, L.OPT_AUTO_SHARE_TIP,
 		function() return DB().autoShare end,
 		function(value) DB().autoShare = value and true or false; PartySync:TraceSetting("auto share", DB().autoShare) end)
+	layout:Requires(share, function() return (Peers:Rules().share or "anyone") ~= "nobody" end, L.SHARE_NOBODY)
+	layout:Requires(share, function() return Peers:MayShare() end, L.SHARE_LEADER)
 	layout:Checkbox(L.OPT_AUTO_ACCEPT, L.OPT_AUTO_ACCEPT_TIP,
 		function() return DB().autoAccept end,
 		function(value) DB().autoAccept = value and true or false; PartySync:TraceSetting("auto accept", DB().autoAccept) end)
 
-	layout:Section(L.OPT_SECTION_WINDOW)
-	layout:Dropdown(L.OPT_WINDOW_SHOW, L.OPT_WINDOW_SHOW_TIP, { "always", "syncing", "problems", "never" },
-		function() return DB().window.show end,
-		function(value) DB().window.show = value; PartySync:RefreshWindow() end, refresh,
-		function(value) return SHOW[value] or value end)
-	layout:Slider(L.OPT_WINDOW_SCALE, 0.7, 1.5, 0.05,
-		function() return DB().window.scale or 1 end,
-		function(value) PartySync:SetWindowScale(value) end, nil, SpokenLayout.Percent)
-	layout:Button(L.OPT_WINDOW_OPEN, nil, function() PartySync:ShowWindow(true) end)
-
 	layout:Section(L.OPT_SECTION_DIAGNOSTICS)
-	layout:Button(L.OPT_PING, nil, function() Peers:PingMembers() end, L.OPT_PING_TIP)
+	local ping = layout:Button(L.OPT_PING, nil, function() Peers:PingMembers(); refresh() end, L.OPT_PING_TIP)
+	layout:Requires(ping, function() return Peers:InParty() end, L.OPT_IN_PARTY)
+	-- The round trips beside the button, as they come in, not only in chat.
+	local pingResult = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	pingResult:SetPoint("LEFT", ping, "RIGHT", 10, 0)
+	self.pingResult = pingResult
+	layout:OnRefresh(function() pingResult:SetText(Peers:InParty() and Peers:PingSummary() or "") end)
 	layout:Note(L.OPT_COMMANDS)
 
-	layout:StartOver(L.OPT_SECTION_START_OVER, L.OPT_RESET_PAGE, function()
+	local resetDone
+	local reset = layout:StartOver(L.OPT_SECTION_START_OVER, L.OPT_RESET_PAGE, function()
 		SpokenLayout.Confirm(L.OPT_RESET_CONFIRM, L.OPT_RESET, L.OPT_CANCEL, function()
 			PartySync:ResetOptions()
 			Peers:Announce()
 			layout:Refresh()
+			resetDone:SetText(L.OPT_RESET_DONE)
+			C_Timer.After(3, function() resetDone:SetText("") end)
 		end)
 	end, L.OPT_RESET_PAGE_TIP)
+	-- "Reset." for a moment beside whichever button it was: the header's Defaults, or the page's own.
+	resetDone = reset:GetParent():CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	if reset == layout.defaults then
+		resetDone:SetPoint("RIGHT", reset, "LEFT", -8, 0)
+	else
+		resetDone:SetPoint("LEFT", reset, "RIGHT", 10, 0)
+	end
+	self.resetDone = resetDone
 
 	-- Without the player there is nothing to sync, and every switch says so rather than looking
 	-- live and doing nothing.
@@ -415,6 +440,7 @@ function PartySync:SetupOptions()
 		Settings.RegisterAddOnCategory(category)
 	end
 	self.optionsPanel = panel
+	self.optionsLayout = layout
 	self:SetupDeveloperRows()
 end
 

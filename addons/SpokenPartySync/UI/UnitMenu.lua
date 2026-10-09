@@ -78,7 +78,7 @@ local function Modify(_, rootDescription, contextData)
 	if not Autoform:Entry(key) then
 		rootDescription:CreateButton(L.MENU_REMEMBER, function()
 			if Autoform:Add(name) then
-				PartySync:Print("%s is on the auto-form list", PartySync:ShortName(name))
+				PartySync:Print("%s is in your usual party", PartySync:ShortName(name))
 			end
 		end)
 	end

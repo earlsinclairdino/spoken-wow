@@ -34,7 +34,7 @@ function Diagnostics:MemberLine(key, leader)
 		if peer.session and peer.session ~= "" and peer.session ~= Peers:SessionId() then
 			table.insert(parts, "in another party")
 		end
-		if peer.own then table.insert(parts, "own sound") end
+		if peer.own then table.insert(parts, "own audio") end
 		if peer.lastSeen then
 			table.insert(parts, format("last heard %d s ago", math.floor(GetTime() - peer.lastSeen + 0.5)))
 		end
@@ -97,6 +97,8 @@ function Diagnostics:Lines(detailed)
 	Add("this computer: %s, sound here %s%s", tostring(PartySync:MyKey()), Room:DescribeOwn(db.soundOwn),
 		Room:IsSilent() and ", captions only" or "")
 	Add("auto share %s, auto accept %s, remember parties %s", OnOff(db.autoShare), OnOff(db.autoAccept), OnOff(db.remember))
+	local health = Sync.ready and Sync:Health()
+	if session and health then Add("last line played together: %s", health == "sync" and "in sync" or health) end
 
 	local members = self:MemberLines()
 	if members[1] then
@@ -108,7 +110,7 @@ function Diagnostics:Lines(detailed)
 	local Autoform = PartySync.Autoform
 	local list = Autoform and Autoform:List()
 	if list and next(list.members) then
-		Add("auto-form list%s:", list.leader and format(" (%s leads)", Name(list.leader)) or "")
+		Add("usual party%s:", list.leader and format(" (%s leads)", Name(list.leader)) or "")
 		for _, key in ipairs(Autoform:Keys()) do
 			local entry = list.members[key]
 			local peer = Peers.list[key]

@@ -1,5 +1,5 @@
--- The auto-form list: who this character forms a party with as soon as they are online, who
--- led it, and the rules it had.
+-- The usual party (the auto-form list): who this character forms a party with as soon as they
+-- are online, who led it, and the rules it had.
 --
 -- While a listed character is not in the party, it is whispered a hello every heartbeat (the
 -- client's "No player named" stays hidden). When one answers from no party: with a party
@@ -10,7 +10,7 @@
 -- Being added to someone's list is told: `RM` asks the other side whether to accept that
 -- character's invitations without the popup, and puts them on its own list either way.
 --
---   RM                      "I added you to my auto-form list"
+--   RM                      "I added you to my usual party"
 
 local _, PartySync = ...
 
@@ -60,7 +60,7 @@ function Autoform:Add(name, autoAccept)
 	local isNew = members[key] == nil
 	if isNew then
 		members[key] = { name = PartySync:WhisperName(name), autoAccept = autoAccept ~= false, added = time and time() or 0 }
-		PartySync:Trace("party", "%s added to the auto-form list%s", key, members[key].autoAccept and "" or ", asked each time")
+		PartySync:Trace("party", "%s added to the usual party%s", key, members[key].autoAccept and "" or ", asked each time")
 		Comm:Whisper(name, "RM")
 	elseif autoAccept ~= nil then
 		members[key].autoAccept = autoAccept and true or false
@@ -77,7 +77,7 @@ function Autoform:Remove(name)
 	end
 	members[key] = nil
 	if self:List().leader == key then self:List().leader = nil end
-	PartySync:Trace("party", "%s removed from the auto-form list", key)
+	PartySync:Trace("party", "%s removed from the usual party", key)
 	PartySync:Changed()
 	return true
 end
@@ -106,10 +106,24 @@ function Autoform:Remember()
 	local list = self:List()
 	list.leader = session.leader
 	list.rules = PartySync.Copy(session.rules)
-	PartySync:Trace("party", "auto-form list remembers the party: %s leads, %d new; %s", session.leader, added,
+	PartySync:Trace("party", "usual party remembers the party: %s leads, %d new; %s", session.leader, added,
 		Peers.DescribeRules(list.rules))
 	PartySync:Changed()
 	return added
+end
+
+--- Whether everyone in this character's party is in its usual party already.
+function Autoform:Remembered()
+	if not Peers:InParty() then
+		return false
+	end
+	local members = self:List().members
+	for key in Peers:Members() do
+		if not members[key] then
+			return false
+		end
+	end
+	return true
 end
 
 --- The party changed: remembered, where the setting says so.
@@ -147,7 +161,7 @@ local function InviteOnce(key)
 	invitedAt[key] = GetTime()
 	local list = Autoform:List()
 	local sent, answer = Peers:Invite(list.members[key].name, list.rules)
-	PartySync:Trace("party", "auto-form invites %s: %s", key, sent and "sent" or tostring(answer))
+	PartySync:Trace("party", "usual party invites %s: %s", key, sent and "sent" or tostring(answer))
 end
 
 --- Invite whoever on the list is online and free, when it is this character's to do.
@@ -226,7 +240,7 @@ Comm:On("RM", function(sender)
 	if Autoform:Entry(sender) then
 		return
 	end
-	PartySync:Trace("party", "%s added this character to their auto-form list", PartySync:NameKey(sender))
+	PartySync:Trace("party", "%s added this character to their usual party", PartySync:NameKey(sender))
 	DefinePopup()
 	if StaticPopup_Show then
 		StaticPopup_Show(POPUP, PartySync:ShortName(sender), nil, PartySync:WhisperName(sender))

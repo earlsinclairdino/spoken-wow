@@ -304,7 +304,7 @@ Expect("the party's diagnostics name the addon and the group", Has("Spoken Party
 Expect("...the debug log", Has("debug log: ", diag), true)
 Expect("...the party", Has("party: " .. P.SESSION .. ", 2 member(s)", diag), true)
 Expect("...who leads, and why", Has("leader: Lala Throwaway (leads the party); sound: every computer", diag), true)
-Expect("...and the leader's rules", Has("rules (the leader's): controls leader, sound none, quests shared by anyone, played together quests, gossip, zones, books", diag), true)
+Expect("...and the leader's rules", Has("rules (the leader's): controls anyone, sound none, quests shared by anyone, played together quests, gossip, zones, books", diag), true)
 Expect("...the member, online and leading", Has("Lala Throwaway: online", diag) and Has(", leads", diag), true)
 Expect("...and, detailed, the lines played together", Has("101-accept, driver", diag), true)
 Expect("...but not when brief", Has("101-accept, driver", ns.Diagnostics:Lines(false)), false)
@@ -344,28 +344,37 @@ ns.Peers:PassLead(LALA)
 Expect("passing the lead sends the roster with her leading", Fields(P.Last("RO", LALA)), P.SESSION .. "|lala throwaway|Tata Throwaway;Lala Throwaway")
 Expect("...and she leads", ns.Peers:Leader(), "lala throwaway")
 
--- The window's rows are the leader's to press.
+-- The window's member menus are the leader's to use.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
 ns:ShowWindow(true)
 local rows = ns.windowRows
+local function Entry(entries, text)
+	for _, entry in ipairs(entries) do
+		if entry.text == text then return entry end
+	end
+end
+local function MemberEntry(key, text) return Entry(ns:WindowMemberMenu(key), text) end
 Expect("the window has a row for this character, then one for her",
 	rows and rows[1] and rows[2] and (rows[1].key .. "|" .. rows[2].key), "tata throwaway|lala throwaway")
 Expect("...with her line on it", rows[2].label.text and rows[2].label.text:find("Lala Throwaway", 1, true) ~= nil, true)
-Expect("...and its Lead greyed, as she leads", rows[2].lead:IsEnabled(), false)
-Expect("...this character's too: the lead is hers to pass", rows[1].lead:IsEnabled(), false)
-Expect("...saying so on hover", rows[1].lead.tooltip, format(ns.L.ONLY_LEADER_FMT, "Lala Throwaway"))
+local onlyLala = format(ns.L.ONLY_LEADER_FMT, "Lala Throwaway")
+Expect("...her Make Leader greyed, the lead hers to pass", MemberEntry("lala throwaway", ns.L.MENU_MAKE_LEADER).reason, onlyLala)
+Expect("...this character's too", MemberEntry(ns:MyKey(), ns.L.MENU_MAKE_LEADER).reason, onlyLala)
 P.Receive(stub, LALA, "RO", P.SESSION, "Tata Throwaway", "Lala Throwaway;Tata Throwaway")
-Expect("leading, her Lead is live", rows[2].lead:IsEnabled(), true)
+Expect("leading, her Make Leader is live", MemberEntry("lala throwaway", ns.L.MENU_MAKE_LEADER).reason, nil)
+Expect("...and this character's says it leads already", MemberEntry(ns:MyKey(), ns.L.MENU_MAKE_LEADER).reason,
+	format(ns.L.ALREADY_LEADS_FMT, "Tata Throwaway"))
 P.Clear()
-rows[2].sound:Click()
-Expect("her Sound gives her computer the sound, for the party", Fields(P.Last("PS", LALA)), "leader|lala throwaway|1111|anyone")
-Expect("...and then greys", rows[2].sound:IsEnabled(), false)
-rows[2].lead:Click()
-Expect("her Lead passes her the lead", Fields(P.Last("RO", LALA)), P.SESSION .. "|lala throwaway|Tata Throwaway;Lala Throwaway")
-Expect("...and then greys", rows[2].lead:IsEnabled(), false)
-Expect("the window opens the settings too", _G.SpokenPartySyncWindow.settings ~= nil, true)
-Expect("...and remembers the party", _G.SpokenPartySyncWindow.remember ~= nil, true)
+MemberEntry("lala throwaway", ns.L.MENU_PLAY_HERE).onClick()
+Expect("her Play Sound Here gives her computer the sound, for the party", Fields(P.Last("PS", LALA)), "anyone|lala throwaway|1111|anyone")
+Expect("...and then says it is so", MemberEntry("lala throwaway", ns.L.MENU_PLAY_HERE).reason,
+	format(ns.L.ALREADY_SOUND_FMT, "Lala Throwaway"))
+MemberEntry("lala throwaway", ns.L.MENU_MAKE_LEADER).onClick()
+Expect("her Make Leader passes her the lead", Fields(P.Last("RO", LALA)), P.SESSION .. "|lala throwaway|Tata Throwaway;Lala Throwaway")
+Expect("...after which it is hers again", MemberEntry("lala throwaway", ns.L.MENU_MAKE_LEADER).reason, onlyLala)
+Expect("the title menu opens the settings", Entry(ns:WindowTitleMenu(), ns.L.MENU_WINDOW_SETTINGS) ~= nil, true)
+Expect("...and remembers the party", Entry(ns:WindowTitleMenu(), ns.L.OPT_REMEMBER).reason, nil)
 ns:ShowWindow(false)
 
 -- And the settings page's Party block.
@@ -412,13 +421,13 @@ local root = {
 	CreateButton = function(_, label) table.insert(offered, label) end,
 }
 P.menus.MENU_UNIT_PARTY(nil, root, { name = LALA })
-Expect("her portrait offers to remember her, and nothing of the leader's", table.concat(offered, "|"), "Remember for Spoken Parties")
+Expect("her portrait offers to remember her, and nothing of the leader's", table.concat(offered, "|"), "Add to Usual Spoken Party")
 P.Receive(stub, LALA, "RO", P.SESSION, "Tata Throwaway", "Lala Throwaway;Tata Throwaway")
 ns.Room:Choose("none")
 offered = {}
 P.menus.MENU_UNIT_PARTY(nil, root, { name = LALA })
 Expect("...and, leading, Lead, Sound and Remove", table.concat(offered, "|"),
-	"Pass the Spoken Party Lead|Play the Sound for the Spoken Party|Remove from Spoken Party|Remember for Spoken Parties")
+	"Make Spoken Party Leader|Play the Sound for the Spoken Party|Remove from Spoken Party|Add to Usual Spoken Party")
 
 -- Spoken's minimap menu has a section for the party.
 local entries = {}
