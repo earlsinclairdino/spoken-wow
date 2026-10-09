@@ -65,7 +65,9 @@ local function ClientAPI(stub)
 	_G.GetBuildInfo = function() return "1.60.1", "70205", "", 16001 end
 	_G.LE_PARTY_CATEGORY_HOME = 1
 	_G.InCombatLockdown = function() return false end
-	_G.time = os.time
+	-- The wall clock follows the test's, so stub.Advance makes a party last or a rejoin go stale.
+	local epoch = os.time()
+	_G.time = function() return epoch + math.floor(stub.world.time) end
 	_G.ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
 	_G.ACCEPT, _G.DECLINE = "Accept", "Decline"
 	_G.AcceptQuest = function() table.insert(M.calls, "AcceptQuest") end
@@ -184,6 +186,33 @@ function M.Party(stub, ns, room, lead, rules)
 	ns:Party().session = session
 	M.Receive(stub, M.LALA, "HI", "0.4.0", 1, M.SESSION, 0)
 	M.Clear()
+end
+
+--- A message's fields after its kind, joined with "|", for comparing in one go.
+function M.Fields(message)
+	return message and table.concat(message.fields, "|", 2) or nil
+end
+
+--- A quest's accept line, as Spoken Quests queues one.
+function M.QuestLine(VO, questID)
+	return { event = VO.Enums.SoundEvent.QuestAccept, questID = questID, name = "Giver", title = "Quest " .. questID,
+		text = "Go.", unitGUID = "Creature-0-0-0-0-1234-0" }
+end
+
+--- The entry of one of the window's menus whose words are `text`, submenus included.
+function M.Entry(entries, text)
+	for _, entry in ipairs(entries) do
+		if entry.text == text then return entry end
+		local found = entry.children and M.Entry(entry.children, text)
+		if found then return found end
+	end
+end
+
+--- The settings page's control labelled `label`.
+function M.PageRow(ns, label)
+	for _, entry in ipairs(ns.optionsLayout.entries) do
+		if entry.label == label then return entry.frame end
+	end
 end
 
 function M.Called(name)

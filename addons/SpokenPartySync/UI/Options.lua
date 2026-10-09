@@ -89,10 +89,6 @@ end
 -- The party block
 --------------------------------------------------------------------------------
 
-local function OnlyLeader()
-	return format(L.ONLY_LEADER_FMT, PartySync:ShortName(Peers:MemberName(Peers:Leader() or "?")))
-end
-
 local function UpdateMembers()
 	if not membersBlock then return end
 	local keys = Peers:MemberKeys()
@@ -109,8 +105,8 @@ local function UpdateMembers()
 			row.key, row.isMe = key, isMe
 			local tags = {}
 			if Peers:IsLeader(key) then table.insert(tags, L.TAG_LEAD) end
-			if Room:Owner("voice") ~= "none" and Room:Plays("voice", key) then table.insert(tags, L.TAG_SOUND) end
-			if (isMe and Room:IsOwn()) or (not isMe and peer and peer.own) then table.insert(tags, L.TAG_OWN_SOUND) end
+			if Room:Voices(key) then table.insert(tags, L.TAG_SOUND) end
+			if Room:Decides(key) then table.insert(tags, L.TAG_OWN_SOUND) end
 			local tagText = tags[1] and ("  |cffffd060" .. table.concat(tags, ", ") .. "|r") or ""
 			if isMe then
 				row.label:SetText(format("%s  |cff909090(%s)|r%s", PartySync:ShortName(PartySync:UnitChatName("player")), L.TAG_YOU, tagText))
@@ -148,10 +144,7 @@ local function MembersBlock(parent)
 	block.none:SetText(L.OPT_MEMBERS_NONE)
 
 	local function LeaderOr(text)
-		return function()
-			if Peers:AmLeader() then return text end
-			return OnlyLeader()
-		end
+		return function() return Peers:WhyNotLeader() or text end
 	end
 	block.rows = {}
 	for i = 1, ROWS do
@@ -176,7 +169,7 @@ local function MembersBlock(parent)
 	end
 
 	block.box, block.invite = NameBox(block, -(ROWS * ROW_HEIGHT) - 6, L.OPT_NAME_TIP, L.OPT_INVITE,
-		function() return Peers:MayInvite() and L.OPT_INVITE_TIP or OnlyLeader() end, function(name)
+		function() return Peers:WhyNotLeader() or L.OPT_INVITE_TIP end, function(name)
 			local sent, answer = Peers:Invite(name)
 			PartySync:Print("invitation to %s: %s", PartySync:ShortName(name), sent and "sent" or tostring(answer))
 		end)
@@ -345,11 +338,11 @@ function PartySync:SetupOptions()
 		function(value) Peers:SetRule("share", value) end, refresh,
 		function(value) return SHARE[value] or value end))
 	layout:Note(L.OPT_WHO_NOTE)
-	-- Every channel at once, then each: "Mixed" and "every computer but ..." are offered only as
-	-- the value they already have, to show it.
-	self.roomDropdown = RuleRow(layout:Dropdown(L.OPT_ALL_SOUND, L.OPT_ALL_SOUND_TIP,
+	-- Every channel at once, then each. "Mixed" and "every computer but ..." are listed only while
+	-- they are the value, for the box to show it; choosing "Mixed" changes nothing.
+	RuleRow(layout:Dropdown(L.OPT_ALL_SOUND, L.OPT_ALL_SOUND_TIP,
 		function() return Room:Choices(Room:Summary()) end,
-		function() return Room:Summary() end, function(value) Room:SetAll(value) end, refresh,
+		function() return Room:Summary() end, function(value) if value ~= "mixed" then Room:SetAll(value) end end, refresh,
 		function(value) return Room:Describe(value) end))
 	layout:Indent()
 	for _, channel in ipairs(Room.CHANNELS) do
@@ -372,13 +365,13 @@ function PartySync:SetupOptions()
 			if Room:OwnSummary() == "mixed" then table.insert(choices, "mixed") end
 			return choices
 		end,
-		function() return Room:OwnSummary() end, function(value) Room:SetOwnAll(value) end, refresh,
-		function(value) return Room:DescribeOwn(value) end)
+		function() return Room:OwnSummary() end, function(value) if value ~= "mixed" then Room:SetOwnAll(value) end end,
+		refresh, function(value) return Room:DescribeOwn(value) end)
 	layout:Indent()
 	for _, channel in ipairs(Room.CHANNELS) do
-		layout:Dropdown(Room:Name(channel), Room:Tip(channel), Room:OwnChoices(channel),
+		layout:Dropdown(Room:Name(channel), Room:Tip(channel), Room:OwnChoices(),
 			function() return Room:OwnValue(channel) end, function(value) Room:SetOwnChannel(channel, value) end, refresh,
-			function(value) return Room:DescribeOwn(value) end)
+			function(value) return Room:DescribeOwn(value, channel) end)
 	end
 	layout:Outdent()
 
@@ -388,26 +381,18 @@ function PartySync:SetupOptions()
 	self.listRows = listBlock.rows
 	layout:Custom(listBlock, LIST_HEIGHT)
 	local remember = layout:Button(L.OPT_REMEMBER, nil, function()
-		local added = Autoform:Remember()
-		if added then PartySync:Print("the party is in your usual party, %d new to it", added) end
+		Autoform:Remember()
 		UpdateList()
 		refresh()
 	end, L.OPT_REMEMBER_TIP)
 	layout:Requires(remember, function() return Peers:InParty() end, L.OPT_IN_PARTY)
 	layout:Requires(remember, function() return not Autoform:Remembered() end, L.REMEMBERED_ALREADY)
-	layout:Checkbox(L.OPT_REMEMBER_AUTO, L.OPT_REMEMBER_AUTO_TIP,
-		function() return DB().remember end,
-		function(value)
-			DB().remember = value and true or false
-			PartySync:TraceSetting("remember parties", DB().remember)
-			Autoform:AutoRemember()
-			UpdateList()
-		end)
+	layout:Note(L.OPT_REMEMBER_HINT)
 
 	layout:Section(L.OPT_SECTION_QUESTS)
 	local share = layout:Checkbox(L.OPT_AUTO_SHARE, L.OPT_AUTO_SHARE_TIP,
 		function() return DB().autoShare end,
-		function(value) DB().autoShare = value and true or false; PartySync:TraceSetting("auto share", DB().autoShare) end)
+		function(value) PartySync:SetAutoShare(value) end)
 	layout:Requires(share, function() return (Peers:Rules().share or "anyone") ~= "nobody" end, L.SHARE_NOBODY)
 	layout:Requires(share, function() return Peers:MayShare() end, L.SHARE_LEADER)
 	layout:Checkbox(L.OPT_AUTO_ACCEPT, L.OPT_AUTO_ACCEPT_TIP,
@@ -441,7 +426,6 @@ function PartySync:SetupOptions()
 	else
 		resetDone:SetPoint("LEFT", reset, "RIGHT", 10, 0)
 	end
-	self.resetDone = resetDone
 
 	-- Without the player there is nothing to sync, and every switch says so rather than looking
 	-- live and doing nothing.

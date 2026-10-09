@@ -15,8 +15,9 @@ Books are installed, as long as they can rebuild a line from another client's de
    **Invite to Spoken Party**, or type `/sps invite Lala Throwaway` with their full name.
    The other accepts the popup. Whoever invites leads the party.
 3. Talk to an NPC. The line opens on both screens and starts on both together.
-4. Press **Remember This Party** (on the settings page, or in the window's title menu): next
-   time you are both online, the party forms by itself.
+4. Press **Remember This Party** (on the settings page, or in the window's title menu), or
+   **Remember** when the window offers it as the party ends: next time you are both online, the
+   party forms by itself.
 
 Grouping is not needed: the party is the addon's own, kept by name, and survives leaving the
 group, joining a raid, or questing apart.
@@ -66,8 +67,10 @@ group, joining a raid, or questing apart.
   **Mute There**: every computer but that one plays the voice.
 - **The usual party.** Who to form a party with as soon as you are both online, per
   character. **Remember This Party** puts the party's members on it, with who led and the
-  rules; **Remember Parties Automatically** does that as the party changes. Each member added
-  is told, and asked whether to accept your invitations without the popup (**Auto-accept**,
+  rules. When a party ends that lasted ten minutes or more, played at least one line together,
+  lost nobody on the way and whose people are not on the list yet, the window asks once:
+  "Play with Lala again?" **Remember** or **Not now** (never asked again for the same people).
+  Each member added is told, and asked whether to accept your invitations without the popup (**Auto-accept**,
   which they can change in their own list). While a listed character is not in the party, it
   is greeted every heartbeat; when it answers from no party, whoever led the remembered party,
   if online, else the first by name among those online, invites the others, with the
@@ -80,7 +83,9 @@ group, joining a raid, or questing apart.
   leads, own audio; the rest on hover) and a menu on click (Make Leader, Play Sound Here,
   Remove from Party, Whisper); the line that matters, with only the members behind on it
   under it and how many more are queued; and what went wrong, each with its fix beside it
-  (Re-invite, Remove, Dismiss). Compact keeps the members and the line. By default it only
+  (Re-invite, Remove, Mute There, Dismiss). Re-invite asks back someone dropped from the party
+  in the last ten minutes (into a new party with the old one's rules, if it ended), and they
+  rejoin without a popup. Compact keeps the members and the line. By default it only
   appears when something is wrong; Spoken's minimap menu (Open Party Window) and
   `/sps window` open it, Escape closes it. Nothing in it is protected, so it works in combat.
 
@@ -97,7 +102,7 @@ Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 | `/sps controls [anyone\|leader\|nobody]` | who controls playback (Stop, Replay, Skip) everywhere, a rule of the party's |
 | `/sps share [anyone\|leader\|nobody]` | whose accepted quests are shared with the party, a rule of the party's |
 | `/sps sound [<channel>\|all] [party\|plays\|muted]` | this computer's own choice (the voice without a channel; `sound`/`captions` still work) |
-| `/sps remember [on\|off]` | the party into your usual party; `on`/`off`: remember parties automatically |
+| `/sps remember` | the party into your usual party, or the one that just ended, as the window offers |
 | `/sps list [add <name> \| remove <name> \| auto <name> on\|off]` | your usual party |
 | `/sps sync` | the lines played together this session, and each member's state |
 | `/sps test <questID>` | queue a quest's accept line here, to try the sync without its NPC |
@@ -121,7 +126,7 @@ two parts and no realm: a whisper goes to the bare "First Last". The prefix is
 | Kind | Fields | |
 |---|---|---|
 | `HI` | version, reply, session, own, plays | hello: at login, when the group changes, to the usual party each heartbeat, and when what it plays changes; names the party this client is in, whether it decides any channel itself, and the channels it plays (`v m e a d`, `-` for none; missing before 0.5: the rules decide) |
-| `IV` / `IA` / `ID` | session | invite to the party, accepted, declined or left or removed (one naming another party is stale) |
+| `IV` / `IA` / `ID` | session (`IV`: version, session, rejoin) | invite to the party, accepted, declined or left or removed (one naming another party is stale); `rejoin` 1 asks back someone who was in a party with the inviter within ten minutes, who accepts without a popup |
 | `RO` | session, leader, members | the roster, from the leader, whenever it changes; a member not in it is out |
 | `PS` | controls, room, sync, share, audio | the rules, from the leader: whose controls, who plays the voice, four flags for the kinds played together, whose accepted quests are shared (missing from a 0.4.0 leader: anyone), and who plays each game channel (`music=<owner>;effects=...;ambience=...;dialog=...`, missing before 0.5: every computer). An owner is `none` (every computer), a member's key, or `-<key>,<key>` (every computer but those) |
 | `RM` | | "I added you to my usual party": the other side is asked whether to auto-accept |

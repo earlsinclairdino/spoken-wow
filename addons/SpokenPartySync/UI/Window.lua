@@ -43,17 +43,28 @@ local forced = false
 local lastProblemAt = nil
 -- Set around this file's own Hide, so only a close by the player (Escape) counts as one.
 local hidingHere = false
+-- Closed by hand: the problems (and the offer) on screen then, by key. It stays closed until
+-- one not among them comes up.
+local seenAtClose = nil
+
+local function Attention(model)
+	local keys = {}
+	for _, problem in ipairs(model and model.problems or {}) do keys[problem.key] = true end
+	if model and model.prompt then keys.prompt = true end
+	return keys
+end
+
+local function Dismiss()
+	forced = false
+	seenAtClose = Attention(PartySync.windowModel)
+end
 
 local function DB()
 	return PartySync:DB().window
 end
 
-local function Short(key)
-	return PartySync:ShortName(Peers:MemberName(key))
-end
-
-local function OnlyLeader()
-	return format(L.ONLY_LEADER_FMT, Short(Peers:Leader() or "?"))
+local function RulesReason()
+	return not Peers:MayInvite() and L.OPT_RULES_LEADER or nil
 end
 
 --------------------------------------------------------------------------------
@@ -69,15 +80,13 @@ local function PlaysText(key)
 	return names[1] and format(L.ROW_PLAYS_FMT, table.concat(names, ", ")) or L.ROW_PLAYS_NONE
 end
 
---- One member: a dot, the name, and one tag -- what most needs saying, a silence before the
---- voice, the voice before the lead -- with everything else for the tooltip.
+--- One member: a dot, the name, and the one tag that most needs saying (a silence before the
+--- voice, the voice before the lead), with everything else for the tooltip.
 local function MemberModel(key, isMe, leader)
 	local peer = not isMe and Peers.list[key] or nil
-	-- "voice" says who plays it only where not every computer does.
-	local leads, voice = key == leader, Room:Owner("voice") ~= "none" and Room:Plays("voice", key)
-	local own = (isMe and Room:IsOwn()) or (peer ~= nil and peer.own == true)
+	local leads, voice, own = key == leader, Room:Voices(key), Room:Decides(key)
 	local member = { key = key, isMe = isMe, dot = "online", rtt = peer and peer.rtt,
-		name = PartySync:ShortName(isMe and PartySync:UnitChatName("player") or Peers:MemberName(key)) }
+		name = isMe and PartySync:ShortName(PartySync:UnitChatName("player")) or Peers:ShortName(key) }
 	if not isMe then
 		local quiet = Peers:Quiet(key)
 		if not (peer and peer.state == "online") then
@@ -122,21 +131,23 @@ local function LineState(clip)
 	return L.LINE_QUEUED, GREY
 end
 
+local TROUBLE_WORDS = {
+	noanswer = { L.PEER_NO_ANSWER, RED }, unplayed = { L.PEER_NO_ANSWER, RED },
+	missing = { L.PEER_MISSING, RED }, dropped = { L.PEER_DROPPED, GREY },
+}
+
 --- A member's progress with a line this computer drives, only where it is not as it should be.
 local function Progress(entry, peer)
-	if not peer then return nil end
-	local state = peer.state
-	if state == "started" and (peer.ms or 0) >= Sync.LATE_MS then
-		return format(L.PEER_LATE_FMT, peer.ms), YELLOW
+	local trouble, ms = Sync:PeerTrouble(entry, peer)
+	if trouble == "late" then
+		return format(L.PEER_LATE_FMT, ms), YELLOW
 	end
-	if state == "noanswer" then return L.PEER_NO_ANSWER, RED end
-	if state == "missing" then return L.PEER_MISSING, RED end
-	-- Dropped by everyone together is a skip, not news.
-	if state == "dropped" and entry.state ~= "stopped" then return L.PEER_DROPPED, GREY end
+	local words = TROUBLE_WORDS[trouble]
+	if words then return words[1], words[2] end
 	return nil
 end
 
---- The line that matters -- the one playing, else the first queued -- and how many wait behind.
+--- The line that matters (the one playing, else the first queued) and how many wait behind.
 local function QueueModel()
 	if not PartySync:PlayerAvailable() then
 		return { empty = true }
@@ -165,7 +176,7 @@ local function QueueModel()
 		for _, key in ipairs(Peers:OnlineMembers()) do
 			local text, textColour = Progress(entry, entry.peers[key])
 			if text then
-				table.insert(line.progress, { name = Short(key), text = text, colour = textColour })
+				table.insert(line.progress, { name = Peers:ShortName(key), text = text, colour = textColour })
 			end
 		end
 	end
@@ -175,28 +186,25 @@ end
 --- A problem's fixes: asking a silent member again or removing them, taking the voice off a
 --- computer that has no file for it, else dismissing it.
 local function ProblemActions(problem)
-	local key = problem.key
-	local who = key:match("^answer:(.+)$") or key:match("^presence:(.+)$")
-	local missing = key:match("^missing:(.+)$")
-	if missing and Peers:IsMember(missing) and Room:Plays("voice", missing) then
+	local key, who = problem.key, problem.who
+	if problem.kind == "missing" and Peers:IsMember(who) and Room:Plays("voice", who) and Room:CanExclude("voice", who) then
 		return { {
-			label = L.ACTION_MUTE, tip = L.ACTION_MUTE_TIP,
-			reason = not Peers:MayInvite() and OnlyLeader() or nil,
-			run = function() Room:Exclude("voice", missing); PartySync:Resolve(key) end,
+			label = L.ACTION_MUTE, tip = L.ACTION_MUTE_TIP, reason = Peers:WhyNotLeader(),
+			run = function() Room:Exclude("voice", who); PartySync:Resolve(key) end,
 		} }
 	end
-	if not who then
+	if problem.kind ~= "silent" then
 		return { { label = L.ACTION_DISMISS, tip = L.ACTION_DISMISS_TIP, run = function() PartySync:Resolve(key) end } }
 	end
+	-- A member is greeted again by anyone; someone out of the party, invited by its leader.
 	local actions = { {
 		label = L.ACTION_REINVITE, tip = L.ACTION_REINVITE_TIP,
-		reason = not Peers:MayReinvite(who) and OnlyLeader() or nil,
+		reason = not Peers:IsMember(who) and Peers:WhyNotLeader() or nil,
 		run = function() Peers:Reinvite(who); PartySync:Resolve(key) end,
 	} }
 	if Peers:IsMember(who) then
 		table.insert(actions, {
-			label = L.ACTION_REMOVE, tip = format(L.ACTION_REMOVE_TIP_FMT, Short(who)),
-			reason = not Peers:MayInvite() and OnlyLeader() or nil,
+			label = L.ACTION_REMOVE, tip = format(L.ACTION_REMOVE_TIP_FMT, Peers:ShortName(who)), reason = Peers:WhyNotLeader(),
 			run = function() Peers:RemoveMember(who); PartySync:Resolve(key) end,
 		})
 	end
@@ -236,7 +244,7 @@ local function AudioLines()
 	local own = {}
 	for _, channel in ipairs(Room.CHANNELS) do
 		local value = Room:OwnValue(channel)
-		if value ~= "" then table.insert(own, Room:Name(channel) .. " " .. Room:DescribeOwn(value):lower()) end
+		if value ~= "" then table.insert(own, Room:Name(channel) .. " " .. Room:DescribeOwn(value, channel):lower()) end
 	end
 	if own[1] then table.insert(lines, format(L.AUDIO_OWN_FMT, table.concat(own, ", "))) end
 	table.insert(lines, L.CHIP_AUDIO_TIP)
@@ -245,14 +253,13 @@ end
 
 local function ChipsModel()
 	local rules = Peers:Rules()
-	local rulesReason = not Peers:MayInvite() and L.OPT_RULES_LEADER or nil
 	local shareReason = Peers:WhyNoShare()
 	return {
 		-- Live for everyone: whoever does not lead still decides this computer's own sound in it.
 		audio = { text = format(L.CHIP_AUDIO_FMT, Room:Short(Room:Summary())), title = L.CHIP_AUDIO_TITLE,
 			body = AudioLines() },
 		playback = { text = format(L.CHIP_PLAYBACK_FMT, CONTROLS[rules.controls] or tostring(rules.controls)),
-			title = L.OPT_CONTROLS, body = L.OPT_CONTROLS_TIP, reason = rulesReason },
+			title = L.OPT_CONTROLS, body = L.OPT_CONTROLS_TIP, reason = RulesReason() },
 		quests = { text = (PartySync:DB().autoShare and not shareReason) and L.CHIP_QUESTS_ON or L.CHIP_QUESTS_OFF,
 			title = L.OPT_AUTO_SHARE, body = L.CHIP_QUESTS_TIP, reason = shareReason },
 	}
@@ -276,17 +283,28 @@ function PartySync:WindowModel()
 	for _, problem in ipairs(self:Problems()) do
 		table.insert(model.problems, { key = problem.key, text = problem.text, actions = ProblemActions(problem) })
 	end
+	local prompt = Autoform:Prompt()
+	if prompt then
+		model.prompt = { text = format(L.PROMPT_FMT, prompt.names), actions = {
+			{ label = L.PROMPT_REMEMBER, tip = L.PROMPT_REMEMBER_TIP, run = function() Autoform:AcceptPrompt() end },
+			{ label = L.PROMPT_NOT_NOW, tip = L.PROMPT_NOT_NOW_TIP, run = function() Autoform:DeclinePrompt() end },
+		} }
+	end
 	return model
 end
 
---- The model as plain text, for /dump and the tests.
-local function Text(model)
+--- What the window says, as plain text, for /dump and the tests.
+function PartySync:WindowText()
+	local model = self:WindowModel()
 	local out = { L.WINDOW_TITLE .. (model.health and ("  " .. model.health.word) or "") }
 	if model.chips then
 		table.insert(out, table.concat({ model.chips.audio.text, model.chips.playback.text, model.chips.quests.text }, "  "))
 	end
 	if not model.inParty then
 		table.insert(out, L.WINDOW_NO_MEMBERS)
+	end
+	if model.prompt then
+		table.insert(out, model.prompt.text .. "  [" .. L.PROMPT_REMEMBER .. "] [" .. L.PROMPT_NOT_NOW .. "]")
 	end
 	for _, member in ipairs(model.members or {}) do
 		table.insert(out, member.name .. (member.isMe and (" (" .. L.TAG_YOU .. ")") or "")
@@ -312,6 +330,20 @@ local function Text(model)
 	return table.concat(out, "\n")
 end
 
+--- One radio entry a value: `describe(value)` its words, `pick(value)` what a click does.
+local function Radios(values, current, describe, pick, reason, tip)
+	local entries = {}
+	for _, value in ipairs(values) do
+		table.insert(entries, { text = describe(value), radio = value == current, reason = reason, tip = tip,
+			onClick = function() pick(value) end })
+	end
+	return entries
+end
+
+local function DescribeOwner(owner)
+	return Room:Describe(owner)
+end
+
 --------------------------------------------------------------------------------
 -- Menus: lists of { text, onClick, radio | checked, tip, reason, children } or { title }
 --------------------------------------------------------------------------------
@@ -333,10 +365,7 @@ function PartySync:WindowTitleMenu()
 		{ text = L.MENU_WINDOW_SETTINGS, onClick = function() PartySync:OpenOptions() end },
 		{ text = L.OPT_REMEMBER, tip = L.OPT_REMEMBER_TIP,
 			reason = (not inParty and L.OPT_IN_PARTY) or (Autoform:Remembered() and L.REMEMBERED_ALREADY) or nil,
-			onClick = function()
-				local added = Autoform:Remember()
-				if added then PartySync:Print("the party is in your usual party, %d new to it", added) end
-			end },
+			onClick = function() Autoform:Remember() end },
 		{ text = L.MENU_WINDOW_COMPACT, checked = DB().compact == true,
 			onClick = function() PartySync:SetWindowCompact(not DB().compact) end },
 		{ text = L.OPT_LEAVE, tip = L.OPT_LEAVE_TIP, reason = not inParty and L.OPT_IN_PARTY or nil,
@@ -346,8 +375,8 @@ end
 
 function PartySync:WindowMemberMenu(key)
 	local isMe = key == self:MyKey()
-	local name = PartySync:ShortName(isMe and self:UnitChatName("player") or Peers:MemberName(key))
-	local only = not Peers:MayInvite() and OnlyLeader() or nil
+	local name = isMe and PartySync:ShortName(self:UnitChatName("player")) or Peers:ShortName(key)
+	local only = Peers:WhyNotLeader()
 	local entries = {
 		{ text = L.MENU_MAKE_LEADER, tip = L.OPT_LEAD_BTN_TIP,
 			reason = only or (Peers:IsLeader(key) and format(L.ALREADY_LEADS_FMT, name)) or nil,
@@ -367,17 +396,13 @@ end
 --- The party's rule for each channel (the leader's), a shortcut putting all of them on one
 --- computer, then this computer's own choices, which are everyone's.
 function PartySync:WindowAudioMenu()
-	local reason = not Peers:MayInvite() and L.OPT_RULES_LEADER or nil
+	local reason = RulesReason()
 	local entries = { { title = L.MENU_WHO_PLAYS } }
 	for _, channel in ipairs(Room.CHANNELS) do
 		local current = Room:Owner(channel)
-		local owners = {}
-		for _, owner in ipairs(Room:Choices(current)) do
-			table.insert(owners, { text = Room:Describe(owner), radio = owner == current, reason = reason,
-				onClick = function() Room:Set(channel, owner) end })
-		end
 		table.insert(entries, { text = format(L.AUDIO_RULE_FMT, Room:Name(channel), Room:Short(current)),
-			tip = Room:Tip(channel), children = owners })
+			tip = Room:Tip(channel), children = Radios(Room:Choices(current), current, DescribeOwner,
+				function(owner) Room:Set(channel, owner) end, reason) })
 	end
 	for _, owner in ipairs(Room:Choices()) do
 		table.insert(entries, { text = format(L.ALL_ON_FMT, Room:Short(owner)), reason = reason, tip = L.OPT_ALL_SOUND_TIP,
@@ -385,42 +410,37 @@ function PartySync:WindowAudioMenu()
 	end
 	table.insert(entries, { title = L.MENU_THIS_COMPUTER })
 	local summary = Room:OwnSummary()
-	local all = {}
-	for _, value in ipairs(Room:OwnChoices()) do
-		table.insert(all, { text = Room:DescribeOwn(value), radio = value == summary, onClick = function() Room:SetOwnAll(value) end })
-	end
 	table.insert(entries, { text = format(L.AUDIO_RULE_FMT, L.MENU_ALL_SOUND, Room:DescribeOwn(summary)),
-		tip = L.OPT_SOUND_OWN_TIP, children = all })
+		tip = L.OPT_SOUND_OWN_TIP, children = Radios(Room:OwnChoices(), summary,
+			function(value) return Room:DescribeOwn(value) end, function(value) Room:SetOwnAll(value) end) })
 	for _, channel in ipairs(Room.CHANNELS) do
 		local own = Room:OwnValue(channel)
-		local choices = {}
-		for _, value in ipairs(Room:OwnChoices(channel)) do
-			table.insert(choices, { text = Room:DescribeOwn(value), radio = value == own,
-				onClick = function() Room:SetOwnChannel(channel, value) end })
-		end
-		table.insert(entries, { text = format(L.AUDIO_RULE_FMT, Room:Name(channel), Room:DescribeOwn(own)),
-			tip = Room:Tip(channel), children = choices })
+		table.insert(entries, { text = format(L.AUDIO_RULE_FMT, Room:Name(channel), Room:DescribeOwn(own, channel)),
+			tip = Room:Tip(channel), children = Radios(Room:OwnChoices(), own,
+				function(value) return Room:DescribeOwn(value, channel) end,
+				function(value) Room:SetOwnChannel(channel, value) end) })
 	end
 	return entries
 end
 
 function PartySync:WindowPlaybackMenu()
-	local reason = not Peers:MayInvite() and L.OPT_RULES_LEADER or nil
-	local current = Peers:Rules().controls
-	local entries = { { title = L.OPT_CONTROLS } }
-	for _, value in ipairs({ "leader", "anyone", "nobody" }) do
-		table.insert(entries, { text = CONTROLS[value], radio = value == current, reason = reason, tip = L.OPT_CONTROLS_TIP,
-			onClick = function() Peers:SetRule("controls", value) end })
-	end
+	local entries = Radios({ "leader", "anyone", "nobody" }, Peers:Rules().controls,
+		function(value) return CONTROLS[value] end, function(value) Peers:SetRule("controls", value) end,
+		RulesReason(), L.OPT_CONTROLS_TIP)
+	table.insert(entries, 1, { title = L.OPT_CONTROLS })
 	return entries
 end
 
+--- A gold title, the body in white, the reason in red, a hint in grey: every tooltip here.
+local function FillTip(tooltip, title, body, reason, hint)
+	tooltip:SetText(title, 1, 0.82, 0)
+	if body and body ~= "" then tooltip:AddLine(body, 1, 1, 1, true) end
+	if reason then tooltip:AddLine(reason, 1, 0.5, 0.5, true) end
+	if hint then tooltip:AddLine(hint, 0.6, 0.6, 0.6, true) end
+end
+
 local function EntryTooltip(entry)
-	return function(tooltip)
-		tooltip:SetText(entry.text, 1, 0.82, 0)
-		if entry.tip then tooltip:AddLine(entry.tip, 1, 1, 1, true) end
-		if entry.reason then tooltip:AddLine(entry.reason, 1, 0.5, 0.5, true) end
-	end
+	return function(tooltip) FillTip(tooltip, entry.text, entry.tip, entry.reason) end
 end
 
 --- One entry into the game's menu, its children as a submenu. Greyed by its text's colour rather
@@ -474,15 +494,12 @@ end
 -- Drawing
 --------------------------------------------------------------------------------
 
---- `owner.tip` as the game's tooltip: a gold title, the body in white, the reason in red.
+--- `owner.tip` as the game's tooltip.
 local function ShowTip(owner)
 	local tip = owner.tip
 	if not (tip and tip.title) then return end
 	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
-	GameTooltip:SetText(tip.title, 1, 0.82, 0)
-	if tip.body and tip.body ~= "" then GameTooltip:AddLine(tip.body, 1, 1, 1, true) end
-	if tip.reason then GameTooltip:AddLine(tip.reason, 1, 0.5, 0.5, true) end
-	if tip.hint then GameTooltip:AddLine(tip.hint, 0.6, 0.6, 0.6, true) end
+	FillTip(GameTooltip, tip.title, tip.body, tip.reason, tip.hint)
 	GameTooltip:Show()
 end
 
@@ -606,18 +623,56 @@ local function SetAlertGlyph(texture)
 	end
 end
 
-local function NewProblem()
+local function Height(fontString, least)
+	return math.max(math.floor((fontString:GetStringHeight() or 0) + 0.5), least or 0)
+end
+
+-- A line of words with its actions as chips at the right: a problem (an alert glyph, in red) or
+-- the offer to remember a party.
+local function NewActionRow(alert)
 	local row = CreateFrame("Frame", nil, frame)
-	row.glyph = row:CreateTexture(nil, "ARTWORK")
-	row.glyph:SetSize(12, 12)
-	row.glyph:SetPoint("TOPLEFT", 0, -1)
-	SetAlertGlyph(row.glyph)
 	row.text = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	row.text:SetJustifyH("LEFT")
-	row.text:SetTextColor(1, 0.38, 0.38)
-	row.text:SetPoint("TOPLEFT", 18, -1)
+	if alert then
+		row.glyph = row:CreateTexture(nil, "ARTWORK")
+		row.glyph:SetSize(12, 12)
+		row.glyph:SetPoint("TOPLEFT", 0, -1)
+		SetAlertGlyph(row.glyph)
+		row.text:SetTextColor(1, 0.38, 0.38)
+		row.text:SetPoint("TOPLEFT", 18, -1)
+	else
+		row.text:SetTextColor(1, 1, 1)
+		row.text:SetPoint("TOPLEFT", 0, -1)
+	end
 	row.chips = {}
 	return row
+end
+
+local function NewProblem()
+	return NewActionRow(true)
+end
+
+--- `row` filled with `text` and a chip for each of `actions`; returns its height.
+local function FillActionRow(row, text, actions, inner, y, metrics)
+	local right = 0
+	for c, action in ipairs(actions) do
+		local chip = row.chips[c] or NewChip(row)
+		row.chips[c] = chip
+		SetChip(chip, { text = action.label, title = action.label, body = action.tip, reason = action.reason },
+			function() action.run(); PartySync:RefreshWindow() end)
+		chip:ClearAllPoints()
+		chip:SetPoint("TOPRIGHT", row, "TOPRIGHT", -right, 0)
+		right = right + chip:GetWidth() + 4
+	end
+	HideFrom(row.chips, #actions + 1)
+	local indent = row.glyph and 18 or 0
+	row.text:SetWidth(inner - indent - right - 2)
+	row.text:SetText(text)
+	local height = math.max(Height(row.text, 12) + 2, CHIP_HEIGHT)
+	row:SetSize(inner, height)
+	Put(row, metrics.pad, y)
+	row:Show()
+	return height
 end
 
 local function Create()
@@ -653,10 +708,7 @@ local function Create()
 	-- Escape closes it, and a close by the player keeps it closed until something new goes wrong.
 	if UISpecialFrames then table.insert(UISpecialFrames, "SpokenPartySyncWindow") end
 	frame:SetScript("OnHide", function()
-		if not hidingHere then
-			forced = false
-			frame.dismissed = true
-		end
+		if not hidingHere then Dismiss() end
 	end)
 
 	local title = CreateFrame("Button", nil, frame)
@@ -722,10 +774,6 @@ local function Create()
 	frame.line.state:SetJustifyH("RIGHT")
 	frame.more = NewSub()
 	return frame
-end
-
-local function Height(fontString, least)
-	return math.max(math.floor((fontString:GetStringHeight() or 0) + 0.5), least or 0)
 end
 
 local function DrawHeader(model, metrics)
@@ -819,17 +867,22 @@ local function DrawMembers(model, y, metrics, inner)
 	return y
 end
 
+-- Grey words where there is nothing else to show: no party, nothing queued.
+local function Note(text, y, metrics, inner)
+	frame.note:SetWidth(inner)
+	frame.note:SetText(text)
+	Put(frame.note, metrics.pad, y)
+	frame.note:Show()
+	return y + Height(frame.note, SUB_HEIGHT)
+end
+
 local function DrawLine(model, y, metrics, inner)
 	local line, subs = model.line, 0
 	frame.line:Hide()
 	frame.more:Hide()
-	if line.empty then
-		frame.note:SetWidth(inner)
-		frame.note:SetText(L.WINDOW_QUEUE_EMPTY)
-		Put(frame.note, metrics.pad, y)
-		frame.note:Show()
+	if not line or line.empty then
 		HideFrom(frame.subs, 1)
-		return y + Height(frame.note, SUB_HEIGHT)
+		return line and Note(L.WINDOW_QUEUE_EMPTY, y, metrics, inner) or y
 	end
 	local row = frame.line
 	row:SetSize(inner, LINE_HEIGHT)
@@ -871,25 +924,7 @@ local function DrawProblems(model, y, metrics, inner)
 	if not model.compact then
 		for i, problem in ipairs(model.problems) do
 			count = i
-			local row = frame.Problem(i)
-			local right = 0
-			for c, action in ipairs(problem.actions) do
-				local chip = row.chips[c] or NewChip(row)
-				row.chips[c] = chip
-				SetChip(chip, { text = action.label, title = action.label, body = action.tip, reason = action.reason },
-					function() action.run(); PartySync:RefreshWindow() end)
-				chip:ClearAllPoints()
-				chip:SetPoint("TOPRIGHT", row, "TOPRIGHT", -right, 0)
-				right = right + chip:GetWidth() + 4
-			end
-			HideFrom(row.chips, #problem.actions + 1)
-			row.text:SetWidth(inner - 18 - right - 2)
-			row.text:SetText(problem.text)
-			local height = math.max(Height(row.text, 12) + 2, CHIP_HEIGHT)
-			row:SetSize(inner, height)
-			Put(row, metrics.pad, y)
-			row:Show()
-			y = y + height + 2
+			y = y + FillActionRow(frame.Problem(i), problem.text, problem.actions, inner, y, metrics) + 2
 		end
 	end
 	HideFrom(frame.problems, count + 1)
@@ -915,20 +950,19 @@ local function Draw(model)
 	y = Divider(y)
 	frame.note:Hide()
 	if not model.inParty then
-		frame.note:SetWidth(inner)
-		frame.note:SetText(L.WINDOW_NO_MEMBERS)
-		Put(frame.note, metrics.pad, y)
-		frame.note:Show()
-		y = y + Height(frame.note, SUB_HEIGHT)
-		frame.line:Hide()
-		frame.more:Hide()
-		HideFrom(frame.subs, 1)
+		y = Note(L.WINDOW_NO_MEMBERS, y, metrics, inner)
+	end
+	if model.prompt then
+		frame.prompt = frame.prompt or NewActionRow(false)
+		y = y + 4 + FillActionRow(frame.prompt, model.prompt.text, model.prompt.actions, inner, y + 4, metrics)
+	elseif frame.prompt then
+		frame.prompt:Hide()
 	end
 	y = DrawMembers(model, y, metrics, inner)
 	if model.line then
 		y = Divider(y)
-		y = DrawLine(model, y, metrics, inner)
 	end
+	y = DrawLine(model, y, metrics, inner)
 	if model.problems[1] and not model.compact then
 		y = Divider(y)
 	end
@@ -976,30 +1010,46 @@ end
 function PartySync:RefreshWindow()
 	if not self.windowReady then return end
 	local model = self:WindowModel()
-	-- Kept for /dump and the tests: what the window says, whether or not it is up.
+	-- Kept for /dump, the tests, and what a close by hand has seen.
 	self.windowModel = model
-	self.windowBody = Text(model)
-	local hasProblems = model.problems[1] ~= nil
-	local want = Wanted(hasProblems)
-	if want and frame and frame.dismissed and not forced and not hasProblems then
-		-- Closed by hand: stays closed until something new goes wrong.
+	-- The offer to remember a party is worth the window, as a problem is.
+	local attention = Attention(model)
+	local fresh = false
+	for key in pairs(attention) do
+		if not (seenAtClose and seenAtClose[key]) then fresh = true end
+	end
+	if seenAtClose then
+		-- Gone since: should it come back, it is new.
+		for key in pairs(seenAtClose) do
+			if not attention[key] then seenAtClose[key] = nil end
+		end
+	end
+	local want = Wanted(next(attention) ~= nil)
+	if want and seenAtClose and not forced and not fresh then
 		want = false
 	end
 	if not want then
 		HideHere()
 		return
 	end
+	seenAtClose = nil
 	Create()
-	if hasProblems then frame.dismissed = nil end
 	Draw(model)
 	frame:Show()
 end
 
 function PartySync:ShowWindow(shown)
-	forced = shown and true or false
-	if frame then frame.dismissed = not shown or nil end
-	if not shown then HideHere() end
+	if shown then
+		forced, seenAtClose = true, nil
+	else
+		Dismiss()
+		HideHere()
+	end
 	self:RefreshWindow()
+end
+
+function PartySync:WindowShown()
+	return frame ~= nil and frame:IsShown()
 end
 
 function PartySync:ToggleWindow()
@@ -1017,8 +1067,7 @@ function PartySync:SetWindowCompact(on)
 	self:RefreshWindow()
 end
 
---- Once the saved variables are in. Redrawn on every change and once a second (Events.lua), which
---- lets the window go once the last problem has lingered enough.
+--- Once the saved variables are in.
 function PartySync:SetupWindow()
 	if self.windowReady then return end
 	self.windowReady = true

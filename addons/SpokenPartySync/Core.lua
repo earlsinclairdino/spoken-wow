@@ -32,12 +32,22 @@ PartySync.version = GetAddOnMeta and GetAddOnMeta(ADDON_NAME, "Version") or "dev
 -- The Spoken player API version this was written against.
 local REQUIRED_API = 1
 
--- The window's smallest size, on the page's slider too.
+-- Below this the window's 10-pixel words cannot be read.
 local MIN_WINDOW_SCALE = 0.9
 PartySync.MIN_WINDOW_SCALE = MIN_WINDOW_SCALE
 
 -- A middle dot between the parts of one line, as the game's own tooltips join them.
 PartySync.DOT = " \194\183 "
+
+-- The kinds of sound a party shares out: Spoken's voice, then the game's own channels.
+PartySync.CHANNELS = { "voice", "music", "effects", "ambience", "dialog" }
+PartySync.GAME_CHANNELS = { "music", "effects", "ambience", "dialog" }
+
+local function PerGameChannel(value)
+	local each = {}
+	for _, channel in ipairs(PartySync.GAME_CHANNELS) do each[channel] = value end
+	return each
+end
 
 -- This computer's settings, the same for every character on the account.
 local function Rules()
@@ -49,7 +59,7 @@ local function Rules()
 		-- "-<key>,<key>" (every computer but those).
 		room = "none",
 		-- Who plays each of the game's own channels, in the same words.
-		audio = { music = "none", effects = "none", ambience = "none", dialog = "none" },
+		audio = PerGameChannel("none"),
 		-- Whose accepted quests are shared with the party: "anyone", "leader" or "nobody".
 		share = "anyone",
 		-- Which kinds of line are played together. Each one off still plays here, alone.
@@ -64,12 +74,10 @@ local function Defaults()
 		rules = Rules(),
 		autoShare = true,
 		autoAccept = true,
-		-- Every party this character ends up in is added to its usual party.
-		remember = false,
 		-- "" follows the party's rule for the voice; "sound" and "captions" decide it here.
 		soundOwn = "",
 		-- The same for the game's channels: "", "plays" or "muted".
-		audioOwn = { music = "", effects = "", ambience = "", dialog = "" },
+		audioOwn = PerGameChannel(""),
 		window = { show = "problems", scale = 1, compact = false },
 	}
 end
@@ -86,6 +94,10 @@ local function PartyDefaults()
 		-- Who to form a party with as soon as they are online: NameKey -> { name, autoAccept,
 		-- added }, who led it and the rules it had.
 		list = { members = {}, leader = nil, rules = nil },
+		-- The last party, once ended: who was in it, for a re-invite to ask them back.
+		lastSession = nil,
+		-- Sets of people ("key;key") whose party was not to be remembered: never offered again.
+		declined = {},
 	}
 end
 
@@ -165,8 +177,9 @@ function PartySync:InitDB()
 		if db.windowShown then db.window.show = "always" end
 		db.windowShown = nil
 	end
-	-- Smaller, the window's 10-pixel words cannot be read; a size saved before the floor rises to it.
 	db.window.scale = math.max(tonumber(db.window.scale) or 1, MIN_WINDOW_SCALE)
+	-- No longer read: a party is offered to remember as it ends.
+	db.remember = nil
 	-- A session saved by a /reload: rejoined once the others answer (Peers:Resume).
 	local session = party.session
 	if session and not (type(session.id) == "string" and type(session.leader) == "string"
@@ -225,6 +238,12 @@ function PartySync:TraceSetting(name, value)
 	self:Trace("party", "setting %s: %s", name, tostring(value))
 end
 
+function PartySync:SetAutoShare(on)
+	self:DB().autoShare = on and true or false
+	self:TraceSetting("auto share", self:DB().autoShare)
+	self:Changed()
+end
+
 --- A message in or out, in the debug log.
 function PartySync:Log(message, ...)
 	self:Trace("msg", message, ...)
@@ -251,17 +270,19 @@ local PROBLEM_SECONDS = 30
 PartySync.problems = {}
 
 --- Say something went wrong, once per `key`: a member not answering, a missing file. Kept for
---- half a minute, or until Resolve(key).
-function PartySync:Problem(key, text)
+--- half a minute, or until Resolve(key). `about`, for the window to offer its fix: { kind =
+--- "silent" (a member not answering) or "missing" (no voice file), who = the member's key }.
+function PartySync:Problem(key, text, about)
 	local now = GetTime()
+	about = about or {}
 	for _, problem in ipairs(self.problems) do
 		if problem.key == key then
-			problem.text, problem.at = text, now
+			problem.text, problem.at, problem.kind, problem.who = text, now, about.kind, about.who
 			self:Changed()
 			return
 		end
 	end
-	table.insert(self.problems, { key = key, text = text, at = now })
+	table.insert(self.problems, { key = key, text = text, at = now, kind = about.kind, who = about.who })
 	self:Trace("problem", "%s", text)
 	self:Changed()
 end

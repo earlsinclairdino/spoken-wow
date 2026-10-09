@@ -12,20 +12,11 @@ local Expect, Failures = H.Expecter(print)
 local LALA = P.LALA
 local LOOKUP = { ["101-accept"] = 10, ["102-accept"] = 10, ["103-accept"] = 2 }
 
-local function Fields(message) return message and table.concat(message.fields, "|", 2) or nil end
+local Fields = P.Fields
 
-local function QuestLine(VO, questID)
-	return { event = VO.Enums.SoundEvent.QuestAccept, questID = questID, name = "Giver", title = "Quest " .. questID,
-		text = "Go.", unitGUID = "Creature-0-0-0-0-1234-0" }
-end
+local QuestLine = P.QuestLine
 
-local function Entry(entries, text)
-	for _, entry in ipairs(entries) do
-		if entry.text == text then return entry end
-		local found = entry.children and Entry(entry.children, text)
-		if found then return found end
-	end
-end
+local Entry = P.Entry
 local ALL_FIVE = "voice, music, effects, ambience, npc dialog"
 local GAME_FOUR = "music, effects, ambience, npc dialog"
 
@@ -113,9 +104,10 @@ stub.Advance(0.55)
 ns:ShowWindow(true)
 local line = ns.windowModel.line
 Expect("the window shows the line playing", line.state, ns.L.LINE_PLAYING)
-Expect("...by its title", ns.windowBody:find("Quest 101", 1, true) ~= nil, true)
-Expect("...and not the lines behind it", ns.windowBody:find("Quest 102", 1, true), nil)
-Expect("...only how many wait", ns.windowBody:find(format(ns.L.WINDOW_MORE_FMT, 2), 1, true) ~= nil, true)
+local text = ns:WindowText()
+Expect("...by its title", text:find("Quest 101", 1, true) ~= nil, true)
+Expect("...and not the lines behind it", text:find("Quest 102", 1, true), nil)
+Expect("...only how many wait", text:find(format(ns.L.WINDOW_MORE_FMT, 2), 1, true) ~= nil, true)
 Expect("a member on time adds nothing under it", #line.progress, 0)
 P.Receive(stub, LALA, "AK", "101-accept", "started", 230)
 line = ns.windowModel.line
@@ -132,6 +124,10 @@ ns:RefreshWindow()
 Expect("a member with no voice file for the next one is shown under it", ns.windowModel.line.progress[1]
 	and ns.windowModel.line.progress[1].text, ns.L.PEER_MISSING)
 Expect("...and the sync reads missed", ns.windowModel.health.kind, "missed")
+ns.Sync.lines["alone"] = { id = "alone", role = "driver", state = "finished", peers = {}, at = GetTime(),
+	startedAt = GetTime() + 1, endedAt = GetTime() + 2 }
+Expect("a line nobody else was told of is no line played in sync", ns.Sync:Health(), "missed")
+ns.Sync.lines["alone"] = nil
 Expect("...with the problem below, and its fix: her computer off the voice", Labels(ns.windowModel.problems[1]), ns.L.ACTION_MUTE)
 
 -- A line started elsewhere: its progress is the other computer's to show.
@@ -160,14 +156,14 @@ window.problems[1].chips[1]:Click()
 Expect("Re-invite from the leader invites her into the party she is in", Fields(P.Last("IV", LALA)), ns.version .. "|" .. P.SESSION)
 Expect("...and greets her", P.Last("HI", LALA) ~= nil, true)
 Expect("...and the problem goes", ns.windowModel.problems[1], nil)
-ns:Problem("answer:lala throwaway", "Lala Throwaway did not answer.")
+ns:Problem("answer:lala throwaway", "Lala Throwaway did not answer.", { kind = "silent", who = "lala throwaway" })
 ns.windowModel.problems[1].actions[2].run()
 Expect("Remove takes her out of the party", ns.Peers:IsMember(LALA), false)
 
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
 ns:ShowWindow(true)
-ns:Problem("answer:lala throwaway", "Lala Throwaway did not answer.")
+ns:Problem("answer:lala throwaway", "Lala Throwaway did not answer.", { kind = "silent", who = "lala throwaway" })
 problem = ns.windowModel.problems[1]
 Expect("for a member, Remove is the leader's", problem.actions[2].reason, format(ns.L.ONLY_LEADER_FMT, "Lala Throwaway"))
 Expect("...while Re-invite is not", problem.actions[1].reason, nil)
@@ -217,6 +213,16 @@ ns:RefreshWindow()
 Expect("closed with Escape, it stays closed whatever the setting", window.shown, false)
 ns:Problem("test", "Something is wrong")
 Expect("...until something goes wrong", window.shown, true)
+ns:ShowWindow(false)
+ns:RefreshWindow()
+Expect("closed again with that problem still there, it stays closed", window.shown, false)
+ns:Problem("other", "Something else is wrong")
+Expect("...until another one comes", window.shown, true)
+ns:Resolve("other")
+ns:ShowWindow(false)
+ns:Resolve("test")
+ns:Problem("test", "Something is wrong again")
+Expect("...or the same one, gone and back", window.shown, true)
 ns:Resolve("test")
 
 -- The window frame outlives a test's client, as a named frame does; hidden, it shows whether this one draws it.
@@ -280,12 +286,7 @@ ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
 ns.optionsPanel:Show()
 ns:RefreshOptions()
-local layout = ns.optionsLayout
-local function PageRow(label)
-	for _, entry in ipairs(layout.entries) do
-		if entry.label == label then return entry.frame end
-	end
-end
+local function PageRow(label) return P.PageRow(ns, label) end
 P.Clear()
 PageRow(ns.L.OPT_PING):Click()
 local ping = P.Last("PI", LALA)

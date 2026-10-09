@@ -91,25 +91,43 @@ function Autoform:SetAutoAccept(name, on)
 	return true
 end
 
---- The party as it stands, into the list: its members, its leader and its rules. Returns how
---- many members were new to the list, or nil without a party.
+--- Whether every key of `members` (key -> name) is in the usual party.
+local function Listed(members)
+	local list = Autoform:List().members
+	for key in pairs(members) do
+		if not list[key] then return false end
+	end
+	return true
+end
+
+--- A party into the list: `party` = { members (key -> name), leader, rules }. Says so in chat and
+--- returns how many members were new to the list.
+function Autoform:RememberParty(party)
+	local added = 0
+	for _, name in pairs(party.members) do
+		local _, isNew = self:Add(name, nil)
+		if isNew then added = added + 1 end
+	end
+	local list = self:List()
+	list.leader = party.leader
+	list.rules = PartySync.Copy(party.rules)
+	PartySync:Trace("party", "usual party remembers the party: %s leads, %d new; %s", tostring(party.leader), added,
+		Peers.DescribeRules(list.rules))
+	PartySync:Print("the party is in your usual party, %d new to it", added)
+	PartySync:Changed()
+	return added
+end
+
+--- The party as it stands, into the list. Returns how many members were new to it, or nil
+--- without a party.
 function Autoform:Remember()
 	local session = Peers:Session()
 	if not session then
 		return nil
 	end
-	local added = 0
-	for key, name in Peers:Members() do
-		local _, isNew = self:Add(name, nil)
-		if isNew then added = added + 1 end
-	end
-	local list = self:List()
-	list.leader = session.leader
-	list.rules = PartySync.Copy(session.rules)
-	PartySync:Trace("party", "usual party remembers the party: %s leads, %d new; %s", session.leader, added,
-		Peers.DescribeRules(list.rules))
-	PartySync:Changed()
-	return added
+	local members = {}
+	for key, name in Peers:Members() do members[key] = name end
+	return self:RememberParty({ members = members, leader = session.leader, rules = session.rules })
 end
 
 --- Whether everyone in this character's party is in its usual party already.
@@ -117,20 +135,79 @@ function Autoform:Remembered()
 	if not Peers:InParty() then
 		return false
 	end
-	local members = self:List().members
-	for key in Peers:Members() do
-		if not members[key] then
-			return false
-		end
-	end
-	return true
+	local members = {}
+	for key, name in Peers:Members() do members[key] = name end
+	return Listed(members)
 end
 
---- The party changed: remembered, where the setting says so.
-function Autoform:AutoRemember()
-	if PartySync:DB().remember and Peers:Count() >= 2 then
-		self:Remember()
+--------------------------------------------------------------------------------
+-- Offering to remember a party that ended
+--------------------------------------------------------------------------------
+--
+-- Once, in the window: only a party worth keeping (long enough, a line played together, nobody
+-- lost on the way) whose people are not in the usual party already, and never again for the
+-- same people once declined.
+
+local PROMPT_MIN_SECONDS = 600
+local PROMPT_SECONDS = 120
+
+local function SetKey(members)
+	local keys = {}
+	for key in pairs(members) do table.insert(keys, key) end
+	table.sort(keys)
+	return table.concat(keys, ";"), keys
+end
+
+--- Why a party that ended is not offered, or nil.
+local function WhyNot(party, set, keys)
+	if not keys[1] then return "nobody else was in it" end
+	if Listed(party.members) then return "remembered already" end
+	if (party.endedAt or 0) - (party.started or party.endedAt or 0) < PROMPT_MIN_SECONDS then return "too short" end
+	if (party.played or 0) < 1 then return "no line played together" end
+	if party.troubled then return "someone was lost on the way" end
+	if PartySync:Party().declined[set] then return "declined before" end
+	return nil
+end
+
+function Autoform:OfferRemember(party)
+	local set, keys = SetKey(party.members)
+	local why = WhyNot(party, set, keys)
+	if why then
+		PartySync:Trace("party", "party %s not offered to remember: %s", tostring(party.id), why)
+		return
 	end
+	local names = {}
+	for _, key in ipairs(keys) do table.insert(names, PartySync:FirstName(party.members[key])) end
+	self.prompt = { party = party, set = set, names = table.concat(names, ", "), untilAt = GetTime() + PROMPT_SECONDS }
+	PartySync:Trace("party", "party %s offered to remember", tostring(party.id))
+	if PartySync:DB().window.show == "never" then
+		PartySync:Print("play with %s again? /sps remember", self.prompt.names)
+	end
+end
+
+--- The offer standing, or nil: gone once answered, after a while, or in another party.
+function Autoform:Prompt()
+	local prompt = self.prompt
+	if prompt and (Peers:InParty() or GetTime() > prompt.untilAt) then
+		self.prompt = nil
+	end
+	return self.prompt
+end
+
+function Autoform:AcceptPrompt()
+	local prompt = self:Prompt()
+	if not prompt then return nil end
+	self.prompt = nil
+	return self:RememberParty(prompt.party)
+end
+
+function Autoform:DeclinePrompt()
+	local prompt = self:Prompt()
+	if not prompt then return end
+	self.prompt = nil
+	PartySync:Party().declined[prompt.set] = time and time() or 0
+	PartySync:Trace("party", "not now: %s are not offered again", prompt.set)
+	PartySync:Changed()
 end
 
 --------------------------------------------------------------------------------

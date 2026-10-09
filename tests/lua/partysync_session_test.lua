@@ -13,12 +13,9 @@ local LALA = P.LALA
 local BOB = "Bob Stranger"
 local LOOKUP = { ["101-accept"] = 2 }
 
-local function Fields(message) return message and table.concat(message.fields, "|", 2) or nil end
+local Fields = P.Fields
 
-local function QuestLine(VO, questID)
-	return { event = VO.Enums.SoundEvent.QuestAccept, questID = questID, name = "Giver", title = "Quest " .. questID,
-		text = "Go.", unitGUID = "Creature-0-0-0-0-1234-0" }
-end
+local QuestLine = P.QuestLine
 
 ---------------------------------------------------------------- a party of three, led from here
 local ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
@@ -228,7 +225,7 @@ Expect("...yes puts her on it, accepted without asking", ns.Autoform:Accepts(LAL
 P.Receive(stub, LALA, "RM")
 Expect("already on the list, she is not asked about again", stub.popups[#stub.popups].key, "SPOKENPARTYSYNC_REMEMBERED")
 
--- Remembering the party, by hand and automatically.
+-- Remembering the party by hand.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns, nil, nil, { controls = "anyone" })
 P.Clear()
@@ -236,14 +233,6 @@ Expect("remembering the party puts her on the list", ns.Autoform:Remember(), 1)
 Expect("...with who leads", ns.Autoform:List().leader, "lala throwaway")
 Expect("...and the rules", ns.Autoform:List().rules.controls, "anyone")
 Expect("...and tells her", P.Last("RM", LALA) ~= nil, true)
-ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:DB().remember = true
-P.Party(stub, ns)
-P.Receive(stub, LALA, "RO", P.SESSION, LALA, "Lala Throwaway;Tata Throwaway;Bob Stranger")
-Expect("with Remember Parties Automatically, a roster change remembers everyone", ns.Autoform:Entry(BOB) ~= nil and ns.Autoform:Entry(LALA) ~= nil, true)
-P.Receive(stub, LALA, "PS", "nobody", "none", "1111")
-ns.Autoform:AutoRemember()
-Expect("...and the rules as they change", ns.Autoform:List().rules.controls, "nobody")
 
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll party sync session tests passed")

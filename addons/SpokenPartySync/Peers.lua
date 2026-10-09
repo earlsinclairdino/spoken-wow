@@ -17,8 +17,10 @@
 --                           in, or empty; `own` is 1 while it decides a channel by itself;
 --                           `plays` the channels it plays, a letter each (v voice, m music,
 --                           e effects, a ambience, d dialog), "-" for none.
---   IV  version, session    an invitation to the party `session`. Asked of the player in a
---                           popup, unless the usual party accepts it.
+--   IV  version, session, rejoin
+--                           an invitation to the party `session`. Asked of the player in a
+--                           popup, unless the usual party accepts it, or rejoin=1 asks back
+--                           someone who was in a party with the inviter within REJOIN_SECONDS.
 --   IA  session             accepted: the leader adds them and sends the roster.
 --   ID  session             declined, left, or removed. One about another party is stale.
 --   RO  session, leader, members
@@ -63,6 +65,12 @@ local JOIN_GRACE = 10
 -- Silent past one heartbeat and the answer to its ping: the window says "no answer" and for how
 -- long, which tells whether to wait or to re-invite, until LOST_SECONDS drops them.
 local QUIET_SECONDS = HEARTBEAT_SECONDS + 5
+-- Someone dropped from a party this recently is asked back into it without the popup: a lost
+-- connection is not a new decision to join.
+local REJOIN_SECONDS = 600
+-- A member dropped for going silent: the party did not go well, and is not offered to remember.
+-- Logging out (offline) is how a party usually ends.
+local TROUBLE = { lost = true }
 
 local SYNC_KINDS = { "quests", "gossip", "zones", "books" }
 
@@ -123,7 +131,7 @@ function Peers:MarkOffline(name)
 	if was ~= "offline" then PartySync:Trace("party", "%s offline (was %s)", key, tostring(was)) end
 	if was ~= "offline" then
 		if self:IsMember(key) and was == "online" then
-			PartySync:Problem("presence:" .. key, format(L.PROBLEM_OFFLINE_FMT, peer.name))
+			PartySync:Problem("presence:" .. key, format(L.PROBLEM_OFFLINE_FMT, peer.name), { kind = "silent", who = key })
 		end
 		self:Gone(key, "offline")
 		Changed()
@@ -156,6 +164,8 @@ end
 local joinedAt = {}
 -- key -> { at, id }: invitations this client sent and has had no answer to.
 local invited = {}
+-- key -> { at, id }: members who left a party here, by wall clock, for REJOIN_SECONDS.
+local left = {}
 
 --- The party this character is in, or nil.
 function Peers:Session()
@@ -185,13 +195,19 @@ local function MyName()
 	return PartySync:ShortName(PartySync:UnitChatName("player"))
 end
 
+local function Now()
+	return time and time() or math.floor(GetTime())
+end
+
 local function NewSession(rules)
 	local me = PartySync:MyKey()
 	local session = {
-		id = format("%s-%d", me, time and time() or math.floor(GetTime())),
+		id = format("%s-%d", me, Now()),
 		leader = me,
 		members = { [me] = MyName() },
 		rules = PartySync.Copy(rules or PartySync:DB().rules),
+		started = Now(),
+		played = 0,
 	}
 	PartySync:Party().session = session
 	PartySync:Trace("party", "party %s started here, with the rules controls %s, room %s", session.id,
@@ -204,12 +220,41 @@ function Peers:EndSession(why, quiet)
 	local session = self:Session()
 	if not session then return end
 	PartySync:Trace("party", "party %s ended here: %s", session.id, tostring(why))
+	local me = PartySync:MyKey()
+	local members = {}
+	for key, name in pairs(session.members) do
+		if key ~= me then members[key] = name end
+	end
+	-- Kept with the character: who was in it, for a re-invite to ask them back after a /reload.
+	local last = { id = session.id, leader = session.leader, rules = PartySync.Copy(session.rules), members = members,
+		started = session.started, played = session.played or 0, troubled = session.troubled, endedAt = Now() }
+	PartySync:Party().lastSession = last
 	PartySync:Party().session = nil
 	joinedAt = {}
 	if not quiet then
 		PartySync:Print("%s", why)
 	end
+	if Autoform() then Autoform():OfferRemember(last) end
 	Changed()
+end
+
+--- A line played together started: the party had something to remember it by.
+function Peers:Played()
+	local session = self:Session()
+	if session then session.played = (session.played or 0) + 1 end
+end
+
+--- The party `key` was in here within REJOIN_SECONDS, by its id, or nil.
+function Peers:WasIn(key)
+	local mark = left[key]
+	if mark and Now() - mark.at <= REJOIN_SECONDS then
+		return mark.id
+	end
+	local last = PartySync:Party().lastSession
+	if last and last.members and last.members[key] and Now() - (last.endedAt or 0) <= REJOIN_SECONDS then
+		return last.id
+	end
+	return nil
 end
 
 --------------------------------------------------------------------------------
@@ -297,7 +342,7 @@ function Peers:SendRoster()
 	end
 end
 
-local AUDIO_CHANNELS = { "music", "effects", "ambience", "dialog" }
+local AUDIO_CHANNELS = PartySync.GAME_CHANNELS
 
 local function AudioField(rules)
 	local parts = {}
@@ -336,7 +381,6 @@ local function Join(key, name)
 	PartySync:Print("%s is in your Spoken party", PartySync:ShortName(name))
 	Peers:SendRoster()
 	Peers:SendRules(key)
-	if Autoform() then Autoform():AutoRemember() end
 	Changed()
 end
 
@@ -348,10 +392,17 @@ function Peers:Gone(key, why)
 		return
 	end
 	local name = session.members[key]
-	session.members[key] = nil
 	joinedAt[key] = nil
+	left[key] = { at = Now(), id = session.id }
+	if TROUBLE[why] then session.troubled = true end
 	PartySync:Trace("party", "%s left the party (%s)", key, tostring(why))
 	PartySync:Resolve("presence:" .. key)
+	-- Ended with them still in it, so what is kept of the party has them.
+	if self:Count() <= 2 then
+		self:EndSession(format("The Spoken party ended: %s is gone.", PartySync:ShortName(name)))
+		return
+	end
+	session.members[key] = nil
 	local me = PartySync:MyKey()
 	if session.leader == key then
 		local standIn = self:Leader()
@@ -360,10 +411,6 @@ function Peers:Gone(key, why)
 			PartySync:Trace("party", "leader: %s (stands in for %s, who is %s)", me, key, tostring(why))
 			PartySync:Print("%s is gone: you lead the Spoken party now", PartySync:ShortName(name))
 		end
-	end
-	if self:Count() < 2 then
-		self:EndSession(format("The Spoken party ended: %s is gone.", PartySync:ShortName(name)))
-		return
 	end
 	if session.leader == me then
 		self:SendRoster()
@@ -399,14 +446,13 @@ function Peers:Leave()
 	for key in self:Members() do table.insert(others, key) end
 	table.sort(others)
 	if session.leader == me and others[1] then
-		session.leader = others[1]
-		session.members[me] = nil
-		PartySync:Trace("party", "leaving the party: lead passed to %s", others[1])
-		-- The roster without this character: the others carry on under the new leader.
+		-- The others carry on under the first by name; the party left here stays the one led here.
+		local heir = others[1]
+		PartySync:Trace("party", "leaving the party: lead passed to %s", heir)
 		local names = {}
 		for _, key in ipairs(others) do table.insert(names, session.members[key]) end
 		for _, key in ipairs(others) do
-			Comm:Whisper(self:MemberName(key), "RO", session.id, session.leader, table.concat(names, ";"))
+			Comm:Whisper(self:MemberName(key), "RO", session.id, heir, table.concat(names, ";"))
 		end
 	else
 		for _, key in ipairs(others) do
@@ -421,23 +467,21 @@ end
 -- Hello
 --------------------------------------------------------------------------------
 
-local function Own()
-	return PartySync.Room:IsOwn() and 1 or 0
-end
-
-local function Plays()
-	return PartySync.Room:PlaysLetters()
+-- What the others read in this computer's hello besides who it is: whether it decides a channel
+-- itself, and what it plays.
+local function HelloFields()
+	return PartySync.Room:IsOwn() and 1 or 0, PartySync.Room:PlaysLetters()
 end
 
 --- To the group, for whoever runs the addon there.
 function Peers:Hello()
-	return Comm:Broadcast("HI", PartySync.version, 0, SessionWord(), Own(), Plays())
+	return Comm:Broadcast("HI", PartySync.version, 0, SessionWord(), HelloFields())
 end
 
 --- To `name`, by whisper: a member at login, or someone in the usual party who may be
 --- online by now.
 function Peers:Greet(name, reply)
-	return Comm:Whisper(name, "HI", PartySync.version, reply and 1 or 0, SessionWord(), Own(), Plays())
+	return Comm:Whisper(name, "HI", PartySync.version, reply and 1 or 0, SessionWord(), HelloFields())
 end
 
 --- To every member by name. One that is offline costs a "No player named" message, which
@@ -446,6 +490,18 @@ function Peers:HelloMembers(reply)
 	for key in self:Members() do
 		self:Greet(self:MemberName(key), reply)
 	end
+end
+
+local announced = nil
+
+--- Tell the members who are online when what this computer's hello says has changed: a rule or
+--- its own choice moved what it plays.
+function Peers:AnnounceIfChanged()
+	local own, plays = HelloFields()
+	local hello = own .. plays
+	local changed = announced ~= nil and hello ~= announced
+	announced = hello
+	if changed and self:InParty() then self:Announce() end
 end
 
 --- Something the others read in the hello has changed: tell the members who are online.
@@ -508,8 +564,8 @@ end)
 local POPUP = "SPOKENPARTYSYNC_INVITE"
 
 --- Invite `name`. Starts a party, with `rules`, when this character is in none; refused when
---- another member leads.
-function Peers:Invite(name, rules)
+--- another member leads. `rejoin` asks them back into the party they were in, without a popup.
+function Peers:Invite(name, rules, rejoin)
 	name = PartySync:CleanName(name)
 	local key = PartySync:NameKey(name)
 	if not key then
@@ -527,8 +583,9 @@ function Peers:Invite(name, rules)
 	end
 	session = session or NewSession(rules)
 	invited[key] = { at = GetTime(), id = session.id }
-	local sent, answer = Comm:Whisper(name, "IV", PartySync.version, session.id)
-	PartySync:Trace("party", "invited %s to %s: %s", key, session.id, sent and "sent" or tostring(answer))
+	local sent, answer = Comm:Whisper(name, "IV", PartySync.version, session.id, rejoin and 1 or 0)
+	PartySync:Trace("party", "invited %s to %s%s: %s", key, session.id, rejoin and ", asked back" or "",
+		sent and "sent" or tostring(answer))
 	Changed()
 	return sent, answer
 end
@@ -543,6 +600,8 @@ function Peers:AcceptInvite(name, id)
 		members = { [PartySync:MyKey()] = MyName(), [key] = PartySync:WhisperName(name) },
 		-- Until the leader's rules arrive.
 		rules = PartySync.Rules(),
+		started = Now(),
+		played = 0,
 	}
 	PartySync:Party().session = session
 	joinedAt[key] = GetTime()
@@ -557,15 +616,23 @@ function Peers:DeclineInvite(name, id)
 	Comm:Whisper(name, "ID", id or "")
 end
 
---- Whether this character may ask `name` again: a member, to bring them back in step, or
---- anyone when it may invite.
-function Peers:MayReinvite(name)
-	return self:IsMember(name) or self:MayInvite()
+--- Why this character may not do what only the leader does, or nil when it leads or is in no
+--- party.
+function Peers:WhyNotLeader()
+	if self:MayInvite() then return nil end
+	return format(L.ONLY_LEADER_FMT, self:ShortName(self:Leader() or "?"))
+end
+
+function Peers:ShortName(key)
+	return PartySync:ShortName(self:MemberName(key))
 end
 
 --- Ask `name` again. A member who stopped answering is greeted and, from the leader, invited to
 --- the party it is in, which it answers as a member re-linking (the roster and the rules come
---- back); someone gone from the party is invited to it. Returns what Invite returns.
+--- back). Someone dropped from this party lately, or from the one that just ended, is invited
+--- (to a new party with the old one's rules, if this character is in none) and rejoins without
+--- a popup. Never the old party under its old id: the others may still be in it, led by
+--- someone else. Returns what Invite returns.
 function Peers:Reinvite(name)
 	local key = PartySync:NameKey(name)
 	if not key then
@@ -573,7 +640,11 @@ function Peers:Reinvite(name)
 	end
 	local who = self:MemberName(key)
 	if not self:IsMember(key) then
-		return self:Invite(who)
+		local id = self:WasIn(key)
+		local session = self:Session()
+		local rejoin = id ~= nil and (session == nil or session.id == id)
+		local last = PartySync:Party().lastSession
+		return self:Invite(who, not session and rejoin and last and last.rules or nil, rejoin)
 	end
 	self:Greet(who)
 	local session = self:Session()
@@ -611,7 +682,7 @@ local function Alone()
 	return session ~= nil and Peers:Count() == 1
 end
 
-Comm:On("IV", function(sender, channel, version, sessionId)
+Comm:On("IV", function(sender, channel, version, sessionId, rejoin)
 	Peers:Seen(sender, version)
 	local key = PartySync:NameKey(sender)
 	sessionId = sessionId or ""
@@ -633,6 +704,11 @@ Comm:On("IV", function(sender, channel, version, sessionId)
 			Comm:Whisper(sender, "ID", sessionId)
 			return
 		end
+	end
+	if rejoin == "1" and Peers:WasIn(key) then
+		PartySync:Trace("party", "%s, in the last party here, asks this character back: joined %s", key, sessionId)
+		Peers:AcceptInvite(sender, sessionId)
+		return
 	end
 	if Autoform() and Autoform():Accepts(key) then
 		PartySync:Trace("party", "%s's invitation accepted: in the usual party, auto-accept", key)
@@ -715,6 +791,13 @@ Comm:On("RO", function(sender, channel, sessionId, leader, members)
 		PartySync:Trace("party", "roster from %s ignored: %s leads", key, tostring(was))
 		return
 	end
+	-- Nobody else in it: ended as it was, so what is kept of the party has them.
+	local size = 0
+	for _ in pairs(roster) do size = size + 1 end
+	if size < 2 then
+		Peers:EndSession("The Spoken party ended: nobody else is left.")
+		return
+	end
 	for k, name in pairs(roster) do
 		if not session.members[k] then
 			joinedAt[k] = GetTime()
@@ -733,11 +816,6 @@ Comm:On("RO", function(sender, channel, sessionId, leader, members)
 	if newLeader ~= was then
 		PartySync:Print("%s leads the Spoken party now", newLeader == me and "You" or PartySync:ShortName(roster[newLeader] or leader))
 	end
-	if Peers:Count() < 2 then
-		Peers:EndSession("The Spoken party ended: nobody else is left.")
-		return
-	end
-	if Autoform() then Autoform():AutoRemember() end
 	Changed()
 end)
 
@@ -790,7 +868,6 @@ function Peers:EditRules(change)
 	change(session and session.rules or PartySync:DB().rules)
 	if session then
 		self:SendRules()
-		if Autoform() then Autoform():AutoRemember() end
 	end
 	Changed()
 	return true
@@ -837,8 +914,7 @@ Comm:On("PS", function(sender, channel, controls, room, flags, share, audio)
 		if flag ~= "" then rules.sync[kind] = flag == "1" end
 	end
 	-- A leader before 0.5 sends no channels: every computer plays them.
-	rules.audio = {}
-	for _, channel in ipairs(AUDIO_CHANNELS) do rules.audio[channel] = "none" end
+	rules.audio = PartySync.Rules().audio
 	for name, owner in tostring(audio or ""):gmatch("([^;=]+)=([^;]*)") do
 		if rules.audio[name] and owner ~= "" then rules.audio[name] = owner end
 	end
@@ -906,7 +982,6 @@ function Peers:PassLead(name)
 	session.leader = key
 	PartySync:Trace("party", "lead passed to %s", key)
 	self:SendRoster()
-	if Autoform() then Autoform():AutoRemember() end
 	Changed()
 	return true
 end
@@ -970,7 +1045,7 @@ function Peers:Ping(target, quiet, stats)
 	return sent, answer
 end
 
---- Ping every member, and keep the round for the settings page to show beside its button.
+--- Ping every member, keeping the round for PingSummary.
 function Peers:PingMembers()
 	local keys = {}
 	for key in self:Members() do table.insert(keys, key) end
@@ -1167,7 +1242,7 @@ function Peers:Tick()
 				peer.state = "lost"
 				PartySync:Trace("party", "%s lost: not heard from for %d s", key, LOST_SECONDS)
 				if self:IsMember(key) then
-					PartySync:Problem("presence:" .. key, format(L.PROBLEM_LOST_FMT, peer.name))
+					PartySync:Problem("presence:" .. key, format(L.PROBLEM_LOST_FMT, peer.name), { kind = "silent", who = key })
 					self:Gone(key, "lost")
 				end
 				Changed()
@@ -1181,7 +1256,7 @@ function Peers:Tick()
 		for key, name in self:Members() do
 			if not self.list[key] then
 				PartySync:Trace("party", "%s never answered since login", key)
-				PartySync:Problem("presence:" .. key, format(L.PROBLEM_LOST_FMT, name))
+				PartySync:Problem("presence:" .. key, format(L.PROBLEM_LOST_FMT, name), { kind = "silent", who = key })
 				self:Gone(key, "never answered since login")
 			end
 		end

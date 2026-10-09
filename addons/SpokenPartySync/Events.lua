@@ -63,23 +63,16 @@ end
 
 local started = false
 
--- Once a second: problems age, silences grow, round trips come in, and a game channel the party
--- keeps off is switched off again if something switched it back on.
+-- Once a second: a game channel the party keeps off is switched off again if something switched
+-- it back on, and the window, while up, shows silences growing and lets problems age out. Hidden,
+-- it waits: only an event, which redraws it anyway, can bring it up.
 local function EverySecond()
 	PartySync.Channels:Apply()
-	PartySync:RefreshWindow()
+	if PartySync:WindowShown() then PartySync:RefreshWindow() end
 end
 
 local function StartTicker()
-	local elapsed = 0
-	local ticker = CreateFrame("Frame")
-	ticker:SetScript("OnUpdate", function(_, dt)
-		elapsed = elapsed + (dt or 0)
-		if elapsed >= 1 then
-			elapsed = 0
-			EverySecond()
-		end
-	end)
+	if C_Timer.NewTicker then C_Timer.NewTicker(1, EverySecond) end
 end
 
 local function Start()
@@ -98,6 +91,7 @@ local function Start()
 	PartySync:SetupWindow()
 	-- A client that stopped without logging out left the game's channels as the party had them.
 	PartySync.Channels:RestoreAll()
+	PartySync.Channels:Setup()
 	Room:Update()
 	Peers:Resume()
 	PartySync.Autoform:Tick()

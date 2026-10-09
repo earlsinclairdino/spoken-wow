@@ -90,14 +90,13 @@ function Diagnostics:Lines(detailed)
 		or PartySync.LogBook:IsOn() and "on" or "off")
 	local session = Peers:Session()
 	local leader, why = Peers:Leader()
-	local speaker = Room:Speaker()
 	Add("party: %s", session and format("%s, %d member(s)", session.id, Peers:Count()) or "none")
-	Add("leader: %s (%s); sound: %s", Name(leader), tostring(why), speaker and Name(speaker) or "every computer")
+	Add("leader: %s (%s); voice: %s", Name(leader), tostring(why), Room:Describe(Room:Owner("voice")))
 	Add("rules%s: %s", session and " (the leader's)" or " (this computer's, for a party it starts)",
 		Peers.DescribeRules(Peers:Rules()))
-	Add("this computer: %s, sound here %s%s, plays %s", tostring(PartySync:MyKey()), Room:DescribeOwn(db.soundOwn),
-		Room:IsSilent() and ", captions only" or "", Room:PlaysLetters())
-	Add("auto share %s, auto accept %s, remember parties %s", OnOff(db.autoShare), OnOff(db.autoAccept), OnOff(db.remember))
+	Add("this computer: %s, voice here %s%s, plays %s", tostring(PartySync:MyKey()),
+		Room:DescribeOwn(Room:OwnValue("voice"), "voice"), Room:IsSilent() and ", captions only" or "", Room:PlaysLetters())
+	Add("auto share %s, auto accept %s", OnOff(db.autoShare), OnOff(db.autoAccept))
 	local health = Sync.ready and Sync:Health()
 	if session and health then Add("last line played together: %s", health == "sync" and "in sync" or health) end
 

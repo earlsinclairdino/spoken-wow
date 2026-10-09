@@ -121,6 +121,7 @@ test-player: ## Run the addons' Lua tests (needs luajit)
 	@$(LUA) tests/lua/partysync_session_test.lua
 	@$(LUA) tests/lua/partysync_window_test.lua
 	@$(LUA) tests/lua/partysync_audio_test.lua
+	@$(LUA) tests/lua/partysync_remember_test.lua
 
 # Rewrite the envelope fixtures the TypeScript reader is tested against. A diff here is the
 # wire format changing, and that is a change the reader's tests must be part of.

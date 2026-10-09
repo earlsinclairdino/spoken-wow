@@ -103,7 +103,7 @@ stub.FireEvent("CHAT_MSG_SYSTEM", "No player named 'Lala Throwaway' is currently
 Expect("...but not the same message long after any whisper", ns.Peers.list["lala throwaway"].state, "online")
 
 ---------------------------------------------------------------- invitations
-local function Fields(message) return message and table.concat(message.fields, "|", 2) or nil end
+local Fields = P.Fields
 local ns2 = P.Boot(stub, LOOKUP)
 P.Receive(stub, "Lala Throwaway", "IV", "0.4.0", "lala throwaway-9")
 local popup = stub.popups[#stub.popups]

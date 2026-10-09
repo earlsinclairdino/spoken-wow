@@ -278,8 +278,8 @@ P.Receive(stub, LALA, "AK", "101-accept", "queued")
 ns:ShowWindow(true)
 local window = _G.SpokenPartySyncWindow
 Expect("the window opens by hand", window ~= nil and window.shown, true)
-Expect("...listing the member", ns.windowBody:find("Lala Throwaway", 1, true) ~= nil, true)
-Expect("...and the line, waiting to start together", ns.windowBody:find("Quest 101", 1, true) ~= nil, true)
+Expect("...listing the member", ns:WindowText():find("Lala Throwaway", 1, true) ~= nil, true)
+Expect("...and the line, waiting to start together", ns:WindowText():find("Quest 101", 1, true) ~= nil, true)
 ns:ShowWindow(false)
 Expect("...and closes", window.shown, false)
 ns:DB().window.show = "problems"
@@ -303,7 +303,7 @@ local diag = ns.Diagnostics:Lines(true)
 Expect("the party's diagnostics name the addon and the group", Has("Spoken Party Sync " .. ns.version .. "; group: ", diag), true)
 Expect("...the debug log", Has("debug log: ", diag), true)
 Expect("...the party", Has("party: " .. P.SESSION .. ", 2 member(s)", diag), true)
-Expect("...who leads, and why", Has("leader: Lala Throwaway (leads the party); sound: every computer", diag), true)
+Expect("...who leads, and why", Has("leader: Lala Throwaway (leads the party); voice: Every Computer", diag), true)
 Expect("...and the leader's rules", Has("rules (the leader's): controls anyone, sound none, quests shared by anyone, played together quests, gossip, zones, books", diag), true)
 Expect("...the member, online and leading", Has("Lala Throwaway: online", diag) and Has(", leads", diag), true)
 Expect("...and, detailed, the lines played together", Has("101-accept, driver", diag), true)
@@ -318,7 +318,7 @@ end
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
 local LALA = P.LALA
-local function Fields(message) return message and table.concat(message.fields, "|", 2) or nil end
+local Fields = P.Fields
 Expect("whoever started the party leads it", ns.Peers:Leader(), "lala throwaway")
 Expect("a member cannot pass the lead", (ns.Peers:PassLead(ns:MyKey())), false)
 Expect("...nor set a rule", (ns.Peers:SetRule("controls", "anyone")), false)
@@ -349,11 +349,7 @@ ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
 ns:ShowWindow(true)
 local rows = ns.windowRows
-local function Entry(entries, text)
-	for _, entry in ipairs(entries) do
-		if entry.text == text then return entry end
-	end
-end
+local Entry = P.Entry
 local function MemberEntry(key, text) return Entry(ns:WindowMemberMenu(key), text) end
 Expect("the window has a row for this character, then one for her",
 	rows and rows[1] and rows[2] and (rows[1].key .. "|" .. rows[2].key), "tata throwaway|lala throwaway")

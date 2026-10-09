@@ -12,10 +12,10 @@ local Peers = PartySync.Peers
 local Channels = {}
 PartySync.Channels = Channels
 
-Channels.CVARS = { music = "Sound_EnableMusic", effects = "Sound_EnableSFX", ambience = "Sound_EnableAmbience",
-	dialog = "Sound_EnableDialog" }
--- Spoken's names for the same channels, to ask whether it has one off for a line of its own.
-local SPOKEN_NAMES = { music = "Music", effects = "SFX", ambience = "Ambience", dialog = "Dialog" }
+-- The game's name for each channel: its switch is Sound_Enable<name>, and Spoken calls it the same.
+local GAME_NAMES = { music = "Music", effects = "SFX", ambience = "Ambience", dialog = "Dialog" }
+Channels.CVARS = {}
+for channel, name in pairs(GAME_NAMES) do Channels.CVARS[channel] = "Sound_Enable" .. name end
 
 -- channel -> the player's value, while this file has the channel off. Saved with the account,
 -- as the switches are.
@@ -30,15 +30,10 @@ end
 local function PlayersValue(channel)
 	local env = rawget(_G, "SpokenEnv")
 	local sound = env and env.SoundUtils
-	if sound and sound.IsMutedByPlayer and sound:IsMutedByPlayer(SPOKEN_NAMES[channel]) then
+	if sound and sound.IsMutedByPlayer and sound:IsMutedByPlayer(GAME_NAMES[channel]) then
 		return "1"
 	end
 	return tostring(GetCVar(Channels.CVARS[channel]) or "1")
-end
-
---- Whether this file has `channel` off.
-function Channels:IsOff(channel)
-	return Saved()[channel] ~= nil
 end
 
 function Channels:Restore(channel)
@@ -51,7 +46,7 @@ function Channels:Restore(channel)
 end
 
 --- Each channel off or back as the rules say. Run on every change and once a second, so a switch
---- turned back on meanwhile -- Spoken's Dialog, after its line -- is off again at once.
+--- turned back on meanwhile, as Spoken's Dialog is after its line, is off again at once.
 function Channels:Apply()
 	local saved = Saved()
 	local inParty = Peers:InParty()
@@ -66,6 +61,15 @@ function Channels:Apply()
 			self:Restore(channel)
 		end
 	end
+end
+
+--- Spoken switches Dialog back on as its queue empties, the moment QUEUE_EMPTY fires: a channel
+--- the party keeps off goes off again then, not at the next second.
+function Channels:Setup()
+	local Spoken = _G.Spoken
+	if self.ready or not (Spoken and Spoken.RegisterCallback) then return end
+	self.ready = true
+	Spoken:RegisterCallback("QUEUE_EMPTY", function() Channels:Apply() end)
 end
 
 --- Every channel this file switched off, back: at logout and /reload, before the client saves the

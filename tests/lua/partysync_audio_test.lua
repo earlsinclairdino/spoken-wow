@@ -14,7 +14,7 @@ local LALA = P.LALA
 local LOOKUP = { ["101-accept"] = 10 }
 local NONE = "music=none;effects=none;ambience=none;dialog=none"
 
-local function Fields(message) return message and table.concat(message.fields, "|", 2) or nil end
+local Fields = P.Fields
 local function CVar(name) return GetCVar(name) end
 
 local ns, VO, env, Spoken
@@ -81,8 +81,8 @@ P.Receive(stub, LALA, "PS", "anyone", "none", "1111", "anyone", "music=none;effe
 Expect("...taken over while Spoken has it off for a line, the player's value is on", ns:DB().cvarCache.dialog, "1")
 env.SoundUtils:MuteChannel("Dialog", false)
 Expect("...Spoken putting it back on", CVar("Sound_EnableDialog"), "1")
-ns.Channels:Apply()
-Expect("...is overruled at once", CVar("Sound_EnableDialog"), "0")
+env.Callbacks:Fire("QUEUE_EMPTY")
+Expect("...as its queue empties, is overruled at once", CVar("Sound_EnableDialog"), "0")
 
 -- This computer's own choice wins over the rule, both ways.
 ns.Room:SetOwnChannel("dialog", "plays")
@@ -120,9 +120,13 @@ for _, entry in ipairs(ns:WindowMemberMenu("lala throwaway")) do
 	if entry.text == ns.L.MENU_PLAY_HERE then play = entry end
 end
 Expect("...and her Play Sound Here that it is so", play.reason, format(ns.L.ALREADY_SOUND_FMT, "Lala Throwaway"))
-ns.Room:SetAll("none")
 P.Receive(stub, LALA, "HI", "0.5.0", 1, P.SESSION, 0, "vmead")
-ns:Problem("missing:lala throwaway", "Lala Throwaway has no voice file.")
+ns:Problem("missing:lala throwaway", "Lala Throwaway has no voice file.", { kind = "missing", who = "lala throwaway" })
+Expect("her computer alone on the voice, leaving it out would be every other: not offered",
+	ns.windowModel.problems[1].actions[1].label, ns.L.ACTION_DISMISS)
+ns:Resolve("missing:lala throwaway")
+ns.Room:SetAll("none")
+ns:Problem("missing:lala throwaway", "Lala Throwaway has no voice file.", { kind = "missing", who = "lala throwaway" })
 local mute = ns.windowModel.problems[1].actions[1]
 Expect("a member with no voice file can be taken off the voice", mute.label, ns.L.ACTION_MUTE)
 P.Clear()
@@ -164,12 +168,7 @@ SlashCmdList["SPOKENPARTYSYNC"]("sound captions")
 Expect("/sps sound alone is still the voice", ns:DB().soundOwn, "captions")
 ns.optionsPanel:Show()
 ns:RefreshOptions()
-local layout = ns.optionsLayout
-local function PageRow(label)
-	for _, entry in ipairs(layout.entries) do
-		if entry.label == label then return entry.frame end
-	end
-end
+local function PageRow(label) return P.PageRow(ns, label) end
 Expect("the page's Play All Sound On reads each channel's owner", PageRow(ns.L.OPT_ALL_SOUND).layoutRead(), ns:MyKey())
 ns.Room:Set("music", "lala throwaway")
 Expect("...or Mixed", PageRow(ns.L.OPT_ALL_SOUND).layoutRead(), "mixed")
