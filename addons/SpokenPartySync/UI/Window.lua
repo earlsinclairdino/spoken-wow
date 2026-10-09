@@ -58,16 +58,9 @@ local frame
 -- until closed by hand.
 local forced = false
 local lastProblemAt = nil
--- Set around this file's own Hide, so only a close by the player (Escape) counts as one.
-local hidingHere = false
 -- Closed by hand: the problems (and the offer) on screen then, by key. It stays closed until
 -- one not among them comes up.
 local seenAtClose = nil
--- When its menu last opened the settings page: the client hides every frame in UISpecialFrames
--- as its settings panel opens, during the call or just after, and that is not the player
--- closing this one.
-local settingsOpenedAt = nil
-local SETTINGS_HIDE_SECONDS = 1
 
 --- What is worth the window, by key: the problems, the offer to remember a party, and an
 --- invitation waiting for its answer (keyed apart from the problem its outcome may raise, so
@@ -139,6 +132,7 @@ local function MemberModel(key, isMe, leader)
 	if voice then table.insert(member.tags, L.TAG_SOUND) end
 	if own then table.insert(member.tags, L.TAG_OWN_SOUND) end
 	member.plays = PlaysText(key)
+	member.differs = PartySync.Diagnostics:Differences(key)
 	return member
 end
 
@@ -160,6 +154,7 @@ end
 local TROUBLE_WORDS = {
 	noanswer = { L.PEER_NO_ANSWER, RED }, unplayed = { L.PEER_NO_ANSWER, RED },
 	missing = { L.PEER_MISSING, RED }, dropped = { L.PEER_DROPPED, GREY },
+	old = { L.PEER_OLD, RED }, absent = { L.PEER_ABSENT, RED },
 }
 
 --- A member's progress with a line this computer drives, only where it is not as it should be.
@@ -356,7 +351,7 @@ function PartySync:WindowText()
 	end
 	for _, member in ipairs(model.members or {}) do
 		table.insert(out, member.name .. (member.isMe and (" (" .. L.TAG_YOU .. ")") or "")
-			.. (member.tag and ("  " .. member.tag) or ""))
+			.. (member.differs and " (!)" or "") .. (member.tag and ("  " .. member.tag) or ""))
 	end
 	for _, invite in ipairs(model.invited or {}) do
 		table.insert(out, invite.name .. "  " .. format(L.STATE_INVITED_FMT, invite.seconds))
@@ -410,15 +405,10 @@ local function Whisper(name)
 	end
 end
 
-local function OpenSettings()
-	settingsOpenedAt = GetTime()
-	PartySync:OpenOptions()
-end
-
 function PartySync:WindowTitleMenu()
 	local inParty = Peers:InParty()
 	return {
-		{ text = L.MENU_WINDOW_SETTINGS, onClick = OpenSettings },
+		{ text = L.MENU_WINDOW_SETTINGS, onClick = function() PartySync:OpenOptions() end },
 		{ text = L.OPT_REMEMBER, tip = L.OPT_REMEMBER_TIP,
 			reason = (not inParty and L.OPT_IN_PARTY) or (Autoform:Remembered() and L.REMEMBERED_ALREADY) or nil,
 			onClick = function() Autoform:Remember() end },
@@ -429,6 +419,29 @@ function PartySync:WindowTitleMenu()
 		{ text = L.OPT_LEAVE, tip = L.OPT_LEAVE_TIP, reason = not inParty and L.OPT_IN_PARTY or nil,
 			onClick = function() Peers:Leave() end },
 	}
+end
+
+--- What `key`'s computer runs, a line a module, as its last hello said; this computer's own.
+local function VersionsEntry(key, isMe)
+	local peer = not isMe and Peers.list[key] or nil
+	local children
+	if not (isMe or peer) then
+		children = { { text = L.VERSIONS_UNHEARD } }
+	else
+		children = { { text = format(L.VERSION_FMT, L.TITLE, isMe and PartySync.version or tostring(peer.version)) } }
+		local modules = isMe and PartySync.Diagnostics:Modules() or peer.modules
+		if modules then
+			for _, line in ipairs(PartySync.Diagnostics:DescribeModules(modules)) do table.insert(children, { text = line }) end
+		else
+			table.insert(children, { text = L.VERSIONS_NOT_SENT })
+		end
+	end
+	local differences = PartySync.Diagnostics:Differences(key)
+	if differences then
+		table.insert(children, { title = L.VERSION_DIFFERS_TIP })
+		for _, line in ipairs(differences) do table.insert(children, { text = RED .. line .. "|r" }) end
+	end
+	return { text = L.MENU_VERSIONS, tip = L.MENU_VERSIONS_TIP, children = children }
 end
 
 function PartySync:WindowMemberMenu(key)
@@ -453,6 +466,7 @@ function PartySync:WindowMemberMenu(key)
 			onClick = function() Peers:RemoveMember(key) end })
 		table.insert(entries, { text = L.MENU_WHISPER, onClick = function() Whisper(Peers:MemberName(key)) end })
 	end
+	table.insert(entries, VersionsEntry(key, isMe))
 	return entries
 end
 
@@ -679,6 +693,15 @@ local function HideFrom(list, first)
 	for i = first, #list do list[i]:Hide() end
 end
 
+local function SetAlertGlyph(texture)
+	local atlas = "services-icon-warning"
+	if texture.SetAtlas and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas) then
+		texture:SetAtlas(atlas)
+	else
+		texture:SetTexture(ALERT)
+	end
+end
+
 local function NewRow()
 	local row = CreateFrame("Button", nil, frame)
 	row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -691,6 +714,10 @@ local function NewRow()
 	if row.label.SetWordWrap then row.label:SetWordWrap(false) end
 	row.tag = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	row.tag:SetJustifyH("RIGHT")
+	-- After the name: this computer runs something else than the leader's.
+	row.alert = row:CreateTexture(nil, "OVERLAY")
+	SetAlertGlyph(row.alert)
+	row.alert:Hide()
 	row:SetScript("OnClick", function(self)
 		if self.key then
 			OpenMenu(self, self.name, PartySync:WindowMemberMenu(self.key))
@@ -713,15 +740,6 @@ local function NewSub()
 	local text = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	text:SetJustifyH("LEFT")
 	return text
-end
-
-local function SetAlertGlyph(texture)
-	local atlas = "services-icon-warning"
-	if texture.SetAtlas and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas) then
-		texture:SetAtlas(atlas)
-	else
-		texture:SetTexture(ALERT)
-	end
 end
 
 local function Height(fontString, least)
@@ -836,16 +854,8 @@ local function Create()
 		frame:SetBackdropColor(0.03, 0.03, 0.06, 0.94)
 		frame:SetBackdropBorderColor(0.44, 0.33, 0.15, 1)
 	end
-	-- Escape closes it, and a close by the player keeps it closed until something new goes wrong.
-	if UISpecialFrames then table.insert(UISpecialFrames, "SpokenPartySyncWindow") end
-	frame:SetScript("OnHide", function()
-		if hidingHere then return end
-		if settingsOpenedAt and GetTime() - settingsOpenedAt < SETTINGS_HIDE_SECONDS then
-			C_Timer.After(0, function() PartySync:RefreshWindow() end)
-			return
-		end
-		Dismiss()
-	end)
+	-- Not in UISpecialFrames: the game hides those on Escape and as any of its panels opens or
+	-- closes, and this window is closed only by its own X (or /sps window).
 	frame:SetScript("OnMouseUp", TitleMenuOnRightClick)
 
 	local title = CreateFrame("Button", nil, frame)
@@ -1057,7 +1067,16 @@ local function DrawMembers(model, y, metrics, inner)
 		end
 		if member.tags[1] then table.insert(facts, table.concat(member.tags, PartySync.DOT)) end
 		table.insert(facts, member.plays)
-		row.tip = { title = row.label:GetText(), body = table.concat(facts, "\n"), hint = member.isMe and L.ROW_HINT_ME or L.ROW_HINT }
+		row.tip = { title = row.label:GetText(), body = table.concat(facts, "\n"), hint = member.isMe and L.ROW_HINT_ME or L.ROW_HINT,
+			reason = member.differs and (L.VERSION_DIFFERS_TIP .. "\n" .. table.concat(member.differs, "\n")) or nil }
+		if member.differs then
+			row.alert:SetSize(metrics.dot + 2, metrics.dot + 2)
+			row.alert:ClearAllPoints()
+			row.alert:SetPoint("LEFT", row.label, "LEFT", math.floor((row.label:GetStringWidth() or 0) + 4), 0)
+			row.alert:Show()
+		else
+			row.alert:Hide()
+		end
 		y = y + metrics.row
 	end
 	for _, invite in ipairs(model.invited or {}) do
@@ -1065,6 +1084,7 @@ local function DrawMembers(model, y, metrics, inner)
 		local row = PlaceRow(count, y, metrics, inner, "unknown", GREY .. invite.name .. "|r",
 			YELLOW .. format(L.STATE_INVITED_FMT, invite.seconds) .. "|r")
 		row.key, row.invited, row.name = nil, invite.key, invite.name
+		row.alert:Hide()
 		row.tip = { title = invite.name, body = L.INVITED_TIP, hint = L.INVITED_HINT }
 		y = y + metrics.row
 	end
@@ -1205,11 +1225,7 @@ local function Wanted(attention)
 end
 
 local function HideHere()
-	if frame and frame:IsShown() then
-		hidingHere = true
-		frame:Hide()
-		hidingHere = false
-	end
+	if frame and frame:IsShown() then frame:Hide() end
 end
 
 function PartySync:RefreshWindow()

@@ -193,12 +193,13 @@ function Sync:Entries()
 end
 
 --- What went wrong with a member's copy of a line this computer drives, or nil: "late" (and how
---- late), "noanswer", "missing" (no voice file), "dropped", or "unplayed" (never started before
---- the line was over).
+--- late), "noanswer", "missing" (no voice file), "old" (their module cannot rebuild a line: not
+--- the Party Sync build), "absent" (no such module there), "dropped", or "unplayed" (never
+--- started before the line was over).
 function Sync:PeerTrouble(entry, peer)
 	if not peer then return nil end
 	local state = peer.state
-	if state == "noanswer" or state == "missing" then return state end
+	if state == "noanswer" or state == "missing" or state == "old" or state == "absent" then return state end
 	-- Dropped by everyone together is a skip, not a miss.
 	if state == "dropped" and entry.state ~= "stopped" then return "dropped" end
 	if entry.state == "finished" and (state == "sent" or state == "queued") then return "unplayed" end
@@ -531,9 +532,11 @@ local function Build(entry)
 	end
 	Trace("follow %s from %s: cannot play it here (%s)", entry.id, tostring(entry.driver), tostring(why))
 	Ended(entry, "missing")
-	Ack(entry, "missing")
+	-- Said as it is: "missing" would have the driver offer to take the voice off a computer that
+	-- has the file but not the module that can find it.
+	Ack(entry, (why == "old" and "old") or (why == "no-source" and "absent") or "missing")
 	if why == "old" then
-		PartySync:Problem("old:" .. d.src, format(L.PROBLEM_OLD_MODULE_FMT, d.src))
+		PartySync:Problem("old:" .. d.src, format(L.PROBLEM_OLD_MODULE_FMT, Sync:SourceTitle(d.src)))
 	end
 end
 
@@ -746,9 +749,20 @@ Comm:On("AK", function(sender, channel, id, state, ms)
 	if state == "missing" then
 		PartySync:Problem("missing:" .. key, format(L.PROBLEM_MISSING_FMT, Short(key), LabelOf(entry)),
 			{ kind = "missing", who = key })
+	elseif state == "old" or state == "absent" then
+		local module = Sync:SourceTitle(entry.desc and entry.desc.src)
+		PartySync:Problem(state .. ":" .. key, format(state == "old" and L.PROBLEM_PEER_OLD_FMT or L.PROBLEM_PEER_ABSENT_FMT,
+			Short(key), module))
 	end
 	PartySync:Changed()
 end)
+
+local SOURCE_TITLES = { quests = "Spoken Quests", zones = "Spoken Zones", books = "Spoken Books" }
+
+--- The module a source key stands for, by the name players know it by.
+function Sync:SourceTitle(src)
+	return SOURCE_TITLES[src] or tostring(src)
+end
 
 --------------------------------------------------------------------------------
 -- Controls
