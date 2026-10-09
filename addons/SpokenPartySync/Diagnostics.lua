@@ -107,6 +107,9 @@ function Diagnostics:Lines(detailed)
 	else
 		Add("members: nobody")
 	end
+	for _, invite in ipairs(Peers:Invitations()) do
+		Add("invited: %s (%d s, no answer yet)", invite.name, invite.seconds)
+	end
 	local Autoform = PartySync.Autoform
 	local list = Autoform and Autoform:List()
 	if list and next(list.members) then

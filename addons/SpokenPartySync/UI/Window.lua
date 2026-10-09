@@ -11,11 +11,14 @@ local _, PartySync = ...
 
 local Peers, Sync, Room, Autoform, L = PartySync.Peers, PartySync.Sync, PartySync.Room, PartySync.Autoform, PartySync.L
 
-local FULL = { width = 320, pad = 10, top = 8, header = 20, row = 18, round = 18, glyph = 9, dot = 12, gap = 6,
-	titleFont = "GameFontNormal", nameFont = "GameFontHighlight" }
+-- The round button and its glyph even-sized: an odd glyph centred in it falls on half pixels and
+-- draws off-centre and clipped.
+local FULL = { width = 320, pad = 10, top = 8, header = 20, row = 18, round = 20, glyph = 10, dot = 12, gap = 6,
+	arrow = 12, close = 16, titleFont = "GameFontNormal", nameFont = "GameFontHighlight" }
 local COMPACT = { width = 220, pad = 8, top = 6, header = 16, row = 16, round = 16, glyph = 8, dot = 10, gap = 4,
-	titleFont = "GameFontNormalSmall", nameFont = "GameFontHighlightSmall" }
+	arrow = 10, close = 14, titleFont = "GameFontNormalSmall", nameFont = "GameFontHighlightSmall" }
 local CHIP_HEIGHT = 16
+local CHIP_GAP = 4
 local LINE_HEIGHT = 16
 local SUB_HEIGHT = 14
 local SUB_INDENT = 20
@@ -31,7 +34,16 @@ local DOTS = {
 }
 local WHITE8 = [[Interface\Buttons\WHITE8X8]]
 local ALERT = [[Interface\DialogFrame\UI-Dialog-Icon-AlertNew]]
-local MENU_ARROW = [[Interface\ChatFrame\UI-ChatIcon-ScrollDown-Up]]
+-- The triangle the game's menus put before a submenu, turned to point down.
+local MENU_ARROW = [[Interface\ChatFrame\ChatFrameExpandArrow]]
+-- The small grey cross the game clears a text box with: a close that does not pull the eye.
+local CLOSE_ICON = [[Interface\FriendsFrame\ClearBroadcastIcon]]
+-- Following the party: the game's group icon. Its own sound: a speaker.
+local FOLLOW_GLYPHS = {
+	follow = { atlases = { "socialqueuing-icon-group", "groupfinder-icon-friend" },
+		file = [[Interface\FriendsFrame\UI-Toast-FriendOnlineIcon]] },
+	own = { atlases = { "voicechat-icon-speaker" }, file = [[Interface\COMMON\VoiceChat-Speaker]] },
+}
 
 local CONTROLS = { leader = L.CONTROLS_LEADER, anyone = L.CONTROLS_ANYONE, nobody = L.CONTROLS_NOBODY }
 local STATE_WORDS = { lost = L.STATE_LOST, offline = L.STATE_OFFLINE }
@@ -46,11 +58,20 @@ local hidingHere = false
 -- Closed by hand: the problems (and the offer) on screen then, by key. It stays closed until
 -- one not among them comes up.
 local seenAtClose = nil
+-- When its menu last opened the settings page: the client hides every frame in UISpecialFrames
+-- as its settings panel opens, during the call or just after, and that is not the player
+-- closing this one.
+local settingsOpenedAt = nil
+local SETTINGS_HIDE_SECONDS = 1
 
+--- What is worth the window, by key: the problems, the offer to remember a party, and an
+--- invitation waiting for its answer (keyed apart from the problem its outcome may raise, so
+--- that problem still counts as new).
 local function Attention(model)
 	local keys = {}
 	for _, problem in ipairs(model and model.problems or {}) do keys[problem.key] = true end
 	if model and model.prompt then keys.prompt = true end
+	for _, invite in ipairs(model and model.invited or {}) do keys["invited:" .. invite.key] = true end
 	return keys
 end
 
@@ -224,6 +245,18 @@ local function StopModel()
 	return stop
 end
 
+local OWN_TIPS = { plays = L.FOLLOW_OFF_TIP_PLAYS, muted = L.FOLLOW_OFF_TIP_MUTED }
+
+--- The header's switch between following the party's sound and playing this computer's own.
+local function FollowModel()
+	local own = Room:OwnSummary()
+	if own == "" then
+		return { state = "follow", word = L.FOLLOW_ON_WORD, title = L.FOLLOW_ON_TITLE, body = L.FOLLOW_ON_TIP }
+	end
+	return { state = "own", word = L.FOLLOW_OFF_WORD, title = L.FOLLOW_OFF_TITLE,
+		body = OWN_TIPS[own] or L.FOLLOW_OFF_TIP_PARTLY }
+end
+
 local HEALTH = {
 	sync = { L.HEALTH_SYNC, GREEN },
 	late = { L.HEALTH_LATE, YELLOW },
@@ -272,11 +305,13 @@ function PartySync:WindowModel()
 		local health = Sync.ready and Sync:Health()
 		model.health = health and { word = HEALTH[health][1], colour = HEALTH[health][2], kind = health }
 		model.chips = ChipsModel()
+		model.follow = FollowModel()
 		model.members = {}
 		local me, leader = self:MyKey(), Peers:Leader()
 		for _, key in ipairs(Peers:MemberKeys()) do
 			table.insert(model.members, MemberModel(key, key == me, leader))
 		end
+		model.invited = Peers:Invitations()
 		model.line = QueueModel()
 	end
 	-- Kept out of a party too: a member gone may end it, and that is when Re-invite is wanted.
@@ -296,7 +331,8 @@ end
 --- What the window says, as plain text, for /dump and the tests.
 function PartySync:WindowText()
 	local model = self:WindowModel()
-	local out = { L.WINDOW_TITLE .. (model.health and ("  " .. model.health.word) or "") }
+	local out = { L.WINDOW_TITLE .. (model.health and ("  " .. model.health.word) or "")
+		.. (model.follow and ("  " .. model.follow.word) or "") }
 	if model.chips then
 		table.insert(out, table.concat({ model.chips.audio.text, model.chips.playback.text, model.chips.quests.text }, "  "))
 	end
@@ -309,6 +345,9 @@ function PartySync:WindowText()
 	for _, member in ipairs(model.members or {}) do
 		table.insert(out, member.name .. (member.isMe and (" (" .. L.TAG_YOU .. ")") or "")
 			.. (member.tag and ("  " .. member.tag) or ""))
+	end
+	for _, invite in ipairs(model.invited or {}) do
+		table.insert(out, invite.name .. "  " .. format(L.STATE_INVITED_FMT, invite.seconds))
 	end
 	local line = model.line
 	if line and line.empty then
@@ -359,10 +398,15 @@ local function Whisper(name)
 	end
 end
 
+local function OpenSettings()
+	settingsOpenedAt = GetTime()
+	PartySync:OpenOptions()
+end
+
 function PartySync:WindowTitleMenu()
 	local inParty = Peers:InParty()
 	return {
-		{ text = L.MENU_WINDOW_SETTINGS, onClick = function() PartySync:OpenOptions() end },
+		{ text = L.MENU_WINDOW_SETTINGS, onClick = OpenSettings },
 		{ text = L.OPT_REMEMBER, tip = L.OPT_REMEMBER_TIP,
 			reason = (not inParty and L.OPT_IN_PARTY) or (Autoform:Remembered() and L.REMEMBERED_ALREADY) or nil,
 			onClick = function() Autoform:Remember() end },
@@ -385,7 +429,9 @@ function PartySync:WindowMemberMenu(key)
 			reason = only or (Room:Summary() == key and format(L.ALREADY_SOUND_FMT, name)) or nil,
 			onClick = function() Room:SetAll(key) end },
 	}
-	if not isMe then
+	if isMe then
+		table.insert(entries, { text = L.OPT_LEAVE, tip = L.OPT_LEAVE_TIP, onClick = function() Peers:Leave() end })
+	else
 		table.insert(entries, { text = L.MENU_REMOVE_MEMBER, tip = format(L.ACTION_REMOVE_TIP_FMT, name), reason = only,
 			onClick = function() Peers:RemoveMember(key) end })
 		table.insert(entries, { text = L.MENU_WHISPER, onClick = function() Whisper(Peers:MemberName(key)) end })
@@ -393,26 +439,32 @@ function PartySync:WindowMemberMenu(key)
 	return entries
 end
 
---- The party's rule for each channel (the leader's), a shortcut putting all of them on one
---- computer, then this computer's own choices, which are everyone's.
-function PartySync:WindowAudioMenu()
-	local reason = RulesReason()
-	local entries = { { title = L.MENU_WHO_PLAYS } }
+--- Someone invited who has not answered yet.
+function PartySync:WindowInvitedMenu(key)
+	local name = Peers:MemberName(key)
+	return {
+		{ text = L.MENU_INVITE_AGAIN, tip = L.MENU_INVITE_AGAIN_TIP, reason = Peers:WhyNotLeader(),
+			onClick = function() Peers:Invite(name) end },
+		{ text = L.MENU_CANCEL_INVITE, tip = L.MENU_CANCEL_INVITE_TIP, onClick = function() Peers:CancelInvite(key) end },
+		{ text = L.MENU_WHISPER, onClick = function() Whisper(name) end },
+	}
+end
+
+--- The party's rule for each channel, each opening the owners to choose from.
+local function RuleChannels(reason)
+	local entries = {}
 	for _, channel in ipairs(Room.CHANNELS) do
 		local current = Room:Owner(channel)
 		table.insert(entries, { text = format(L.AUDIO_RULE_FMT, Room:Name(channel), Room:Short(current)),
 			tip = Room:Tip(channel), children = Radios(Room:Choices(current), current, DescribeOwner,
 				function(owner) Room:Set(channel, owner) end, reason) })
 	end
-	for _, owner in ipairs(Room:Choices()) do
-		table.insert(entries, { text = format(L.ALL_ON_FMT, Room:Short(owner)), reason = reason, tip = L.OPT_ALL_SOUND_TIP,
-			onClick = function() Room:SetAll(owner) end })
-	end
-	table.insert(entries, { title = L.MENU_THIS_COMPUTER })
-	local summary = Room:OwnSummary()
-	table.insert(entries, { text = format(L.AUDIO_RULE_FMT, L.MENU_ALL_SOUND, Room:DescribeOwn(summary)),
-		tip = L.OPT_SOUND_OWN_TIP, children = Radios(Room:OwnChoices(), summary,
-			function(value) return Room:DescribeOwn(value) end, function(value) Room:SetOwnAll(value) end) })
+	return entries
+end
+
+--- This computer's own choice for each channel, each opening its three answers.
+local function OwnChannels()
+	local entries = {}
 	for _, channel in ipairs(Room.CHANNELS) do
 		local own = Room:OwnValue(channel)
 		table.insert(entries, { text = format(L.AUDIO_RULE_FMT, Room:Name(channel), Room:DescribeOwn(own, channel)),
@@ -420,6 +472,28 @@ function PartySync:WindowAudioMenu()
 				function(value) return Room:DescribeOwn(value, channel) end,
 				function(value) Room:SetOwnChannel(channel, value) end) })
 	end
+	return entries
+end
+
+--- In layers, the plain choices first: all the sound on one computer (the leader's rule) or on
+--- every one, each channel apart under Advanced, then whether this computer follows the party,
+--- which is everyone's to answer.
+function PartySync:WindowAudioMenu()
+	local reason = RulesReason()
+	local summary = Room:Summary()
+	-- "Mixed" is no choice: no radio is ticked then, and Advanced shows how the channels differ.
+	local entries = Radios(Room:Choices(summary ~= "mixed" and summary or nil), summary,
+		function(owner) return format(L.ALL_ON_FMT, Room:Describe(owner)) end,
+		function(owner) Room:SetAll(owner) end, reason, L.OPT_ALL_SOUND_TIP)
+	table.insert(entries, 1, { title = L.MENU_WHO_PLAYS })
+	table.insert(entries, { text = L.MENU_ADVANCED, tip = L.MENU_ADVANCED_RULE_TIP, children = RuleChannels(reason) })
+	local own = Room:OwnSummary()
+	local follow = Radios(Room:OwnChoices(), own, function(value) return Room:DescribeFollow(value) end,
+		function(value) Room:SetOwnAll(value) end)
+	table.insert(follow, 1, { title = L.OPT_FOLLOW })
+	table.insert(follow, { text = L.MENU_ADVANCED, tip = L.MENU_ADVANCED_OWN_TIP, children = OwnChannels() })
+	table.insert(entries, { text = format(L.MENU_FOLLOW_FMT, Room:DescribeFollow(own)), tip = L.OPT_FOLLOW_TIP,
+		children = follow })
 	return entries
 end
 
@@ -488,6 +562,12 @@ local function OpenMenu(owner, title, entries)
 			AddEntry(root, entry)
 		end
 	end)
+end
+
+local function TitleMenuOnRightClick(owner, button)
+	if button == "RightButton" then
+		OpenMenu(owner, L.WINDOW_TITLE, PartySync:WindowTitleMenu())
+	end
 end
 
 --------------------------------------------------------------------------------
@@ -595,7 +675,11 @@ local function NewRow()
 	row.tag = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	row.tag:SetJustifyH("RIGHT")
 	row:SetScript("OnClick", function(self)
-		if self.key then OpenMenu(self, self.name, PartySync:WindowMemberMenu(self.key)) end
+		if self.key then
+			OpenMenu(self, self.name, PartySync:WindowMemberMenu(self.key))
+		elseif self.invited then
+			OpenMenu(self, self.name, PartySync:WindowInvitedMenu(self.invited))
+		end
 	end)
 	Tipped(row)
 	return row
@@ -614,13 +698,23 @@ local function NewSub()
 	return text
 end
 
-local function SetAlertGlyph(texture)
-	local atlas = "services-icon-warning"
-	if texture.SetAtlas and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas) then
-		texture:SetAtlas(atlas)
-	else
-		texture:SetTexture(ALERT)
+--- The first of `atlases` this client has, else `file`.
+local function SetGlyph(texture, atlases, file)
+	if texture.SetAtlas and C_Texture and C_Texture.GetAtlasInfo then
+		for _, atlas in ipairs(atlases) do
+			if C_Texture.GetAtlasInfo(atlas) then
+				texture:SetAtlas(atlas)
+				return
+			end
+		end
 	end
+	texture:SetTexture(file)
+	-- A round button's glyph keeps the coordinates of the cell it was made with otherwise.
+	texture:SetTexCoord(0, 1, 0, 1)
+end
+
+local function SetAlertGlyph(texture)
+	SetGlyph(texture, { "services-icon-warning" }, ALERT)
 end
 
 local function Height(fontString, least)
@@ -662,7 +756,7 @@ local function FillActionRow(row, text, actions, inner, y, metrics)
 			function() action.run(); PartySync:RefreshWindow() end)
 		chip:ClearAllPoints()
 		chip:SetPoint("TOPRIGHT", row, "TOPRIGHT", -right, 0)
-		right = right + chip:GetWidth() + 4
+		right = right + chip:GetWidth() + CHIP_GAP
 	end
 	HideFrom(row.chips, #actions + 1)
 	local indent = row.glyph and 18 or 0
@@ -673,6 +767,36 @@ local function FillActionRow(row, text, actions, inner, y, metrics)
 	Put(row, metrics.pad, y)
 	row:Show()
 	return height
+end
+
+local CLOSE_IDLE_ALPHA = 0.55
+
+--- A small grey cross, brighter under the pointer; a multiplication sign in grey on a client
+--- without the icon.
+local function NewCloseButton()
+	local close = CreateFrame("Button", nil, frame)
+	close.icon = close:CreateTexture(nil, "ARTWORK")
+	close.icon:SetAllPoints()
+	if close.icon:SetTexture(CLOSE_ICON) == false then
+		close.icon:Hide()
+		close.label = close:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+		close.label:SetPoint("CENTER", 0, 1)
+		close.label:SetText("\195\151")
+	end
+	local function Paint(hover)
+		close.icon:SetAlpha(hover and 1 or CLOSE_IDLE_ALPHA)
+		if close.label then
+			local shade = hover and 1 or 0.6
+			close.label:SetTextColor(shade, shade, shade)
+		end
+	end
+	Paint(false)
+	close:SetScript("OnClick", function() PartySync:ShowWindow(false) end)
+	close.tip = { title = L.WINDOW_CLOSE, body = L.WINDOW_CLOSE_TIP }
+	Tipped(close)
+	close:HookScript("OnEnter", function() Paint(true) end)
+	close:HookScript("OnLeave", function() Paint(false) end)
+	return close
 end
 
 local function Create()
@@ -708,8 +832,14 @@ local function Create()
 	-- Escape closes it, and a close by the player keeps it closed until something new goes wrong.
 	if UISpecialFrames then table.insert(UISpecialFrames, "SpokenPartySyncWindow") end
 	frame:SetScript("OnHide", function()
-		if not hidingHere then Dismiss() end
+		if hidingHere then return end
+		if settingsOpenedAt and GetTime() - settingsOpenedAt < SETTINGS_HIDE_SECONDS then
+			C_Timer.After(0, function() PartySync:RefreshWindow() end)
+			return
+		end
+		Dismiss()
 	end)
+	frame:SetScript("OnMouseUp", TitleMenuOnRightClick)
 
 	local title = CreateFrame("Button", nil, frame)
 	title.label = title:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -717,7 +847,8 @@ local function Create()
 	title.label:SetText(L.WINDOW_TITLE)
 	title.arrow = title:CreateTexture(nil, "ARTWORK")
 	title.arrow:SetTexture(MENU_ARROW)
-	title.arrow:SetPoint("LEFT", title.label, "RIGHT", 2, 0)
+	if title.arrow.SetRotation then title.arrow:SetRotation(-math.pi / 2) end
+	title.arrow:SetPoint("LEFT", title.label, "RIGHT", 3, 0)
 	title:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	title:RegisterForDrag("LeftButton")
 	title:SetScript("OnDragStart", StartMoving)
@@ -734,11 +865,11 @@ local function Create()
 	health:SetPoint("LEFT", title, "RIGHT", 6, 0)
 	health.tip = { title = L.HEALTH_TITLE, body = L.HEALTH_TIP }
 	Tipped(health)
+	-- It takes the mouse for its tooltip, so it passes a right-click on as the window does.
+	health:SetScript("OnMouseUp", TitleMenuOnRightClick)
 	frame.health = health
 
-	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-	close:SetScript("OnClick", function() PartySync:ShowWindow(false) end)
-	frame.close = close
+	frame.close = NewCloseButton()
 
 	-- The player's own round button: Stop while a line speaks, Replay once it is stopped.
 	local Spoken = _G.Spoken
@@ -747,6 +878,13 @@ local function Create()
 		pause:SetScript("OnClick", function() _G.Spoken:TogglePause() end)
 		Tipped(pause)
 		frame.pause = pause
+		-- The same ring, with a glyph of its own: whether this computer follows the party's sound.
+		local follow = Spoken:CreateRoundButton(frame, "play")
+		follow:SetScript("OnClick", function(self)
+			Room:SetOwnAll(self.state == "follow" and "plays" or "")
+		end)
+		Tipped(follow)
+		frame.follow = follow
 	end
 
 	frame.chips = {}
@@ -779,8 +917,8 @@ end
 local function DrawHeader(model, metrics)
 	local title = frame.title
 	title.label:SetFontObject(metrics.titleFont)
-	title.arrow:SetSize(metrics.header - 6, metrics.header - 6)
-	title:SetSize(math.floor((title.label:GetStringWidth() or 0) + metrics.header - 2), metrics.header)
+	title.arrow:SetSize(metrics.arrow, metrics.arrow)
+	title:SetSize(math.floor((title.label:GetStringWidth() or 0) + metrics.arrow + 4), metrics.header)
 	Put(title, metrics.pad, metrics.top)
 
 	local health = frame.health
@@ -793,24 +931,43 @@ local function DrawHeader(model, metrics)
 	end
 
 	local close = frame.close
-	close:SetSize(metrics.header + 4, metrics.header + 4)
+	close:SetSize(metrics.close, metrics.close)
 	close:ClearAllPoints()
-	close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -(metrics.pad - 6), -(metrics.top - 2))
+	close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -metrics.pad, -(metrics.top + (metrics.header - metrics.close) / 2))
 
+	-- Out of a party there is no line played together to stop.
 	local pause = frame.pause
-	if pause then
+	if pause and model.inParty then
 		pause:SetSize(metrics.round, metrics.round)
 		pause.glyph:SetSize(metrics.glyph, metrics.glyph)
 		pause:ClearAllPoints()
-		pause:SetPoint("RIGHT", close, "LEFT", -4, 0)
+		pause:SetPoint("RIGHT", close, "LEFT", -6, 0)
 		pause:SetState(model.stop.state)
 		if model.stop.reason then pause:Disable() else pause:Enable() end
 		pause.tip = { title = model.stop.title, body = model.stop.body, reason = model.stop.reason }
+		pause:Show()
+	elseif pause then
+		pause:Hide()
+	end
+
+	local follow = frame.follow
+	if follow and model.follow and pause then
+		local glyph = FOLLOW_GLYPHS[model.follow.state]
+		follow:SetSize(metrics.round, metrics.round)
+		follow.glyph:SetSize(metrics.glyph + 2, metrics.glyph + 2)
+		SetGlyph(follow.glyph, glyph.atlases, glyph.file)
+		follow:ClearAllPoints()
+		follow:SetPoint("RIGHT", pause, "LEFT", -6, 0)
+		follow.state = model.follow.state
+		follow.tip = { title = model.follow.title, body = model.follow.body }
+		follow:Show()
+	elseif follow then
+		follow:Hide()
 	end
 	return metrics.top + metrics.header
 end
 
-local function DrawChips(model, y, metrics)
+local function DrawChips(model, y, metrics, inner)
 	if not model.chips or model.compact then
 		for _, chip in pairs(frame.chips) do chip:Hide() end
 		return y
@@ -827,40 +984,62 @@ local function DrawChips(model, y, metrics)
 	y = y + 2
 	local x = metrics.pad
 	for _, name in ipairs({ "audio", "playback", "quests" }) do
+		local width = chips[name]:GetWidth()
+		if x > metrics.pad and x + width > metrics.pad + inner then
+			x, y = metrics.pad, y + CHIP_HEIGHT + CHIP_GAP
+		end
 		Put(chips[name], x, y)
-		x = x + chips[name]:GetWidth() + 4
+		x = x + width + CHIP_GAP
 	end
 	return y + CHIP_HEIGHT
 end
 
+--- Row `i` at `y`: a dot, `label` and `tag` at the right. Its menu (`key`) and tooltip are the
+--- caller's.
+local function PlaceRow(i, y, metrics, inner, dot, label, tag)
+	local row = frame.Row(i)
+	row:SetSize(inner, metrics.row)
+	Put(row, metrics.pad, y)
+	row.dot:SetTexture(DOTS[dot])
+	row.dot:SetSize(metrics.dot, metrics.dot)
+	row.dot:ClearAllPoints()
+	row.dot:SetPoint("LEFT", 0, 0)
+	row.tag:SetText(tag or "")
+	row.tag:ClearAllPoints()
+	row.tag:SetPoint("RIGHT", 0, 0)
+	row.label:SetFontObject(metrics.nameFont)
+	row.label:SetText(label)
+	row.label:ClearAllPoints()
+	row.label:SetPoint("LEFT", row.dot, "RIGHT", 4, 0)
+	row.label:SetPoint("RIGHT", row.tag, "LEFT", -6, 0)
+	row:Show()
+	return row
+end
+
+--- The members, then whoever was invited and has not answered yet.
 local function DrawMembers(model, y, metrics, inner)
 	local count = 0
-	for i, member in ipairs(model.members or {}) do
-		count = i
-		local row = frame.Row(i)
-		row.key, row.name = member.key, member.name
-		row:SetSize(inner, metrics.row)
-		Put(row, metrics.pad, y)
-		row.dot:SetTexture(DOTS[member.dot])
-		row.dot:SetSize(metrics.dot, metrics.dot)
-		row.dot:ClearAllPoints()
-		row.dot:SetPoint("LEFT", 0, 0)
-		row.tag:SetText(member.tag and (member.colour .. member.tag .. "|r") or "")
-		row.tag:ClearAllPoints()
-		row.tag:SetPoint("RIGHT", 0, 0)
-		row.label:SetFontObject(metrics.nameFont)
-		row.label:SetText(member.name .. (member.isMe and (" " .. GREY .. "(" .. L.TAG_YOU .. ")|r") or ""))
-		row.label:ClearAllPoints()
-		row.label:SetPoint("LEFT", row.dot, "RIGHT", 4, 0)
-		row.label:SetPoint("RIGHT", row.tag, "LEFT", -6, 0)
+	for _, member in ipairs(model.members or {}) do
+		count = count + 1
+		local row = PlaceRow(count, y, metrics, inner, member.dot,
+			member.name .. (member.isMe and (" " .. GREY .. "(" .. L.TAG_YOU .. ")|r") or ""),
+			member.tag and (member.colour .. member.tag .. "|r"))
+		row.key, row.invited, row.name = member.key, nil, member.name
 		local facts = {}
 		if member.state then
 			table.insert(facts, member.state .. (member.rtt and format(" %s%d ms", PartySync.DOT, math.floor(member.rtt + 0.5)) or ""))
 		end
 		if member.tags[1] then table.insert(facts, table.concat(member.tags, PartySync.DOT)) end
 		table.insert(facts, member.plays)
-		row.tip = { title = row.label:GetText(), body = table.concat(facts, "\n"), hint = L.ROW_HINT }
-		row:Show()
+		row.tip = { title = row.label:GetText(), body = table.concat(facts, "\n"), hint = member.isMe and L.ROW_HINT_ME or L.ROW_HINT }
+		y = y + metrics.row
+	end
+	for _, invite in ipairs(model.invited or {}) do
+		count = count + 1
+		local row = PlaceRow(count, y, metrics, inner, "unknown", GREY .. invite.name .. "|r",
+			YELLOW .. format(L.STATE_INVITED_FMT, invite.seconds) .. "|r")
+		row.key, row.invited, row.name = nil, invite.key, invite.name
+		row.tip = { title = invite.name, body = L.INVITED_TIP, hint = L.INVITED_HINT }
 		y = y + metrics.row
 	end
 	HideFrom(frame.rows, count + 1)
@@ -946,7 +1125,7 @@ local function Draw(model)
 	end
 
 	local y = DrawHeader(model, metrics)
-	y = DrawChips(model, y, metrics)
+	y = DrawChips(model, y, metrics, inner)
 	y = Divider(y)
 	frame.note:Hide()
 	if not model.inParty then
@@ -985,14 +1164,14 @@ local function Syncing()
 	return false
 end
 
-local function Wanted(hasProblems)
+local function Wanted(attention)
 	if forced then return true end
 	local show = DB().show
-	if show == "always" then return Peers:InParty() or hasProblems end
+	if show == "always" then return Peers:InParty() or attention end
 	if show == "never" then return false end
-	if show == "syncing" then return Syncing() or hasProblems end
-	-- "problems"
-	if hasProblems then
+	if show == "syncing" then return Syncing() or attention end
+	-- "problems": anything worth it, and a few seconds after
+	if attention then
 		lastProblemAt = GetTime()
 		return true
 	end
@@ -1012,7 +1191,6 @@ function PartySync:RefreshWindow()
 	local model = self:WindowModel()
 	-- Kept for /dump, the tests, and what a close by hand has seen.
 	self.windowModel = model
-	-- The offer to remember a party is worth the window, as a problem is.
 	local attention = Attention(model)
 	local fresh = false
 	for key in pairs(attention) do

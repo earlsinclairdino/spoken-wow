@@ -273,6 +273,31 @@ local function RuleRow(row)
 	return row
 end
 
+-- The game's plus and minus before "Advanced", as its own lists show what opens and closes.
+local PLUS = [[|TInterface\Buttons\UI-PlusButton-Up:14:14|t ]]
+local MINUS = [[|TInterface\Buttons\UI-MinusButton-Up:14:14|t ]]
+
+--- An Advanced button and the rows `build()` adds under it, shown only while it is open. While
+--- `differs()`, the setting above reads Mixed: they show whatever the button says, so Mixed is
+--- never left unexplained, and the button is greyed.
+local function Accordion(tip, differs, build)
+	local open = false
+	local function Shown() return open or differs() end
+	local button = layout:Button(L.OPT_ADVANCED, nil, function()
+		open = not open
+		layout:Refresh()
+	end, tip)
+	layout:Requires(button, function() return not differs() end, L.OPT_ADVANCED_MIXED)
+	-- Labelled after Button sized and indexed it by the plain word, which search finds.
+	local function Label() button:SetText((Shown() and MINUS or PLUS) .. L.OPT_ADVANCED) end
+	layout:OnRefresh(Label)
+	Label()
+	layout:Indent()
+	for _, row in ipairs(build()) do layout:ShowWhen(row, Shown) end
+	layout:Outdent()
+	return button
+end
+
 local function SyncBox(kind, label, tooltip)
 	RuleRow(layout:Checkbox(label, tooltip,
 		function() return (Peers:Rules().sync or {})[kind] ~= false end,
@@ -344,13 +369,16 @@ function PartySync:SetupOptions()
 		function() return Room:Choices(Room:Summary()) end,
 		function() return Room:Summary() end, function(value) if value ~= "mixed" then Room:SetAll(value) end end, refresh,
 		function(value) return Room:Describe(value) end))
-	layout:Indent()
-	for _, channel in ipairs(Room.CHANNELS) do
-		RuleRow(layout:Dropdown(Room:Name(channel), Room:Tip(channel), function() return Room:Choices(Room:Owner(channel)) end,
-			function() return Room:Owner(channel) end, function(value) Room:Set(channel, value) end, refresh,
-			function(value) return Room:Describe(value) end))
-	end
-	layout:Outdent()
+	self.rulesAdvanced = Accordion(L.OPT_ADVANCED_RULE_TIP, function() return Room:Summary() == "mixed" end, function()
+		local rows = {}
+		for _, channel in ipairs(Room.CHANNELS) do
+			table.insert(rows, RuleRow(layout:Dropdown(Room:Name(channel), Room:Tip(channel),
+				function() return Room:Choices(Room:Owner(channel)) end,
+				function() return Room:Owner(channel) end, function(value) Room:Set(channel, value) end, refresh,
+				function(value) return Room:Describe(value) end)))
+		end
+		return rows
+	end)
 	layout:Note(L.OPT_SYNC_NOTE)
 	layout:Indent()
 	SyncBox("quests", L.OPT_SYNC_QUESTS, L.OPT_SYNC_QUESTS_TIP)
@@ -360,20 +388,22 @@ function PartySync:SetupOptions()
 	layout:Outdent()
 
 	layout:Section(L.OPT_SECTION_SOUND)
-	layout:Dropdown(L.OPT_SOUND_OWN, L.OPT_SOUND_OWN_TIP, function()
+	layout:Dropdown(L.OPT_FOLLOW, L.OPT_FOLLOW_TIP, function()
 			local choices = Room:OwnChoices()
 			if Room:OwnSummary() == "mixed" then table.insert(choices, "mixed") end
 			return choices
 		end,
 		function() return Room:OwnSummary() end, function(value) if value ~= "mixed" then Room:SetOwnAll(value) end end,
-		refresh, function(value) return Room:DescribeOwn(value) end)
-	layout:Indent()
-	for _, channel in ipairs(Room.CHANNELS) do
-		layout:Dropdown(Room:Name(channel), Room:Tip(channel), Room:OwnChoices(),
-			function() return Room:OwnValue(channel) end, function(value) Room:SetOwnChannel(channel, value) end, refresh,
-			function(value) return Room:DescribeOwn(value, channel) end)
-	end
-	layout:Outdent()
+		refresh, function(value) return Room:DescribeFollow(value) end)
+	self.ownAdvanced = Accordion(L.OPT_ADVANCED_OWN_TIP, function() return Room:OwnSummary() == "mixed" end, function()
+		local rows = {}
+		for _, channel in ipairs(Room.CHANNELS) do
+			table.insert(rows, layout:Dropdown(Room:Name(channel), Room:Tip(channel), Room:OwnChoices(),
+				function() return Room:OwnValue(channel) end, function(value) Room:SetOwnChannel(channel, value) end, refresh,
+				function(value) return Room:DescribeOwn(value, channel) end))
+		end
+		return rows
+	end)
 
 	layout:Section(L.OPT_SECTION_LIST)
 	layout:Note(L.OPT_LIST_NOTE)
