@@ -136,6 +136,7 @@ function Peers:MarkOffline(name)
 		self:Gone(key, "offline")
 		Changed()
 	end
+	self:InviteeOffline(key, peer.name)
 end
 
 --- How long a message takes to reach `key` and come back, in ms: the running average of the
@@ -162,7 +163,8 @@ end
 -- key -> when they joined this session, for JOIN_GRACE. Not saved: after a /reload everyone
 -- has been in for long enough.
 local joinedAt = {}
--- key -> { at, id }: invitations this client sent and has had no answer to.
+-- key -> { at, id, name, expired }: invitations this client sent and has had no answer to.
+-- One past INVITE_SECONDS is kept, expired: a late acceptance still joins.
 local invited = {}
 -- key -> { at, id }: members who left a party here, by wall clock, for REJOIN_SECONDS.
 local left = {}
@@ -296,7 +298,9 @@ function Peers:MemberName(key)
 	local session = self:Session()
 	local peer = self.list[key]
 	local list = Autoform() and Autoform():Entry(key)
-	return (session and session.members[key]) or (peer and peer.name) or (list and list.name) or key
+	local invite = invited[key]
+	return (session and session.members[key]) or (peer and peer.name) or (list and list.name)
+		or (invite and invite.name) or key
 end
 
 --- The members heard from and not lost since, by key.
@@ -582,7 +586,8 @@ function Peers:Invite(name, rules, rejoin)
 		return false, "already in the party"
 	end
 	session = session or NewSession(rules)
-	invited[key] = { at = GetTime(), id = session.id }
+	invited[key] = { at = GetTime(), id = session.id, name = PartySync:WhisperName(name) }
+	PartySync:Resolve("invite:" .. key)
 	local sent, answer = Comm:Whisper(name, "IV", PartySync.version, session.id, rejoin and 1 or 0)
 	PartySync:Trace("party", "invited %s to %s%s: %s", key, session.id, rejoin and ", asked back" or "",
 		sent and "sent" or tostring(answer))
@@ -614,6 +619,60 @@ end
 function Peers:DeclineInvite(name, id)
 	if not name then return end
 	Comm:Whisper(name, "ID", id or "")
+end
+
+--- The invitations to this party still waiting for an answer, by name: { key, name, seconds }.
+function Peers:Invitations()
+	local id, now, list = self:SessionId(), GetTime(), {}
+	for key, pending in pairs(invited) do
+		if pending.id == id and not pending.expired then
+			table.insert(list, { key = key, name = pending.name or key, seconds = math.floor(now - pending.at + 0.5) })
+		end
+	end
+	table.sort(list, function(a, b) return a.key < b.key end)
+	return list
+end
+
+--- An invitation that will not be answered now, as a problem the window offers to send again.
+local function InvitationFailed(key, text)
+	PartySync:Trace("party", "invitation to %s: %s", key, text)
+	PartySync:Print("%s", text)
+	PartySync:Problem("invite:" .. key, text, { kind = "silent", who = key })
+end
+
+--- Each second: an invitation unanswered for as long as the other side's popup lasts has failed,
+--- most often because Spoken Party Sync is not installed there.
+function Peers:CheckInvitations()
+	local now = GetTime()
+	for key, pending in pairs(invited) do
+		if not pending.expired and now - pending.at > INVITE_SECONDS then
+			pending.expired = true
+			InvitationFailed(key, format(L.PROBLEM_NO_INVITE_ANSWER_FMT, PartySync:ShortName(pending.name or key)))
+		end
+	end
+end
+
+--- The client said `key` is not online: an invitation just sent to them goes nowhere.
+function Peers:InviteeOffline(key, name)
+	local pending = invited[key]
+	if not pending then return end
+	invited[key] = nil
+	InvitationFailed(key, format(L.PROBLEM_OFFLINE_FMT, PartySync:ShortName(pending.name or name or key)))
+	Changed()
+end
+
+--- Withdraw an invitation still waiting: their popup closes. A party of one with nobody left to
+--- wait for goes at once.
+function Peers:CancelInvite(key)
+	local pending = invited[key]
+	if not pending then return false end
+	invited[key] = nil
+	Comm:Whisper(pending.name or key, "ID", pending.id)
+	PartySync:Trace("party", "invitation to %s withdrawn", key)
+	PartySync:Resolve("invite:" .. key)
+	self:DropEmpty()
+	Changed()
+	return true
 end
 
 --- Why this character may not do what only the leader does, or nil when it leads or is in no
@@ -655,6 +714,9 @@ function Peers:Reinvite(name)
 	return true
 end
 
+-- { key, id }: the invitation whose popup is up here, so its inviter can withdraw it.
+local asked = nil
+
 local function DefinePopup()
 	if not StaticPopupDialogs or StaticPopupDialogs[POPUP] then
 		return
@@ -663,8 +725,12 @@ local function DefinePopup()
 		text = L.INVITE_POPUP,
 		button1 = ACCEPT or "Accept",
 		button2 = DECLINE or "Decline",
-		OnAccept = function(_, data) Peers:AcceptInvite(data.name, data.id) end,
+		OnAccept = function(_, data)
+			asked = nil
+			Peers:AcceptInvite(data.name, data.id)
+		end,
 		OnCancel = function(_, data, reason)
+			asked = nil
 			-- Only a click is an answer; a popup that timed out or was replaced says nothing.
 			if reason == "clicked" then Peers:DeclineInvite(data.name, data.id) end
 		end,
@@ -717,6 +783,7 @@ Comm:On("IV", function(sender, channel, version, sessionId, rejoin)
 	end
 	DefinePopup()
 	if StaticPopup_Show then
+		asked = { key = key, id = sessionId }
 		StaticPopup_Show(POPUP, PartySync:ShortName(sender), nil, { name = PartySync:WhisperName(sender), id = sessionId })
 	end
 end)
@@ -729,9 +796,14 @@ Comm:On("IA", function(sender, channel, sessionId)
 		return
 	end
 	if not (invited[key] or session.members[key]) then
+		-- Accepted after the invitation was withdrawn: they joined a party that does not count
+		-- them, and are told to leave it.
+		PartySync:Trace("party", "%s accepted an invitation withdrawn: told to leave", key)
+		Comm:Whisper(sender, "ID", session.id)
 		return
 	end
 	invited[key] = nil
+	PartySync:Resolve("invite:" .. key)
 	if session.members[key] then
 		-- A member re-linking: the roster again, in case theirs is stale.
 		Peers:SendRoster()
@@ -749,7 +821,17 @@ Comm:On("ID", function(sender, channel, sessionId)
 	if pending and (sessionId == "" or sessionId == pending.id) then
 		invited[key] = nil
 		PartySync:Trace("party", "%s declined the invitation", tostring(key))
-		PartySync:Print("%s declined", PartySync:ShortName(sender))
+		local text = format(L.PROBLEM_DECLINED_FMT, PartySync:ShortName(sender))
+		PartySync:Print("%s", text)
+		-- Theirs to decide: nothing to offer but dismissing it.
+		PartySync:Problem("invite:" .. key, text)
+		return
+	end
+	if asked and asked.key == key and (sessionId == "" or sessionId == asked.id) then
+		asked = nil
+		if StaticPopup_Hide then StaticPopup_Hide(POPUP) end
+		PartySync:Trace("party", "%s withdrew the invitation", key)
+		PartySync:Print("%s", format(L.INVITE_WITHDRAWN_FMT, PartySync:ShortName(sender)))
 		return
 	end
 	-- About another party, or an invitation long gone: not this party's business.
@@ -1262,6 +1344,7 @@ function Peers:Tick()
 		end
 		self.resumedAt = nil
 	end
+	self:CheckInvitations()
 	self:DropEmpty()
 	if Autoform() then Autoform():Tick() end
 end

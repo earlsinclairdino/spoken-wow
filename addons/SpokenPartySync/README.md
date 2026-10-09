@@ -34,7 +34,7 @@ group, joining a raid, or questing apart.
 - **The party's rules**, the leader's to set, applied on every computer: **Who Controls Playback**
   (Anyone, the default; The Leader; or Nobody: with Nobody the lines play through and the
   player's buttons are greyed for everyone, the leader included; with The Leader they are
-  greyed for the others, with the reason on hover), **Who Plays** each kind of sound (below),
+  greyed for the others, with the reason on hover), **Who Plays What**: each kind of sound (below),
   **Quests Are Shared By** (anyone, the default; only the leader; or nobody), and which kinds of
   line are **Played Together**. The others see the rules greyed on their page.
 - **Lines played together.** A quest line, greeting or gossip, zone lore or book page queued
@@ -55,15 +55,18 @@ group, joining a raid, or questing apart.
   (Spoken's lines), the music, the effects, the ambience and the NPCs' dialog. Each is played
   by every computer, by one (while it is online), or by every computer but some. **Play All
   Sound On** (the page), **Play Sound Here** (a member's row in the window), **Sound** (the
-  page's party block) and the window's Audio menu put them all on one computer. A computer
+  page's party block) and the window's Audio menu put them all on one computer; each channel
+  apart is under **Advanced** (a submenu in the window, rows that open on the page, shown anyway
+  while the channels differ). A computer
   that does not play the voice shows Spoken's lines as captions, without changing Spoken's own
   setting; one that does not play a game channel has its switch (`Sound_EnableMusic`,
   `Sound_EnableSFX`, `Sound_EnableAmbience`, `Sound_EnableDialog`) off while in the party. The
   player's value is kept first and put back when the party ends or the rule changes, at logout
   and `/reload`, and at the next login after a crash; volumes are never touched. A member who
-  would rather decide for itself sets **This Computer** (each channel, or all of them: as the
-  party decides, plays it, or muted), on the page or in the window's Audio menu, whoever leads;
-  the party sees "own audio" beside its name. A "no voice file" problem in the window offers
+  would rather decide for itself answers **Follow the Party** with No, Play My Own Sound or No,
+  Mute My Own Sound (or each channel apart, under Advanced), on the page (My Computer), in the
+  window's Audio menu, or with the round button beside Stop, whoever leads; the party sees
+  "own audio" beside its name. A "no voice file" problem in the window offers
   **Mute There**: every computer but that one plays the voice.
 - **The usual party.** Who to form a party with as soon as you are both online, per
   character. **Remember This Party** puts the party's members on it, with who led and the
@@ -75,19 +78,27 @@ group, joining a raid, or questing apart.
   is greeted every heartbeat; when it answers from no party, whoever led the remembered party,
   if online, else the first by name among those online, invites the others, with the
   remembered rules; a party already running has its leader invite the newcomer.
-- **The window** ("Spoken Party"). Its title opens a menu (Settings, Remember This Party,
-  Compact, Leave Party); beside it, how the last line played together went (in sync, late,
-  missed), the player's Stop/Replay and a close button. Under the title, the rules as chips
-  (Audio, Playback, Quests), the leader's to change, with this computer's own sound in the
-  Audio menu for everyone. Then a row per member with one tag (no answer for how long, voice,
-  leads, own audio; the rest on hover) and a menu on click (Make Leader, Play Sound Here,
-  Remove from Party, Whisper); the line that matters, with only the members behind on it
-  under it and how many more are queued; and what went wrong, each with its fix beside it
-  (Re-invite, Remove, Mute There, Dismiss). Re-invite asks back someone dropped from the party
-  in the last ten minutes (into a new party with the old one's rules, if it ended), and they
-  rejoin without a popup. Compact keeps the members and the line. By default it only
-  appears when something is wrong; Spoken's minimap menu (Open Party Window) and
-  `/sps window` open it, Escape closes it. Nothing in it is protected, so it works in combat.
+- **The window** ("Spoken Party"). Its title, or a right-click anywhere in it that is not a
+  button, opens a menu (Settings, Remember This Party, Compact, Leave Party); beside it, how
+  the last line played together went (in sync, late, missed), Follow the Party (a group icon;
+  a speaker while this computer plays its own sound) and the player's Stop/Replay (both in a
+  party only), and a small close cross. Under the title, the rules as chips (Audio, Playback,
+  Quests; on a second row when they do not fit), the leader's to change, with this computer's
+  own sound in the Audio menu for everyone. Then a row per member with one tag (no answer for
+  how long, voice, leads, own audio; the rest on hover) and a menu on click (Make Leader, Play
+  Sound Here, Remove from Party, Whisper; on your own row Leave Party instead of the last two),
+  and a row for each invitation still waiting ("invited 12 s"), whose menu has Invite Again,
+  Cancel Invitation (their popup closes; an acceptance already on its way is answered by
+  being sent away) and Whisper; the line that matters, with only the members behind on it under it and
+  how many more are queued; and what went wrong, each with its fix beside it (Re-invite,
+  Remove, Mute There, Dismiss). An invitation's outcome is one of those: declined, not
+  online, or no answer within the popup's two minutes (most often Spoken Party Sync is not
+  installed there), the last two with Re-invite. Re-invite asks back someone dropped from the
+  party in the last ten minutes (into a new party with the old one's rules, if it ended), and
+  they rejoin without a popup. Compact keeps the members and the line. By default it only
+  appears when something is wrong or an invitation is waiting; Spoken's minimap menu (Open
+  Party Window) and `/sps window` open it, Escape closes it, opening the settings page from it
+  leaves it up. Nothing in it is protected, so it works in combat.
 
 Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 
@@ -126,7 +137,7 @@ two parts and no realm: a whisper goes to the bare "First Last". The prefix is
 | Kind | Fields | |
 |---|---|---|
 | `HI` | version, reply, session, own, plays | hello: at login, when the group changes, to the usual party each heartbeat, and when what it plays changes; names the party this client is in, whether it decides any channel itself, and the channels it plays (`v m e a d`, `-` for none; missing before 0.5: the rules decide) |
-| `IV` / `IA` / `ID` | session (`IV`: version, session, rejoin) | invite to the party, accepted, declined or left or removed (one naming another party is stale); `rejoin` 1 asks back someone who was in a party with the inviter within ten minutes, who accepts without a popup |
+| `IV` / `IA` / `ID` | session (`IV`: version, session, rejoin) | invite to the party, accepted, declined or left or removed (one naming another party is stale; from the inviter while its popup is up, the invitation withdrawn; answering an `IA` for an invitation withdrawn, leave); `rejoin` 1 asks back someone who was in a party with the inviter within ten minutes, who accepts without a popup |
 | `RO` | session, leader, members | the roster, from the leader, whenever it changes; a member not in it is out |
 | `PS` | controls, room, sync, share, audio | the rules, from the leader: whose controls, who plays the voice, four flags for the kinds played together, whose accepted quests are shared (missing from a 0.4.0 leader: anyone), and who plays each game channel (`music=<owner>;effects=...;ambience=...;dialog=...`, missing before 0.5: every computer). An owner is `none` (every computer), a member's key, or `-<key>,<key>` (every computer but those) |
 | `RM` | | "I added you to my usual party": the other side is asked whether to auto-accept |

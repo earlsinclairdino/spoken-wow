@@ -146,8 +146,13 @@ P.Party(stub, ns)
 P.Receive(stub, LALA, "PS", "anyone", "-tata throwaway", "1111", "anyone", NONE)
 Expect("taken off the voice by the leader, this computer shows captions", Spoken:IsCaptionsOnly(), true)
 local entries = ns:WindowAudioMenu()
-local voiceRule
+local ticked = false
 for _, entry in ipairs(entries) do
+	if entry.radio then ticked = true end
+end
+Expect("with the channels differing, no all-on choice is ticked", ticked, false)
+local voiceRule
+for _, entry in ipairs(P.Entry(entries, ns.L.MENU_ADVANCED).children) do
 	if entry.children and entry.text:find(ns.L.CHANNEL_VOICE, 1, true) and not voiceRule then voiceRule = entry end
 end
 local offered = {}
@@ -170,15 +175,37 @@ ns.optionsPanel:Show()
 ns:RefreshOptions()
 local function PageRow(label) return P.PageRow(ns, label) end
 Expect("the page's Play All Sound On reads each channel's owner", PageRow(ns.L.OPT_ALL_SOUND).layoutRead(), ns:MyKey())
+-- Each channel has two rows: the party's rule, then this computer's own.
+local function Rows(label)
+	local found = {}
+	for _, entry in ipairs(ns.optionsLayout.entries) do
+		if entry.label == label then table.insert(found, entry.frame) end
+	end
+	return found
+end
+local function RuleShown() return Rows(ns.L.CHANNEL_MUSIC)[1].layoutRow.shown end
+local function OwnShown() return Rows(ns.L.CHANNEL_MUSIC)[2].layoutRow.shown end
+local rulesAdvanced = Rows(ns.L.OPT_ADVANCED)[1]
+Expect("each kind of sound has its row only under Advanced", RuleShown(), false)
+Expect("...whose button shows it opens", rulesAdvanced:GetText():find("PlusButton", 1, true) ~= nil, true)
+rulesAdvanced:Click()
+Expect("...and opens them", RuleShown(), true)
+Expect("...then shows it closes", rulesAdvanced:GetText():find("MinusButton", 1, true) ~= nil, true)
+rulesAdvanced:Click()
+Expect("...and closes them", RuleShown(), false)
+Expect("this computer's channels differ, so its rows show without a click", OwnShown(), true)
+Expect("...and its Advanced is greyed, saying why", Rows(ns.L.OPT_ADVANCED)[2].layoutReason, ns.L.OPT_ADVANCED_MIXED)
 ns.Room:Set("music", "lala throwaway")
+Expect("the party's channels differing show theirs too", RuleShown(), true)
 Expect("...or Mixed", PageRow(ns.L.OPT_ALL_SOUND).layoutRead(), "mixed")
 local values = PageRow(ns.L.OPT_ALL_SOUND).layoutValues()
 Expect("...which it lists so the box can show it", values[#values], "mixed")
 PageRow(ns.L.OPT_ALL_SOUND).layoutChoose("mixed")
 Expect("...without making it a choice", ns.Room:Owner("music"), "lala throwaway")
-Expect("This Computer's row reads Mixed too", PageRow(ns.L.OPT_SOUND_OWN).layoutRead(), "mixed")
-PageRow(ns.L.OPT_SOUND_OWN).layoutChoose("")
-Expect("...and puts every channel back with the party", ns.Room:IsOwn(), false)
+Expect("Follow the Party reads Partly too", ns.Room:DescribeFollow(PageRow(ns.L.OPT_FOLLOW).layoutRead()), ns.L.FOLLOW_PARTLY)
+PageRow(ns.L.OPT_FOLLOW).layoutChoose("")
+Expect("...and Yes puts every channel back with the party", ns.Room:IsOwn(), false)
+Expect("...closing its rows again", OwnShown(), false)
 ns.optionsPanel:Hide()
 
 ns:DB().cvarCache = { music = "1" }

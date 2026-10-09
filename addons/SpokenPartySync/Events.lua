@@ -64,10 +64,12 @@ end
 local started = false
 
 -- Once a second: a game channel the party keeps off is switched off again if something switched
--- it back on, and the window, while up, shows silences growing and lets problems age out. Hidden,
--- it waits: only an event, which redraws it anyway, can bring it up.
+-- it back on, an invitation left unanswered is reported, and the window, while up, shows
+-- silences and invitations growing and lets problems age out. Hidden, it waits: only an event,
+-- which redraws it anyway, can bring it up.
 local function EverySecond()
 	PartySync.Channels:Apply()
+	Peers:CheckInvitations()
 	if PartySync:WindowShown() then PartySync:RefreshWindow() end
 end
 

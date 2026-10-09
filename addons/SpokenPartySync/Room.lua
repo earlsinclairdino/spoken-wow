@@ -4,7 +4,7 @@
 -- Each channel's owner is one of the party's rules, the leader's to set: "none" (every
 -- computer), a member's key (that computer alone, or every computer while it is offline), or
 -- "-<key>,<key>" (every computer but those). A computer may decide a channel for itself instead
--- (This Computer): "" (as the party decides), "plays" or "muted". The voice is Spoken's lines: a
+-- (Play My Own Sound): "" (as the party decides), "plays" or "muted". The voice is Spoken's lines: a
 -- computer that does not play it shows them as captions, through the player's session override
 -- (Spoken:SetCaptionsOnlyOverride), never its saved setting, so the sound comes back the moment
 -- the party or the owner goes. The game's own channels are switched in Channels.lua.
@@ -272,6 +272,13 @@ local VOICE_WORDS = { plays = L.SOUND_OWN_SOUND, muted = L.SOUND_OWN_CAPTIONS }
 function Room:DescribeOwn(value, channel)
 	value = value or ""
 	return (channel == "voice" and VOICE_WORDS[value]) or OWN_WORDS[value] or tostring(value)
+end
+
+local FOLLOW_WORDS = { [""] = L.FOLLOW_YES, plays = L.FOLLOW_PLAYS, muted = L.FOLLOW_MUTED, mixed = L.FOLLOW_PARTLY }
+
+--- Whether this computer follows the party, in answer to "Follow the Party": an own summary.
+function Room:DescribeFollow(summary)
+	return FOLLOW_WORDS[summary or ""] or tostring(summary)
 end
 
 --- This computer's own choice for every channel, when it is the same, else "mixed".
