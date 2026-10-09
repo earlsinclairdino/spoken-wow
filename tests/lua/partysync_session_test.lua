@@ -13,12 +13,9 @@ local LALA = P.LALA
 local BOB = "Bob Stranger"
 local LOOKUP = { ["101-accept"] = 2 }
 
-local function Fields(message) return message and table.concat(message.fields, "|", 2) or nil end
+local Fields = P.Fields
 
-local function QuestLine(VO, questID)
-	return { event = VO.Enums.SoundEvent.QuestAccept, questID = questID, name = "Giver", title = "Quest " .. questID,
-		text = "Go.", unitGUID = "Creature-0-0-0-0-1234-0" }
-end
+local QuestLine = P.QuestLine
 
 ---------------------------------------------------------------- a party of three, led from here
 local ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
@@ -37,7 +34,7 @@ ns.Peers:Invite(BOB)
 P.Receive(stub, BOB, "IA", id)
 Expect("a third joins the same party", ns.Peers:Count(), 3)
 Expect("...and everyone gets the roster", Fields(P.Last("RO", LALA)), id .. "|tata throwaway|Tata Throwaway;Bob Stranger;Lala Throwaway")
-Expect("...the newcomer the rules too", Fields(P.Last("PS", BOB)), "leader|none|1111|anyone")
+Expect("...the newcomer the rules too", Fields(P.Last("PS", BOB)), "anyone|none|1111|anyone|music=none;effects=none;ambience=none;dialog=none")
 P.Clear()
 ns.Peers:SetRule("controls", "nobody")
 Expect("a rule set by the leader reaches both", #P.Sent("PS"), 2)
@@ -133,13 +130,13 @@ Expect("...and its Skip", Subtitle.skip:IsEnabled(), false)
 ns:ShowWindow(true)
 local windowStop = _G.SpokenPartySyncWindow.pause
 Expect("...and the party window's Stop", windowStop:IsEnabled(), false)
-Expect("...saying why", windowStop.tooltip:find(ns.L.GATE_NOBODY, 1, true) ~= nil, true)
+Expect("...saying why", windowStop.tip.reason, ns.L.GATE_NOBODY)
 ns.Peers:SetRule("controls", "leader")
 Expect("under the leader's controls the leader may stop", Spoken:WhyNoControl(), nil)
 Subtitle:UpdatePause()
 ns:RefreshWindow()
 Expect("...its subtitle buttons live again", Subtitle.pause:IsEnabled() and Subtitle.skip:IsEnabled(), true)
-Expect("...and the window's Stop", windowStop:IsEnabled() and windowStop.tooltip, ns.L.WINDOW_PAUSE)
+Expect("...and the window's Stop", windowStop:IsEnabled() and windowStop.tip.reason == nil and windowStop.tip.title, ns.L.WINDOW_STOP)
 ns:ShowWindow(false)
 Expect("...and it reaches the party", Spoken:Pause() and P.Last("PZ", LALA) ~= nil, true)
 Spoken:Resume()
@@ -228,7 +225,7 @@ Expect("...yes puts her on it, accepted without asking", ns.Autoform:Accepts(LAL
 P.Receive(stub, LALA, "RM")
 Expect("already on the list, she is not asked about again", stub.popups[#stub.popups].key, "SPOKENPARTYSYNC_REMEMBERED")
 
--- Remembering the party, by hand and automatically.
+-- Remembering the party by hand.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns, nil, nil, { controls = "anyone" })
 P.Clear()
@@ -236,14 +233,6 @@ Expect("remembering the party puts her on the list", ns.Autoform:Remember(), 1)
 Expect("...with who leads", ns.Autoform:List().leader, "lala throwaway")
 Expect("...and the rules", ns.Autoform:List().rules.controls, "anyone")
 Expect("...and tells her", P.Last("RM", LALA) ~= nil, true)
-ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-ns:DB().remember = true
-P.Party(stub, ns)
-P.Receive(stub, LALA, "RO", P.SESSION, LALA, "Lala Throwaway;Tata Throwaway;Bob Stranger")
-Expect("with Remember Parties Automatically, a roster change remembers everyone", ns.Autoform:Entry(BOB) ~= nil and ns.Autoform:Entry(LALA) ~= nil, true)
-P.Receive(stub, LALA, "PS", "nobody", "none", "1111")
-ns.Autoform:AutoRemember()
-Expect("...and the rules as they change", ns.Autoform:List().rules.controls, "nobody")
 
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll party sync session tests passed")

@@ -55,6 +55,10 @@ local RECENT_SECONDS = 20
 local ANSWER_GRACE = 2
 -- How long a line that is over is kept for `/sps sync`.
 local KEEP_SECONDS = 60
+-- A member who starts a line this much after the planned start is late; under it, the two
+-- computers are heard as one.
+local LATE_MS = 100
+Sync.LATE_MS = LATE_MS
 -- How long a follower's start waits for the words still on their way. They are sent before
 -- the start, but messages arriving in one frame are not always handled in the order sent, and
 -- the captions read a line's words once, as it starts (2026-10-05, "Mirror Lake").
@@ -188,6 +192,60 @@ function Sync:Entries()
 	return list
 end
 
+--- What went wrong with a member's copy of a line this computer drives, or nil: "late" (and how
+--- late), "noanswer", "missing" (no voice file), "dropped", or "unplayed" (never started before
+--- the line was over).
+function Sync:PeerTrouble(entry, peer)
+	if not peer then return nil end
+	local state = peer.state
+	if state == "noanswer" or state == "missing" then return state end
+	-- Dropped by everyone together is a skip, not a miss.
+	if state == "dropped" and entry.state ~= "stopped" then return "dropped" end
+	if entry.state == "finished" and (state == "sent" or state == "queued") then return "unplayed" end
+	if (peer.late or 0) >= LATE_MS then return "late", peer.late end
+	return nil
+end
+
+--- How one line played together went: "missed" when a computer did not play it, "late" when
+--- one started late, else "sync". The driver hears from every member; a follower knows only
+--- its own start.
+local function Verdict(entry)
+	if entry.role == "driver" then
+		if entry.state == "dropped" or not next(entry.peers) then return "missed" end
+		local late = false
+		for _, peer in pairs(entry.peers) do
+			local trouble = Sync:PeerTrouble(entry, peer)
+			if trouble == "late" then
+				late = true
+			elseif trouble then
+				return "missed"
+			end
+		end
+		return late and "late" or "sync"
+	end
+	if entry.state == "missing" or entry.state == "dropped" or (entry.startedAt and not entry.goAt) then
+		return "missed"
+	end
+	if entry.startedAt and (entry.startedAt - entry.goAt) * 1000 >= LATE_MS then
+		return "late"
+	end
+	return "sync"
+end
+
+--- How the line played together that started (or ended) last went (Verdict), or nil when none
+--- has lately. Lines queued in one go share their `at`, so it is their start that orders them.
+function Sync:Health()
+	Forget()
+	local newest, newestAt
+	for _, entry in pairs(self.lines) do
+		local at = entry.startedAt or entry.endedAt
+		if at and (not newestAt or at > newestAt) then
+			newest, newestAt = entry, at
+		end
+	end
+	return newest and Verdict(newest) or nil
+end
+
 local function Ended(entry, state)
 	entry.state = state
 	entry.endedAt = GetTime()
@@ -309,7 +367,8 @@ function Sync:AwaitGo(entry)
 	C_Timer.After(GO_TIMEOUT, function()
 		if entry.state == "waiting" and entry.gen == gen then
 			Trace("no go for %s from %s after %d s: playing alone", entry.id, tostring(entry.driver), GO_TIMEOUT)
-			PartySync:Problem("go:" .. entry.id, format(L.PROBLEM_NO_GO_FMT, Short(entry.driver), LabelOf(entry)))
+			PartySync:Problem("go:" .. entry.id, format(L.PROBLEM_NO_GO_FMT, Short(entry.driver), LabelOf(entry)),
+				{ kind = "silent", who = entry.driver })
 			Sync:Release(entry)
 		end
 	end)
@@ -396,7 +455,8 @@ local function Announce(entry, d)
 			local peer = entry.peers[key]
 			if peer and peer.state == "sent" then
 				peer.state = "noanswer"
-				PartySync:Problem("answer:" .. key, format(L.PROBLEM_NO_ANSWER_FMT, Short(key), LabelOf(entry)))
+				PartySync:Problem("answer:" .. key, format(L.PROBLEM_NO_ANSWER_FMT, Short(key), LabelOf(entry)),
+					{ kind = "silent", who = key })
 			end
 		end)
 	end
@@ -677,11 +737,15 @@ Comm:On("AK", function(sender, channel, id, state, ms)
 	if not (entry and entry.role == "driver") then
 		return
 	end
-	entry.peers[key] = { state = state, ms = tonumber(ms), at = GetTime() }
+	-- How late they started outlives their finishing, which reports no lateness.
+	local before = entry.peers[key]
+	local late = state == "started" and tonumber(ms) or (before and before.late)
+	entry.peers[key] = { state = state, ms = tonumber(ms), late = late, at = GetTime() }
 	Trace("ack %s from %s: %s%s", entry.id, key, tostring(state), ms and ms ~= "" and (" " .. ms .. " ms") or "")
 	PartySync:Resolve("answer:" .. key)
 	if state == "missing" then
-		PartySync:Problem("missing:" .. key, format(L.PROBLEM_MISSING_FMT, Short(key), LabelOf(entry)))
+		PartySync:Problem("missing:" .. key, format(L.PROBLEM_MISSING_FMT, Short(key), LabelOf(entry)),
+			{ kind = "missing", who = key })
 	end
 	PartySync:Changed()
 end)
@@ -816,6 +880,7 @@ local function OnStarted(clip)
 	if not entry then return end
 	entry.state = "playing"
 	entry.startedAt = GetTime()
+	Peers:Played()
 	Trace("playing %s (%s, %s), %s", entry.id, tostring(LabelOf(entry)), entry.role,
 		entry.goAt and format("%+d ms from the planned start", (GetTime() - entry.goAt) * 1000) or "no planned start")
 	if entry.role == "follower" then

@@ -32,14 +32,34 @@ PartySync.version = GetAddOnMeta and GetAddOnMeta(ADDON_NAME, "Version") or "dev
 -- The Spoken player API version this was written against.
 local REQUIRED_API = 1
 
+-- Below this the window's 10-pixel words cannot be read.
+local MIN_WINDOW_SCALE = 0.9
+PartySync.MIN_WINDOW_SCALE = MIN_WINDOW_SCALE
+
+-- A middle dot between the parts of one line, as the game's own tooltips join them.
+PartySync.DOT = " \194\183 "
+
+-- The kinds of sound a party shares out: Spoken's voice, then the game's own channels.
+PartySync.CHANNELS = { "voice", "music", "effects", "ambience", "dialog" }
+PartySync.GAME_CHANNELS = { "music", "effects", "ambience", "dialog" }
+
+local function PerGameChannel(value)
+	local each = {}
+	for _, channel in ipairs(PartySync.GAME_CHANNELS) do each[channel] = value end
+	return each
+end
+
 -- This computer's settings, the same for every character on the account.
 local function Rules()
 	return {
-		-- Whose Stop, Replay, Skip and Stop All act on every computer: "leader", "anyone" or
+		-- Whose Stop, Replay, Skip and Stop All act on every computer: "anyone", "leader" or
 		-- "nobody" (the lines play through; nobody stops them, the leader included).
-		controls = "leader",
-		-- Which computer plays the sound: a member's NameKey, or "none" for every computer.
+		controls = "anyone",
+		-- Which computer plays the voice: "none" (every computer), a member's NameKey, or
+		-- "-<key>,<key>" (every computer but those).
 		room = "none",
+		-- Who plays each of the game's own channels, in the same words.
+		audio = PerGameChannel("none"),
 		-- Whose accepted quests are shared with the party: "anyone", "leader" or "nobody".
 		share = "anyone",
 		-- Which kinds of line are played together. Each one off still plays here, alone.
@@ -54,11 +74,11 @@ local function Defaults()
 		rules = Rules(),
 		autoShare = true,
 		autoAccept = true,
-		-- Every party this character ends up in is added to its auto-form list.
-		remember = false,
-		-- "" follows the party's Who Plays the Sound; "sound" and "captions" decide it here.
+		-- "" follows the party's rule for the voice; "sound" and "captions" decide it here.
 		soundOwn = "",
-		window = { show = "problems", scale = 1 },
+		-- The same for the game's channels: "", "plays" or "muted".
+		audioOwn = PerGameChannel(""),
+		window = { show = "problems", scale = 1, compact = false },
 	}
 end
 PartySync.Defaults = Defaults
@@ -74,6 +94,10 @@ local function PartyDefaults()
 		-- Who to form a party with as soon as they are online: NameKey -> { name, autoAccept,
 		-- added }, who led it and the rules it had.
 		list = { members = {}, leader = nil, rules = nil },
+		-- The last party, once ended: who was in it, for a re-invite to ask them back.
+		lastSession = nil,
+		-- Sets of people ("key;key") whose party was not to be remembered: never offered again.
+		declined = {},
 	}
 end
 
@@ -96,7 +120,7 @@ end
 PartySync.Copy = Copy
 
 --- The 0.3 party, kept by name as a list of members, lead and sound choices: it becomes the
---- auto-form list, with the choices as the rules it starts a party with.
+--- usual party, with the choices as the rules it starts a party with.
 local function MigrateMembers(db, party, me)
 	if type(party.members) ~= "table" then return end
 	for key, member in pairs(party.members) do
@@ -153,6 +177,9 @@ function PartySync:InitDB()
 		if db.windowShown then db.window.show = "always" end
 		db.windowShown = nil
 	end
+	db.window.scale = math.max(tonumber(db.window.scale) or 1, MIN_WINDOW_SCALE)
+	-- No longer read: a party is offered to remember as it ends.
+	db.remember = nil
 	-- A session saved by a /reload: rejoined once the others answer (Peers:Resume).
 	local session = party.session
 	if session and not (type(session.id) == "string" and type(session.leader) == "string"
@@ -162,14 +189,18 @@ function PartySync:InitDB()
 	return db
 end
 
---- Everything back to its defaults but the party, the auto-form list and the collected logs.
+--- Everything back to its defaults but the party, the usual party and the collected logs.
 function PartySync:ResetOptions()
 	local db = SpokenPartySyncDB
 	if not db then return end
-	local collected = db.collected
+	local collected, cvarCache = db.collected, db.cvarCache
+	-- Where the window was dragged to is not a setting on the page.
+	local point = db.window and db.window.point
 	for key in pairs(db) do db[key] = nil end
 	Fill(db, Defaults())
-	db.collected = collected
+	db.collected, db.cvarCache = collected, cvarCache
+	db.window.point = point
+	if self.SetWindowScale then self:SetWindowScale(db.window.scale) end
 	self:Changed()
 end
 
@@ -179,7 +210,7 @@ function PartySync:DB()
 end
 
 local partyFallback = PartyDefaults()
---- This character's: its party (session) and its auto-form list.
+--- This character's: its party (session) and its usual party (the list).
 function PartySync:Party()
 	return SpokenPartySyncCharDB or partyFallback
 end
@@ -205,6 +236,12 @@ end
 --- A setting changed on the page, in the debug log: what the party does depends on them.
 function PartySync:TraceSetting(name, value)
 	self:Trace("party", "setting %s: %s", name, tostring(value))
+end
+
+function PartySync:SetAutoShare(on)
+	self:DB().autoShare = on and true or false
+	self:TraceSetting("auto share", self:DB().autoShare)
+	self:Changed()
 end
 
 --- A message in or out, in the debug log.
@@ -233,17 +270,19 @@ local PROBLEM_SECONDS = 30
 PartySync.problems = {}
 
 --- Say something went wrong, once per `key`: a member not answering, a missing file. Kept for
---- half a minute, or until Resolve(key).
-function PartySync:Problem(key, text)
+--- half a minute, or until Resolve(key). `about`, for the window to offer its fix: { kind =
+--- "silent" (a member not answering) or "missing" (no voice file), who = the member's key }.
+function PartySync:Problem(key, text, about)
 	local now = GetTime()
+	about = about or {}
 	for _, problem in ipairs(self.problems) do
 		if problem.key == key then
-			problem.text, problem.at = text, now
+			problem.text, problem.at, problem.kind, problem.who = text, now, about.kind, about.who
 			self:Changed()
 			return
 		end
 	end
-	table.insert(self.problems, { key = key, text = text, at = now })
+	table.insert(self.problems, { key = key, text = text, at = now, kind = about.kind, who = about.who })
 	self:Trace("problem", "%s", text)
 	self:Changed()
 end

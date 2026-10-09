@@ -296,7 +296,7 @@ Expect("...logged too", Logged("sync replay here (102-accept ("), true)
 
 -- Following, with the leader's controls: hers act here, this side's stay here.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
-P.Party(stub, ns)
+P.Party(stub, ns, nil, nil, { controls = "leader" })
 P.Receive(stub, LALA, "LN", "102-accept", "q", 1, 102, 1234, "2.00", "", 0, "Giver", "Quest 102")
 P.Receive(stub, LALA, "GO", "102-accept", 0)
 P.Clear()

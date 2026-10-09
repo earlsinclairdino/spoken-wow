@@ -35,7 +35,7 @@ Expect("a companion saved by 0.1 goes on the auto-form list", ns.Autoform:Entry(
 Expect("...under its cleaned name", ns.Autoform:Entry("Lala Throwaway").name, "Lala Throwaway")
 Expect("...and the old field goes", ns:DB().companion, nil)
 Expect("a window left open by 0.1 stays shown", ns:DB().window.show, "always")
-Expect("the other settings get their defaults", ns:DB().rules.controls, "leader")
+Expect("the other settings get their defaults", ns:DB().rules.controls, "anyone")
 
 ---------------------------------------------------------------- text in fields
 local awkward = "Line one\nTabbed\there, a pipe | and a backslash \\ -- naïve"
@@ -103,7 +103,7 @@ stub.FireEvent("CHAT_MSG_SYSTEM", "No player named 'Lala Throwaway' is currently
 Expect("...but not the same message long after any whisper", ns.Peers.list["lala throwaway"].state, "online")
 
 ---------------------------------------------------------------- invitations
-local function Fields(message) return message and table.concat(message.fields, "|", 2) or nil end
+local Fields = P.Fields
 local ns2 = P.Boot(stub, LOOKUP)
 P.Receive(stub, "Lala Throwaway", "IV", "0.4.0", "lala throwaway-9")
 local popup = stub.popups[#stub.popups]
@@ -129,7 +129,7 @@ local id = P.Last("IV", "Bob Stranger").fields[3]
 P.Receive(stub, "Bob Stranger", "IA", id)
 Expect("...and one that answers our invitation joins it", ns2.Peers:IsMember("Bob Stranger"), true)
 Expect("...and is sent the roster", Fields(P.Last("RO", "Bob Stranger")), id .. "|tata throwaway|Tata Throwaway;Bob Stranger")
-Expect("...and the rules", Fields(P.Last("PS", "Bob Stranger")), "leader|none|1111|anyone")
+Expect("...and the rules", Fields(P.Last("PS", "Bob Stranger")), "anyone|none|1111|anyone|music=none;effects=none;ambience=none;dialog=none")
 
 ---------------------------------------------------------------- the portrait menu
 local entries = {}

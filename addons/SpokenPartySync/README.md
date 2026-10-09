@@ -15,8 +15,9 @@ Books are installed, as long as they can rebuild a line from another client's de
    **Invite to Spoken Party**, or type `/sps invite Lala Throwaway` with their full name.
    The other accepts the popup. Whoever invites leads the party.
 3. Talk to an NPC. The line opens on both screens and starts on both together.
-4. Press **Remember This Party** (on the settings page, or in the window): next time you are
-   both online, the party forms by itself.
+4. Press **Remember This Party** (on the settings page, or in the window's title menu), or
+   **Remember** when the window offers it as the party ends: next time you are both online, the
+   party forms by itself.
 
 Grouping is not needed: the party is the addon's own, kept by name, and survives leaving the
 group, joining a raid, or questing apart.
@@ -25,15 +26,15 @@ group, joining a raid, or questing apart.
 
 - **A party, like the game's.** It begins with an invitation and lasts until fewer than two
   are left. Whoever invites first is the leader: only the leader invites, removes, passes the
-  lead (**Lead** in the window or on the page, the portrait menu, `/sps lead <name>`) and sets
-  the party's rules. Everyone sees the same party, in the window and in `/sps members`. A
+  lead (**Make Leader** on a member's row in the window, **Lead** on the page, the portrait menu,
+  `/sps lead <name>`) and sets the party's rules. Everyone sees the same party, in the window and in `/sps members`. A
   `/reload` or a short disconnect does not end it; should the leader vanish, the first by name
   of those still online takes over. Another character on the same computer is in no party
   until it invites or is invited.
-- **The party's rules**, the leader's to set, applied on every computer: **Stop, Replay and Skip
-  Follow** (anyone's, only the leader's, or nobody's: with Nobody the lines play through and
-  the player's buttons are greyed for everyone, the leader included; with Only the Leader
-  they are greyed for the others, with the reason on hover), **Who Plays the Sound** (below),
+- **The party's rules**, the leader's to set, applied on every computer: **Who Controls Playback**
+  (Anyone, the default; The Leader; or Nobody: with Nobody the lines play through and the
+  player's buttons are greyed for everyone, the leader included; with The Leader they are
+  greyed for the others, with the reason on hover), **Who Plays** each kind of sound (below),
   **Quests Are Shared By** (anyone, the default; only the leader; or nobody), and which kinds of
   line are **Played Together**. The others see the rules greyed on their page.
 - **Lines played together.** A quest line, greeting or gossip, zone lore or book page queued
@@ -48,25 +49,45 @@ group, joining a raid, or questing apart.
   When two of you start the same line at once, the leader's copy is played.
 - **Quests.** A member shares a quest it accepts from an NPC with the party, as Quests Are
   Shared By allows (anyone, by default); a quest a member shares is accepted for you, without
-  its line being read again. Each computer can switch either off for itself (Share Quests I
-  Accept, Accept Quests the Party Shares).
-- **Same room.** The leader chooses which computer plays the sound (**Sound**, wherever Lead
-  is). The others switch Spoken to captions only for as long as that computer is online,
-  without changing Spoken's own setting. A member who would rather decide for itself sets
-  **This Computer's Sound** (plays the sound, or captions only); the party sees "own sound"
-  beside its name.
-- **The auto-form list.** Who to form a party with as soon as you are both online, per
+  its line being read again. Each computer can switch either off for itself (Auto-share Quests
+  I Accept, Auto-accept Shared Quests).
+- **Same room.** The leader chooses which computer plays each kind of sound: the voice
+  (Spoken's lines), the music, the effects, the ambience and the NPCs' dialog. Each is played
+  by every computer, by one (while it is online), or by every computer but some. **Play All
+  Sound On** (the page), **Play Sound Here** (a member's row in the window), **Sound** (the
+  page's party block) and the window's Audio menu put them all on one computer. A computer
+  that does not play the voice shows Spoken's lines as captions, without changing Spoken's own
+  setting; one that does not play a game channel has its switch (`Sound_EnableMusic`,
+  `Sound_EnableSFX`, `Sound_EnableAmbience`, `Sound_EnableDialog`) off while in the party. The
+  player's value is kept first and put back when the party ends or the rule changes, at logout
+  and `/reload`, and at the next login after a crash; volumes are never touched. A member who
+  would rather decide for itself sets **This Computer** (each channel, or all of them: as the
+  party decides, plays it, or muted), on the page or in the window's Audio menu, whoever leads;
+  the party sees "own audio" beside its name. A "no voice file" problem in the window offers
+  **Mute There**: every computer but that one plays the voice.
+- **The usual party.** Who to form a party with as soon as you are both online, per
   character. **Remember This Party** puts the party's members on it, with who led and the
-  rules; **Remember Parties Automatically** does that as the party changes. Each member added
-  is told, and asked whether to accept your invitations without the popup (**Auto-accept**,
+  rules. When a party ends that lasted ten minutes or more, played at least one line together,
+  lost nobody on the way and whose people are not on the list yet, the window asks once:
+  "Play with Lala again?" **Remember** or **Not now** (never asked again for the same people).
+  Each member added is told, and asked whether to accept your invitations without the popup (**Auto-accept**,
   which they can change in their own list). While a listed character is not in the party, it
   is greeted every heartbeat; when it answers from no party, whoever led the remembered party,
   if online, else the first by name among those online, invites the others, with the
   remembered rules; a party already running has its leader invite the newcomer.
-- **The window.** The party, a row per member with Lead and Sound (the leader's to press),
-  every queued line and how far each computer got with it, and what went wrong; the gear
-  opens the settings, Remember the list. By default it only appears when something is wrong;
-  Spoken's minimap menu (Open Party Window) and `/sps window` open it.
+- **The window** ("Spoken Party"). Its title opens a menu (Settings, Remember This Party,
+  Compact, Leave Party); beside it, how the last line played together went (in sync, late,
+  missed), the player's Stop/Replay and a close button. Under the title, the rules as chips
+  (Audio, Playback, Quests), the leader's to change, with this computer's own sound in the
+  Audio menu for everyone. Then a row per member with one tag (no answer for how long, voice,
+  leads, own audio; the rest on hover) and a menu on click (Make Leader, Play Sound Here,
+  Remove from Party, Whisper); the line that matters, with only the members behind on it
+  under it and how many more are queued; and what went wrong, each with its fix beside it
+  (Re-invite, Remove, Mute There, Dismiss). Re-invite asks back someone dropped from the party
+  in the last ten minutes (into a new party with the old one's rules, if it ended), and they
+  rejoin without a popup. Compact keeps the members and the line. By default it only
+  appears when something is wrong; Spoken's minimap menu (Open Party Window) and
+  `/sps window` open it, Escape closes it. Nothing in it is protected, so it works in combat.
 
 Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 
@@ -77,15 +98,15 @@ Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 | `/sps invite <name>` | invite a character (starts a party, led here, when in none); `/sps remove <name>`, `/sps leave` |
 | `/sps members` | the party, who is online, who leads, which computer has the sound |
 | `/sps lead [<name>]` | who leads; with a name, pass the lead (the leader's to do) |
-| `/sps room [none\|me\|<name>]` | which computer plays the sound, a rule of the party's |
-| `/sps controls [anyone\|leader\|nobody]` | whose Stop, Replay and Skip act everywhere, a rule of the party's |
+| `/sps audio [voice\|music\|effects\|ambience\|dialog\|all] [none\|me\|<name>]` | who plays a channel (all of them without one), a rule of the party's; `/sps room` is the voice's |
+| `/sps controls [anyone\|leader\|nobody]` | who controls playback (Stop, Replay, Skip) everywhere, a rule of the party's |
 | `/sps share [anyone\|leader\|nobody]` | whose accepted quests are shared with the party, a rule of the party's |
-| `/sps sound [party\|sound\|captions]` | this computer's sound: as the party decides, or its own |
-| `/sps remember [on\|off]` | the party onto the auto-form list; `on`/`off`: remember parties automatically |
-| `/sps list [add <name> \| remove <name> \| auto <name> on\|off]` | the auto-form list |
+| `/sps sound [<channel>\|all] [party\|plays\|muted]` | this computer's own choice (the voice without a channel; `sound`/`captions` still work) |
+| `/sps remember` | the party into your usual party, or the one that just ended, as the window offers |
+| `/sps list [add <name> \| remove <name> \| auto <name> on\|off]` | your usual party |
 | `/sps sync` | the lines played together this session, and each member's state |
 | `/sps test <questID>` | queue a quest's accept line here, to try the sync without its NPC |
-| `/sps window`, `/sps settings` | the window, the settings |
+| `/sps window`, `/sps compact [on\|off]`, `/sps settings` | the window, its compact size, the settings |
 | `/sps logs [count]` | Spoken's debug log, this computer's and the party's collected ones on one timeline, to copy |
 | `/sps logs pull [count]` | ask every member online for their last lines (400 by default) |
 | `/sps logs clear` | empty this computer's log and the collected ones; a new session starts |
@@ -104,11 +125,11 @@ two parts and no realm: a whisper goes to the bare "First Last". The prefix is
 
 | Kind | Fields | |
 |---|---|---|
-| `HI` | version, reply, session, own | hello: at login, when the group changes, to the auto-form list each heartbeat; names the party this client is in, and whether it decides its own sound |
-| `IV` / `IA` / `ID` | session | invite to the party, accepted, declined or left or removed (one naming another party is stale) |
+| `HI` | version, reply, session, own, plays | hello: at login, when the group changes, to the usual party each heartbeat, and when what it plays changes; names the party this client is in, whether it decides any channel itself, and the channels it plays (`v m e a d`, `-` for none; missing before 0.5: the rules decide) |
+| `IV` / `IA` / `ID` | session (`IV`: version, session, rejoin) | invite to the party, accepted, declined or left or removed (one naming another party is stale); `rejoin` 1 asks back someone who was in a party with the inviter within ten minutes, who accepts without a popup |
 | `RO` | session, leader, members | the roster, from the leader, whenever it changes; a member not in it is out |
-| `PS` | controls, room, sync, share | the rules, from the leader: whose controls, which computer plays the sound, four flags for the kinds played together, whose accepted quests are shared (missing from a 0.4.0 leader: anyone) |
-| `RM` | | "I added you to my auto-form list": the other side is asked whether to auto-accept |
+| `PS` | controls, room, sync, share, audio | the rules, from the leader: whose controls, who plays the voice, four flags for the kinds played together, whose accepted quests are shared (missing from a 0.4.0 leader: anyone), and who plays each game channel (`music=<owner>;effects=...;ambience=...;dialog=...`, missing before 0.5: every computer). An owner is `none` (every computer), a member's key, or `-<key>,<key>` (every computer but those) |
+| `RM` | | "I added you to my usual party": the other side is asked whether to auto-accept |
 | `LN` | id, src, event, questID, npcID, length, flags, textParts, name, title | a line queued; `src` is q, z or b |
 | `TX` | id, seq, total, text | its words, in pieces |
 | `GO` | id, startInMs | start it |
@@ -131,7 +152,7 @@ the rules: the player's skins ask it before enabling Stop, Replay and Skip, and 
 in their tooltip.
 
 Saved: the computer's own settings and the collected logs in `SpokenPartySyncDB`; the party
-and the auto-form list per character, in `SpokenPartySyncCharDB`.
+and the usual party per character, in `SpokenPartySyncCharDB`.
 
 ## Debug log
 
@@ -146,8 +167,8 @@ computer. Party Sync writes into it, each line stamped with `GetTime()`:
   (`skip from <name>: removing <line>`) or ignored and why (`stop from <name> ignored: ...`);
 - `msg`: every message in and out;
 - `party`: the party started, joined, resumed and ended, members in and out, the roster and
-  the rules received, the leader and why each time it changes, invitations, the auto-form
-  list's doings, settings changed on the page;
+  the rules received, the leader and why each time it changes, invitations, the usual party's
+  doings, settings changed on the page;
 - `room`: whether this computer plays the sound.
 
 Spoken's own lines for the queue (queued, started, stopped, dropped, and why) are beside them.
@@ -158,8 +179,9 @@ AI Agent** reloads for that. `scripts/developer/read-log.py` reads it with the c
 `Diagnostics.lua` adds a **Spoken Party Sync** block to `/spoken diagnostics` and to every
 snapshot the log takes (`/sps status` prints it): the party and its id, the leader and why,
 the rules, which computer plays the sound, this computer's own sound, each member's state,
-round trip, version and last message, the auto-form list, and in the detailed snapshot the
-lines played together lately, the open problems and the collected logs.
+round trip, version and last message, the usual party, how the last line played together
+went, and in the detailed snapshot the lines played together lately, the open problems and the
+collected logs.
 
 `/sps logs pull` (or **Collect the Party's Logs**, in Party Sync's section of the Developer
 page) asks every member online for theirs. Each answers with its clock reading, whether its log
@@ -173,16 +195,17 @@ them merged on one timeline in a box to copy from, each line headed by whose it 
 
 | File | |
 |---|---|
-| `Core.lua` | the addon table, saved settings (the computer's in `SpokenPartySyncDB`, the character's party and auto-form list in `SpokenPartySyncCharDB`), problems |
+| `Core.lua` | the addon table, saved settings (the computer's in `SpokenPartySyncDB`, the character's party and usual party in `SpokenPartySyncCharDB`), problems |
 | `Names.lua` | Forever's names and whisper addresses |
 | `Comm.lua` | addon messages: escaping, pieces, pacing, "No player named" |
 | `Peers.lua` | the party: the session, its roster and rules, invitations, presence, round trips, the leader, the connection tests |
-| `Autoform.lua` | the auto-form list: remembering a party, greeting and inviting its members |
+| `Autoform.lua` | the usual party: remembering a party, greeting and inviting its members |
 | `Log.lua` | the party's debug logs: pulling the members' into Spoken's log as a source, clearing them all |
 | `Lines.lua` | a line's description and its rebuild |
 | `Sync.lua` | announcing, holding, starting together, acknowledgements, controls and their gate |
 | `Accept.lua` | quests shared and accepted |
-| `Room.lua` | one computer plays the sound, or this one decides for itself |
+| `Room.lua` | who plays each channel: the party's rule, or this computer's own choice |
+| `Channels.lua` | the game's sound switches, off where the rule says, and back as the player had them |
 | `Diagnostics.lua` | the party's state as lines, for `/sps status` and Spoken's diagnostics |
 | `UI/Window.lua`, `UI/Options.lua`, `UI/UnitMenu.lua` | the window, the settings page, the portrait menu |
 | `UI/Layout.lua` | byte-identical in every Spoken addon |

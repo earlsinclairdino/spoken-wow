@@ -61,6 +61,12 @@ function PartySync:ShortName(name)
 	return self:WhisperName(name) or "?"
 end
 
+--- "Lala" for "Lala Throwaway", where a whole name would not fit.
+function PartySync:FirstName(name)
+	local short = self:ShortName(name)
+	return short:match("^(%S+)") or short
+end
+
 --- The whole name the client uses for `unit` in chat: "First Last" on Forever, "Name" or
 --- "Name-Realm" elsewhere.
 ---
