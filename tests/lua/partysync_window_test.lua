@@ -8,6 +8,7 @@ local H = require("queue_helpers")
 local P = require("partysync_helpers")
 local print = stub.print
 local Expect, Failures = H.Expecter(print)
+_G.UISpecialFrames = _G.UISpecialFrames or {}
 
 local LALA = P.LALA
 local LOOKUP = { ["101-accept"] = 10, ["102-accept"] = 10, ["103-accept"] = 2 }
@@ -51,10 +52,15 @@ ns.Room:SetOwn("sound")
 Expect("...playing it after all, the voice is what it says", Member(me).tag, ns.L.TAG_SOUND)
 Expect("...its own choice in the tooltip", table.concat(Member(me).tags, ","), "voice,own audio")
 ns.Room:SetOwn("")
-stub.Advance(30)
+-- A member who is fine can be silent for two heartbeats and a round trip: pinged only at a
+-- heartbeat that finds it silent for one.
+stub.Advance(41)
+ns:RefreshWindow()
+Expect("a member silent for two heartbeats is not said to be silent", ns.Peers:Quiet("lala throwaway"), nil)
+stub.Advance(9)
 ns:RefreshWindow()
 local quiet = ns.Peers:Quiet("lala throwaway")
-Expect("a member silent past a heartbeat shows that first, and for how long",
+Expect("a member silent past that shows it first, and for how long",
 	quiet ~= nil and Member("lala throwaway").tag, quiet and format(ns.L.STATE_QUIET_FMT, quiet))
 Expect("...with a yellow dot", Member("lala throwaway").dot, "quiet")
 P.Receive(stub, LALA, "HI", "0.5.0", 1, P.SESSION, 0)
@@ -259,7 +265,7 @@ for _, item in ipairs(ns.windowModel.problems) do
 end
 Expect("...and goes", still, false)
 
----------------------------------------------------------------- Stop and Replay, compact, Escape
+---------------------------------------------------------------- Stop and Replay, compact, closing it
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns, nil, "me")
 ns:ShowWindow(true)
@@ -283,9 +289,16 @@ Expect("...and the title menu ticks it", Entry(ns:WindowTitleMenu(), ns.L.MENU_W
 Entry(ns:WindowTitleMenu(), ns.L.MENU_WINDOW_COMPACT).onClick()
 Expect("...until it is unticked", window.width, 320)
 ns:DB().window.show = "always"
-window:GetScript("OnHide")()
+-- What the game does on Escape and as its panels open or close: hide every frame it lists there.
+local listed = false
+for _, name in ipairs(_G.UISpecialFrames) do
+	if name == "SpokenPartySyncWindow" then listed = true end
+end
+Expect("Escape and the game's panels leave it be: it is not among the frames they close", listed, false)
+Expect("...nor would a hide by anything else count as closing it", window:GetScript("OnHide"), nil)
+window.close:Click()
 ns:RefreshWindow()
-Expect("closed with Escape, it stays closed whatever the setting", window.shown, false)
+Expect("its X closes it, and it stays closed whatever the setting", window.shown, false)
 ns:Problem("test", "Something is wrong")
 Expect("...until something goes wrong", window.shown, true)
 ns:ShowWindow(false)
@@ -385,39 +398,14 @@ Expect("chips too wide for one row go on the next", Top(window.chips.quests) > T
 Expect("...the ones that fit stay beside each other", Top(window.chips.playback), Top(window.chips.audio))
 Expect("...and the divider comes below the last row", Top(window.dividers[1]) >= Top(window.chips.quests) + 16, true)
 
----------------------------------------------------------------- the settings page keeps the window up
--- The client hides every frame in UISpecialFrames as its settings panel opens, during the call
--- or a moment after.
-local opened
-local function OpenSettingsHiding(later)
-	local real = _G.Settings.OpenToCategory
-	_G.Settings.OpenToCategory = function()
-		opened = true
-		local function Hide()
-			window:Hide()
-			window:GetScript("OnHide")(window)
-		end
-		if later then C_Timer.After(0.2, Hide) else Hide() end
-		return true
-	end
-	Entry(ns:WindowTitleMenu(), ns.L.MENU_WINDOW_SETTINGS).onClick()
-	_G.Settings.OpenToCategory = real
-end
-opened = false
-OpenSettingsHiding(false)
+---------------------------------------------------------------- the settings page leaves the window up
+local opened = false
+local realOpen = _G.Settings.OpenToCategory
+_G.Settings.OpenToCategory = function() opened = true; return true end
+Entry(ns:WindowTitleMenu(), ns.L.MENU_WINDOW_SETTINGS).onClick()
+_G.Settings.OpenToCategory = realOpen
 Expect("Settings opens the page", opened, true)
-stub.Advance(0.1)
-Expect("...and the window, hidden as the panel opened, is back", window.shown, true)
-ns:RefreshWindow()
-Expect("...and stays", window.shown, true)
-OpenSettingsHiding(true)
-stub.Advance(0.5)
-Expect("...hidden a moment after, back too", window.shown, true)
-stub.Advance(2)
-window:Hide()
-window:GetScript("OnHide")(window)
-ns:RefreshWindow()
-Expect("a close by the player afterwards still closes it", window.shown, false)
+Expect("...and the window stays", window.shown, true)
 
 ---------------------------------------------------------------- invitations and their answers
 local MIRA = "Mira Throwaway"
@@ -539,6 +527,102 @@ P.Receive(stub, MIRA, "IA", P.SESSION)
 stub.Advance(9)
 ns:RefreshWindow()
 Expect("...until a while after the answer", window.shown, false)
+
+---------------------------------------------------------------- a member whose module cannot rebuild the line
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, "me")
+VO.Player:Enqueue(QuestLine(VO, 101))
+P.Receive(stub, LALA, "AK", "101-accept", "old")
+local function ProblemFor(prefix)
+	for _, item in ipairs(ns.windowModel and ns.windowModel.problems or {}) do
+		if item.key:sub(1, #prefix) == prefix then return item end
+	end
+end
+ns:ShowWindow(true)
+local old = ProblemFor("old:")
+Expect("a member whose Spoken Quests cannot rebuild a line is said so, not \"no voice file\"", old and old.text,
+	format(ns.L.PROBLEM_PEER_OLD_FMT, LALA, "Spoken Quests"))
+Expect("...with nothing to offer but dismissing it: Mute There would not help", old and Labels(old), ns.L.ACTION_DISMISS)
+Expect("...and no missing-file problem", ProblemFor("missing:"), nil)
+Expect("...her line under it says why", ns.windowModel.line.progress[1] and ns.windowModel.line.progress[1].text, ns.L.PEER_OLD)
+
+---------------------------------------------------------------- what each computer runs
+local realMeta, realLoaded = _G.GetAddOnMetadata, _G.IsAddOnLoaded
+local RUNNING = { Spoken = "3.1.0", Spoken_Quests = "3.1.0", SpokenPartySync = "0.5.0" }
+_G.IsAddOnLoaded = function(folder) return RUNNING[folder] ~= nil end
+_G.GetAddOnMetadata = function(folder, key)
+	if key == "Version" and RUNNING[folder] then return RUNNING[folder] end
+	return realMeta(folder, key)
+end
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+Expect("this computer says what it runs, a + for a module that rebuilds the party's lines",
+	ns.Diagnostics:Modules(), "S=3.1.0;Q=3.1.0+")
+P.Clear()
+ns.Peers:Greet(LALA)
+Expect("...in its hello", P.Last("HI", LALA).fields[7], "S=3.1.0;Q=3.1.0+")
+local function VersionLines(key)
+	local lines = {}
+	for _, entry in ipairs(Entry(ns:WindowMemberMenu(key), ns.L.MENU_VERSIONS).children) do table.insert(lines, entry.text) end
+	return lines
+end
+Expect("a member's menu says what their computer runs, before she says anything", VersionLines("lala throwaway")[2],
+	ns.L.VERSIONS_NOT_SENT)
+P.Receive(stub, LALA, "HI", "0.5.0", 1, P.SESSION, 0, "vmead", "S=3.1.0;Q=3.1.0;D=0.1.0")
+local lala = VersionLines("lala throwaway")
+Expect("...and what her hello says", lala[1], format(ns.L.VERSION_FMT, ns.L.TITLE, "0.5.0"))
+Expect("...with each module's version", lala[2], format(ns.L.VERSION_FMT, "Spoken", "3.1.0"))
+Expect("...a module without the Party Sync rebuild said so", lala[3],
+	format(ns.L.VERSION_FMT, "Spoken Quests", "3.1.0") .. ns.L.VERSION_NO_PARTY_LINES)
+Expect("...and one not running", lala[4], format(ns.L.VERSION_NOT_RUNNING_FMT, "Spoken Zones"))
+Expect("this character's own row says the same of this computer", VersionLines(ns:MyKey())[3],
+	format(ns.L.VERSION_FMT, "Spoken Quests", "3.1.0") .. ns.L.VERSION_PARTY_LINES)
+Expect("...and the diagnostics too", table.concat(ns.Diagnostics:Lines(), "\n"):find("runs S=3.1.0;Q=3.1.0;D=0.1.0", 1, true) ~= nil, true)
+
+-- The handshake: each computer held against the leader's. She leads, with the store's Spoken Quests.
+local function Mismatches()
+	local count = 0
+	for _, line in ipairs(stub.chat) do
+		if line:find("does not run what the leader runs", 1, true) then count = count + 1 end
+	end
+	return count
+end
+ns:ShowWindow(true)
+window = _G.SpokenPartySyncWindow
+local differs = format(ns.L.VERSION_DIFFERS_FMT, "Spoken Quests", "3.1.0", "3.1.0 " .. ns.L.VERSION_STORE)
+Expect("this computer, not running what the leader runs, is said to differ", Member(ns:MyKey()).differs
+	and Member(ns:MyKey()).differs[1], differs)
+Expect("...the leader never does", Member("lala throwaway").differs, nil)
+Expect("...an alert after the name on its row", window.rows[1].alert.shown, true)
+Expect("...none on hers", window.rows[2].alert.shown, false)
+Expect("...the tooltip saying what differs", window.rows[1].tip.reason:find(differs, 1, true) ~= nil, true)
+Expect("...as does the Versions menu", Entry(ns:WindowMemberMenu(ns:MyKey()), ns.L.MENU_VERSIONS).children[#Entry(ns:WindowMemberMenu(ns:MyKey()), ns.L.MENU_VERSIONS).children].text:find(differs, 1, true) ~= nil, true)
+stub.chat = {}
+P.Receive(stub, LALA, "HI", "0.5.0", 1, P.SESSION, 0, "vmead", "S=3.1.0;Q=3.1.0")
+P.Receive(stub, LALA, "HI", "0.5.0", 1, P.SESSION, 0, "vmead", "S=3.1.0;Q=3.1.0")
+Expect("...said in chat once, not at every hello", Mismatches(), 0)
+P.Receive(stub, LALA, "HI", "0.5.0", 1, P.SESSION, 0, "vmead", "S=3.1.0;Q=3.1.0+")
+ns:RefreshWindow()
+Expect("the leader on the same build: no difference left", Member(ns:MyKey()).differs, nil)
+Expect("...and no alert", window.rows[1].alert.shown, false)
+P.Receive(stub, LALA, "HI", "0.5.1", 1, P.SESSION, 0, "vmead", "S=3.1.0;Q=3.1.0+")
+Expect("Spoken Party Sync's own version counts too", Member(ns:MyKey()).differs
+	and Member(ns:MyKey()).differs[1], format(ns.L.VERSION_DIFFERS_FMT, ns.L.TITLE, "0.5.0", "0.5.1"))
+Expect("...said in chat when it comes up", Mismatches(), 1)
+
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, "me")
+P.Receive(stub, LALA, "HI", "0.5.0", 1, P.SESSION, 0, "vmead", "S=3.1.0")
+ns:ShowWindow(true)
+window = _G.SpokenPartySyncWindow
+Expect("leading, a member without Spoken Quests is said to differ", Member("lala throwaway").differs
+	and Member("lala throwaway").differs[1], format(ns.L.VERSION_DIFFERS_FMT, "Spoken Quests", ns.L.VERSION_NONE, "3.1.0"))
+Expect("...the alert on her row", window.rows[2].alert.shown, true)
+P.Receive(stub, LALA, "HI", "0.4.0", 1, P.SESSION, 0)
+Expect("a member on a Party Sync that says nothing of its modules", Member("lala throwaway").differs
+	and table.concat(Member("lala throwaway").differs, "|"),
+	format(ns.L.VERSION_DIFFERS_FMT, ns.L.TITLE, "0.4.0", "0.5.0") .. "|" .. ns.L.VERSION_UNSAID)
+_G.GetAddOnMetadata, _G.IsAddOnLoaded = realMeta, realLoaded
 
 ---------------------------------------------------------------- the page
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)

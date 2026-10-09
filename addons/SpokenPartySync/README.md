@@ -91,7 +91,12 @@ group, joining a raid, or questing apart.
   Quests; on a second row when they do not fit), the leader's to change, with this computer's
   own sound in the Audio menu for everyone. Then a row per member with one tag (no answer for
   how long, voice, leads, own audio; the rest on hover) and a menu on click (Make Leader, Play
-  Sound Here, Remove from Party, Whisper; on your own row Leave Party instead of the last two),
+  Sound Here, Remove from Party, Whisper, and Versions: what that computer runs, module by
+  module, and whether its modules can play the party's lines; on your own row Leave Party
+  instead of Remove and Whisper). Each hello is also a handshake: every computer, this one
+  included, is held against the leader's (Spoken Party Sync, Spoken, Quests, Zones, Books, and
+  whether each can play the party's lines); one that differs gets an alert after its name, the
+  differences in its tooltip and under Versions, and one chat line when it is found,
   and a row for each invitation still waiting ("invited 12 s"), whose menu has Invite Again,
   Cancel Invitation (their popup closes; an acceptance already on its way is answered by
   being sent away) and Whisper; the line that matters, with only the members behind on it under it and
@@ -102,8 +107,8 @@ group, joining a raid, or questing apart.
   party in the last ten minutes (into a new party with the old one's rules, if it ended), and
   they rejoin without a popup. Compact keeps the members and the line. By default it only
   appears when something is wrong or an invitation is waiting; Spoken's minimap menu (Open
-  Party Window) and `/sps window` open it, Escape closes it, opening the settings page from it
-  leaves it up. Nothing in it is protected, so it works in combat.
+  Party Window) and `/sps window` open it; only its X (or `/sps window`) closes it: Escape and
+  the game's panels opening or closing leave it be. Nothing in it is protected, so it works in combat.
 
 Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 
@@ -142,7 +147,7 @@ two parts and no realm: a whisper goes to the bare "First Last". The prefix is
 
 | Kind | Fields | |
 |---|---|---|
-| `HI` | version, reply, session, own, plays | hello: at login, when the group changes, to the usual party each heartbeat, and when what it plays changes; names the party this client is in, whether it decides any channel itself, and the channels it plays (`v m e a d`, `-` for none; missing before 0.5: the rules decide) |
+| `HI` | version, reply, session, own, plays, modules | hello: at login, when the group changes, to the usual party each heartbeat, and when what it plays changes; names the party this client is in, whether it decides any channel itself, the channels it plays (`v m e a d`, `-` for none; missing before 0.5: the rules decide), and the Spoken modules it runs (`S=3.1.0;Q=3.1.0+;...`: Spoken, Quests, Zones, Books, Developer, DialogueUI, a `+` after a source that can rebuild the party's lines; the store's build and Party Sync's share a version number) |
 | `IV` / `IA` / `ID` | session (`IV`: version, session, rejoin) | invite to the party, accepted, declined or left or removed (one naming another party is stale; from the inviter while its popup is up, the invitation withdrawn; answering an `IA` for an invitation withdrawn, leave); `rejoin` 1 asks back someone who was in a party with the inviter within ten minutes, who accepts without a popup |
 | `RO` | session, leader, members | the roster, from the leader, whenever it changes; a member not in it is out |
 | `PS` | controls, room, sync, share, audio | the rules, from the leader: whose controls, who plays the voice, four flags for the kinds played together, whose accepted quests are shared (missing from a 0.4.0 leader: anyone), and who plays each game channel (`music=<owner>;effects=...;ambience=...;dialog=...`, missing before 0.5: every computer). An owner is `none` (every computer), a member's key, or `-<key>,<key>` (every computer but those) |
@@ -151,7 +156,7 @@ two parts and no realm: a whisper goes to the bare "First Last". The prefix is
 | `LN` | id, src, event, questID, npcID, length, flags, textParts, name, title | a line queued; `src` is q, z or b |
 | `TX` | id, seq, total, text | its words, in pieces |
 | `GO` | id, startInMs | start it |
-| `AK` | id, state, ms | queued, missing, started (and how late), finished, dropped, yielded |
+| `AK` | id, state, ms | queued, missing (no voice file: captions there), old (that module cannot rebuild a line: not the Party Sync build), absent (no such module), started (and how late), finished, dropped, yielded |
 | `SK` | id | skipped or stopped: remove it |
 | `PZ` / `RS` | | stop, replay (`Spoken:Pause`, `Resume`) |
 | `LQ` | token, count | ask a member for their debug log |

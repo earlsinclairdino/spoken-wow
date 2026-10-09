@@ -247,7 +247,14 @@ P.Receive(stub, LALA, "LN", "s:1429:northshire valley", "z", "", "", "", "35.00"
 Expect("zone lore she announces is rebuilt by the zones module", asked, "s:1429:northshire valley")
 Expect("...queued here and held for her", Spoken:GetCurrent() and Spoken:GetHeldReason(Spoken:GetCurrent()), "waiting for Lala Throwaway")
 P.Receive(stub, LALA, "LN", "b:4242", "b", "", "", "", "20.00", "", 0, "A Book", "")
-Expect("a book page needs the books module", P.Last("AK", LALA).fields[3], "missing")
+Expect("a book page needs the books module: it says it has none", P.Last("AK", LALA).fields[3], "absent")
+local quests = Spoken:GetSource("quests")
+local rebuild = quests.rebuild
+-- The store's build of Spoken Quests: the same version, no rebuild.
+quests.rebuild = nil
+P.Receive(stub, LALA, "LN", "102-accept", "q", 1, 102, 1234, "2.00", "", 0, "Giver", "Quest 102")
+Expect("a Spoken Quests that cannot rebuild a line says so, not that the file is missing", P.Last("AK", LALA).fields[3], "old")
+quests.rebuild = rebuild
 local zone = Spoken:GetSource("zones")
 P.Clear()
 zone:Enqueue(H.Clip({ key = "z:1411" }))

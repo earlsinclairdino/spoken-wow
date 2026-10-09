@@ -62,9 +62,11 @@ local INVITE_SECONDS = 125
 -- A member in the party this long is dropped when its hello names another party or none. A
 -- hello sent just before it accepted may arrive after.
 local JOIN_GRACE = 10
--- Silent past one heartbeat and the answer to its ping: the window says "no answer" and for how
--- long, which tells whether to wait or to re-invite, until LOST_SECONDS drops them.
-local QUIET_SECONDS = HEARTBEAT_SECONDS + 5
+-- Silent longer than a member who is fine ever is: the window says "no answer" and for how long,
+-- which tells whether to wait or to re-invite, until LOST_SECONDS drops them. A member is pinged
+-- only at a heartbeat that finds it silent for one, so two heartbeats and a round trip can pass
+-- between its messages.
+local QUIET_SECONDS = 2 * HEARTBEAT_SECONDS + 5
 -- Someone dropped from a party this recently is asked back into it without the popup: a lost
 -- connection is not a new decision to join.
 local REJOIN_SECONDS = 600
@@ -472,9 +474,9 @@ end
 --------------------------------------------------------------------------------
 
 -- What the others read in this computer's hello besides who it is: whether it decides a channel
--- itself, and what it plays.
+-- itself, what it plays, and which Spoken modules it runs.
 local function HelloFields()
-	return PartySync.Room:IsOwn() and 1 or 0, PartySync.Room:PlaysLetters()
+	return PartySync.Room:IsOwn() and 1 or 0, PartySync.Room:PlaysLetters(), PartySync.Diagnostics:Modules()
 end
 
 --- To the group, for whoever runs the addon there.
@@ -528,7 +530,7 @@ end
 
 local told = {}
 
-Comm:On("HI", function(sender, channel, version, reply, sessionId, own, plays)
+Comm:On("HI", function(sender, channel, version, reply, sessionId, own, plays, modules)
 	local known = Peers:Get(sender)
 	local wasOnline = known and known.state == "online"
 	local peer = Peers:Seen(sender, version)
@@ -538,6 +540,9 @@ Comm:On("HI", function(sender, channel, version, reply, sessionId, own, plays)
 	plays = (plays ~= nil and plays ~= "") and plays or nil
 	local changed = peer.session ~= sessionId or peer.own ~= (own == "1") or peer.plays ~= plays
 	peer.session, peer.own, peer.plays = sessionId, own == "1", plays
+	modules = (modules ~= nil and modules ~= "") and modules or nil
+	changed = changed or peer.modules ~= modules
+	peer.modules = modules
 	local key = PartySync:NameKey(sender)
 	if Peers:IsMember(sender) then
 		if not wasOnline then
@@ -556,6 +561,7 @@ Comm:On("HI", function(sender, channel, version, reply, sessionId, own, plays)
 	if reply ~= "1" then
 		Peers:Greet(sender, true)
 	end
+	if PartySync.Diagnostics:CheckVersions() then changed = true end
 	if changed then
 		Changed()
 	end

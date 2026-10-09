@@ -8,10 +8,139 @@
 
 local _, PartySync = ...
 
-local Comm, Peers, Sync, Room = PartySync.Comm, PartySync.Peers, PartySync.Sync, PartySync.Room
+local Comm, Peers, Sync, Room, L = PartySync.Comm, PartySync.Peers, PartySync.Sync, PartySync.Room, PartySync.L
 
 local Diagnostics = {}
 PartySync.Diagnostics = Diagnostics
+
+--------------------------------------------------------------------------------
+-- What each computer runs
+--------------------------------------------------------------------------------
+
+local GetAddOnMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+local IsLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
+
+-- The addons a hello names, a letter each; the sources among them by the key they register.
+-- `shared`: what lines played together go through, so every computer should run the same.
+local MODULES = {
+	{ code = "S", folder = "Spoken", title = "Spoken", shared = true },
+	{ code = "Q", folder = "Spoken_Quests", title = "Spoken Quests", source = "quests", shared = true },
+	{ code = "Z", folder = "Spoken_Zones", title = "Spoken Zones", source = "zones", shared = true },
+	{ code = "B", folder = "Spoken_Books", title = "Spoken Books", source = "books", shared = true },
+	{ code = "D", folder = "Spoken_Developer", title = "Spoken Developer" },
+	{ code = "U", folder = "DialogueUI", title = "DialogueUI" },
+}
+
+--- What this computer runs, as a hello carries it: "S=3.1.0;Q=3.1.0+;...", with "+" after a
+--- module that can rebuild a line another computer started. The store's build and Party Sync's
+--- share a version number; only that tells them apart. What is not loaded is left out.
+function Diagnostics:Modules()
+	local parts = {}
+	local Spoken = _G.Spoken
+	for _, module in ipairs(MODULES) do
+		local ok, loaded = pcall(IsLoaded, module.folder)
+		if ok and loaded then
+			local version = (tostring(GetAddOnMeta and GetAddOnMeta(module.folder, "Version") or "?"):gsub("[;=\t]", ""))
+			local source = module.source and Spoken and Spoken.GetSource and Spoken:GetSource(module.source)
+			table.insert(parts, module.code .. "=" .. version .. ((source and source.rebuild) and "+" or ""))
+		end
+	end
+	return table.concat(parts, ";")
+end
+
+local function Parse(modules)
+	local found = {}
+	for code, version in (modules or ""):gmatch("(%a)=([^;]*)") do found[code] = version end
+	return found
+end
+
+--- One module's version as a hello gave it, in words for a comparison.
+local function Word(module, version)
+	if not version then return L.VERSION_NONE end
+	local rebuilds = version:sub(-1) == "+"
+	if rebuilds then version = version:sub(1, -2) end
+	return (module.source and not rebuilds) and (version .. " " .. L.VERSION_STORE) or version
+end
+
+--- What `key`'s computer runs, as far as this one knows: Party Sync's version and the modules.
+local function Runs(key)
+	if key == PartySync:MyKey() then return PartySync.version, Diagnostics:Modules() end
+	local peer = Peers.list[key]
+	return peer and peer.version, peer and peer.modules
+end
+
+--- How `key`'s computer differs from the leader's in what lines played together go through, a
+--- line each; nil when it runs the same, or when the leader is not heard from yet.
+function Diagnostics:Differences(key)
+	local leader = Peers:InParty() and Peers:Leader()
+	if not leader or key == leader then return nil end
+	local version, modules = Runs(key)
+	local leaderVersion, leaderModules = Runs(leader)
+	if not (version and leaderVersion) then return nil end
+	local lines = {}
+	if version ~= leaderVersion then
+		table.insert(lines, format(L.VERSION_DIFFERS_FMT, L.TITLE, version, leaderVersion))
+	end
+	-- A leader before modules were said: only Party Sync's own version to go by.
+	if leaderModules then
+		if not modules then
+			table.insert(lines, L.VERSION_UNSAID)
+		else
+			local mine, theirs = Parse(modules), Parse(leaderModules)
+			for _, module in ipairs(MODULES) do
+				if module.shared and mine[module.code] ~= theirs[module.code] then
+					table.insert(lines, format(L.VERSION_DIFFERS_FMT, module.title,
+						Word(module, mine[module.code]), Word(module, theirs[module.code])))
+				end
+			end
+		end
+	end
+	return lines[1] and lines or nil
+end
+
+-- key -> the differences last said in chat, so each is said once.
+local told = {}
+
+--- The handshake: every member's computer, this one's included, held against the leader's each
+--- time a hello says what one runs. A difference found is said once in chat; the window shows
+--- it next to the name for as long as it lasts. True when any difference came or went.
+function Diagnostics:CheckVersions()
+	if not Peers:InParty() then return false end
+	local moved = false
+	for _, key in ipairs(Peers:MemberKeys()) do
+		local differences = self:Differences(key)
+		local said = differences and table.concat(differences, "; ") or nil
+		if said ~= told[key] then
+			moved = true
+			if said then
+				local who = key == PartySync:MyKey() and L.VERSION_YOUR_COMPUTER
+					or format(L.VERSION_THEIR_COMPUTER_FMT, PartySync:ShortName(Peers:MemberName(key)))
+				PartySync:Trace("party", "versions: %s differs from the leader's: %s", key, said)
+				PartySync:Print(L.VERSION_MISMATCH_FMT, who, said)
+			end
+		end
+		told[key] = said
+	end
+	return moved
+end
+
+--- `modules`, as Modules gives it, in words: a line for every module, running or not.
+function Diagnostics:DescribeModules(modules)
+	local found = Parse(modules)
+	local lines = {}
+	for _, module in ipairs(MODULES) do
+		local version = found[module.code]
+		if not version then
+			table.insert(lines, format(L.VERSION_NOT_RUNNING_FMT, module.title))
+		else
+			local rebuilds = version:sub(-1) == "+"
+			if rebuilds then version = version:sub(1, -2) end
+			local note = module.source and (rebuilds and L.VERSION_PARTY_LINES or L.VERSION_NO_PARTY_LINES) or ""
+			table.insert(lines, format(L.VERSION_FMT, module.title, version) .. note)
+		end
+	end
+	return lines
+end
 
 -- How many of the lines played together `detailed` lists, newest first.
 local ENTRIES = 10
@@ -36,6 +165,9 @@ function Diagnostics:MemberLine(key, leader)
 		end
 		if peer.own then table.insert(parts, "own audio") end
 		if peer.plays then table.insert(parts, "plays " .. peer.plays) end
+		if peer.modules then table.insert(parts, "runs " .. peer.modules) end
+		local differences = self:Differences(key)
+		if differences then table.insert(parts, "differs from the leader's: " .. table.concat(differences, "; ")) end
 		if peer.lastSeen then
 			table.insert(parts, format("last heard %d s ago", math.floor(GetTime() - peer.lastSeen + 0.5)))
 		end
@@ -96,6 +228,7 @@ function Diagnostics:Lines(detailed)
 		Peers.DescribeRules(Peers:Rules()))
 	Add("this computer: %s, voice here %s%s, plays %s", tostring(PartySync:MyKey()),
 		Room:DescribeOwn(Room:OwnValue("voice"), "voice"), Room:IsSilent() and ", captions only" or "", Room:PlaysLetters())
+	Add("this computer runs %s (a + rebuilds the party's lines)", self:Modules())
 	Add("auto share %s, auto accept %s", OnOff(db.autoShare), OnOff(db.autoAccept))
 	local health = Sync.ready and Sync:Health()
 	if session and health then Add("last line played together: %s", health == "sync" and "in sync" or health) end
