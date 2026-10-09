@@ -108,6 +108,7 @@ end
 local function Help()
 	PartySync:Print("party: /sps invite <name> | remove <name> | leave | members | lead [<name>] (pass the lead) | controls [anyone|leader|nobody] | share [anyone|leader|nobody]")
 	PartySync:Print("sound: /sps audio [voice|music|effects|ambience|dialog|all] [none|me|<name>] (who plays it, the party's rule) | room [none|me|<name>] (the voice) | sound [<channel>|all] [party|plays|muted] (this computer's)")
+	PartySync:Print("quests: /sps quests (everyone shares every quest now) | quests me | quests <name> (ask one member)")
 	PartySync:Print("usual party: /sps remember (the party you are in, or the one that just ended) | list [add <name> | remove <name> | auto <name> on|off]")
 	PartySync:Print("lines: /sps sync (what played together) | test <questID> (queue a quest's accept line here)")
 	PartySync:Print("window and settings: /sps window | compact [on|off] | settings")
@@ -238,6 +239,20 @@ SlashCmdList["SPOKENPARTYSYNC"] = function(msg)
 					entry.autoAccept and "invitations accepted without asking" or "asked each time")
 			end
 			if list.rules then PartySync:Print("  rules: %s", Peers.DescribeRules(list.rules)) end
+		end
+	elseif cmd == "quests" then
+		local Accept = PartySync.Accept
+		if rest == "" then
+			Accept:AskAll()
+		elseif rest:lower() == "me" then
+			Accept:Ask(PartySync:MyKey())
+		else
+			local key = PartySync:NameKey(rest)
+			if key and Peers:IsMember(key) then
+				Accept:Ask(key)
+			else
+				PartySync:Print("%s is not in your Spoken party", rest)
+			end
 		end
 	elseif cmd == "remember" then
 		if not (PartySync.Autoform:Remember() or PartySync.Autoform:AcceptPrompt()) then

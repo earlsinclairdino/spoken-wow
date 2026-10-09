@@ -16,7 +16,7 @@ M.ME = "Tata Throwaway"
 M.LALA = "Lala Throwaway"
 
 -- What the client and its party look like. Each scenario sets what it needs.
-M.client = { units = {}, leader = nil, inInstance = false, offererIsPlayer = false, offerer = nil }
+M.client = { units = {}, leader = nil, inInstance = false, offererIsPlayer = false, offerer = nil, questLog = {} }
 
 local function ClientAPI(stub)
 	local client = M.client
@@ -79,6 +79,9 @@ local function ClientAPI(stub)
 		IsPushableQuest = function(questID) return questID ~= 999 end,
 		SetSelectedQuest = function() end,
 		GetTitleForQuestID = function(questID) return "Quest " .. questID end,
+		-- The log as a list of { questID, isHeader }.
+		GetNumQuestLogEntries = function() return #client.questLog end,
+		GetInfo = function(index) return client.questLog[index] end,
 	}
 	M.menus = {}
 	_G.Menu = { ModifyMenu = function(tag, fn) M.menus[tag] = fn end }
@@ -96,6 +99,7 @@ function M.Boot(stub, lookup, saved)
 	stub.world.unitSex = 2
 	M.client.units, M.client.leader, M.client.inInstance = {}, nil, false
 	M.client.offererIsPlayer, M.client.offerer = false, nil
+	M.client.questLog = {}
 	ClientAPI(stub)
 	_G.SpokenPartySyncDB = saved and saved.account or nil
 	_G.SpokenPartySyncCharDB = saved and saved.character or nil

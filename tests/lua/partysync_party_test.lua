@@ -131,6 +131,111 @@ stub.FireEvent("QUEST_ACCEPTED", 101)
 stub.Advance(0.55)
 Expect("a quest shared with the leader is not shared back", P.Called("QuestLogPushQuest"), false)
 
+---------------------------------------------------------------- every quest, on request
+local function Pushes()
+	local list = {}
+	for _, call in ipairs(P.calls) do
+		local index = call:match("^QuestLogPushQuest (%d+)$")
+		if index then table.insert(list, index) end
+	end
+	return table.concat(list, ",")
+end
+local function Said(text)
+	for _, line in ipairs(stub.chat) do
+		if line:find(text, 1, true) then return true end
+	end
+	return false
+end
+-- A header, two quests it can share (log indexes 1 and 3) and one it cannot.
+local LOG = { { questID = 0, isHeader = true }, { questID = 101 }, { questID = 999 }, { questID = 103 } }
+
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+P.client.units.party1 = LALA
+P.client.questLog = LOG
+stub.chat = {}
+P.Receive(stub, LALA, "SQ")
+stub.Advance(0.1)
+Expect("asked by a member, the first quest it can share is shared", Pushes(), "1")
+stub.Advance(2)
+Expect("...the next two seconds later, leaving out headers and what the game will not share", Pushes(), "1,3")
+Expect("...and the asker is told how many", P.Fields(P.Last("SA", LALA)), "2|")
+Expect("...as is the player here", Said("asked you to share your quests: sharing 2"), true)
+P.Clear()
+P.Receive(stub, "Bob Stranger", "SQ")
+stub.Advance(3)
+Expect("someone out of the party is not listened to", Pushes() == "" and P.Last("SA", "Bob Stranger") == nil, true)
+
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, nil, { share = "leader" })
+P.client.units.party1 = LALA
+P.client.questLog = LOG
+P.Receive(stub, LALA, "SQ")
+stub.Advance(3)
+Expect("with only the leader sharing, a member asked shares nothing", Pushes(), "")
+Expect("...and says why", P.Fields(P.Last("SA", LALA)), "0|rule")
+
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+P.client.questLog = LOG
+P.Receive(stub, LALA, "SQ")
+Expect("with nobody in the game's group, nothing can reach them", P.Fields(P.Last("SA", LALA)), "0|group")
+
+-- Asking.
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+P.client.units.party1 = LALA
+P.client.questLog = LOG
+P.Clear()
+P.Entry(ns:WindowMemberMenu("lala throwaway"), format(ns.L.MENU_ASK_SHARE_FMT, LALA)).onClick()
+Expect("a member's menu asks them to share their quests", P.Last("SQ", LALA) ~= nil, true)
+stub.chat = {}
+P.Receive(stub, LALA, "SA", 3, "")
+Expect("...and says what they answered", Said(LALA .. " is sharing 3 quest(s)"), true)
+P.Receive(stub, LALA, "SA", 0, "group")
+Expect("...or why not", Said(ns.L.SHARE_NO_GROUP), true)
+P.Clear()
+P.Entry(ns:WindowMemberMenu(ns:MyKey()), ns.L.MENU_SHARE_MINE).onClick()
+stub.Advance(2.1)
+Expect("this character's own row shares its quests here", Pushes(), "1,3")
+Expect("...asking nobody", P.Last("SQ", LALA), nil)
+P.Clear()
+P.Entry(ns:WindowTitleMenu(), ns.L.MENU_SHARE_ALL).onClick()
+Expect("Share Everyone's Quests asks every member", P.Last("SQ", LALA) ~= nil, true)
+stub.Advance(2.1)
+Expect("...and shares this character's own", Pushes(), "1,3")
+ns:ShowWindow(true)
+local shareButton = _G.SpokenPartySyncWindow.share
+Expect("the window's header has a round button for it", shareButton.shown, true)
+Expect("...its glyph a file the addon carries", shareButton.glyph.texture:find("GlyphShareQuests", 1, true) ~= nil
+	and io.open(here .. "/../../addons/SpokenPartySync/Textures/GlyphShareQuests.tga", "rb") ~= nil, true)
+P.Clear()
+shareButton:Click()
+Expect("...which asks every member too", P.Last("SQ", LALA) ~= nil, true)
+stub.Advance(2.1)
+P.Receive(stub, LALA, "PS", "anyone", "none", "1111", "leader")
+Expect("with only the leader sharing, asking her still works", P.Entry(ns:WindowMemberMenu("lala throwaway"),
+	format(ns.L.MENU_ASK_SHARE_FMT, LALA)).reason, nil)
+Expect("...this character's own row is greyed, saying why", P.Entry(ns:WindowMemberMenu(ns:MyKey()), ns.L.MENU_SHARE_MINE).reason,
+	ns.L.SHARE_LEADER)
+P.Clear()
+P.Entry(ns:WindowTitleMenu(), ns.L.MENU_SHARE_ALL).onClick()
+stub.Advance(2.1)
+Expect("...and Share Everyone's Quests asks only her", P.Last("SQ", LALA) ~= nil and Pushes(), "")
+P.Receive(stub, LALA, "PS", "anyone", "none", "1111", "nobody")
+Expect("with nobody sharing, Share Everyone's Quests is greyed", P.Entry(ns:WindowTitleMenu(), ns.L.MENU_SHARE_ALL).reason,
+	ns.L.SHARE_NOBODY)
+ns:RefreshWindow()
+Expect("...and so is the header's button, saying why", not shareButton:IsEnabled() and shareButton.tip.reason, ns.L.SHARE_NOBODY)
+P.Receive(stub, LALA, "PS", "anyone", "none", "1111", "anyone")
+P.Clear()
+SlashCmdList["SPOKENPARTYSYNC"]("quests lala throwaway")
+Expect("/sps quests <name> asks that member", P.Last("SQ", LALA) ~= nil, true)
+P.Clear()
+SlashCmdList["SPOKENPARTYSYNC"]("quests me")
+stub.Advance(2.1)
+Expect("/sps quests me shares here", Pushes(), "1,3")
+
 ---------------------------------------------------------------- zones and books
 -- Their lines are rebuilt from the key alone, by their own module.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)

@@ -11,13 +11,16 @@
 
 local _, PartySync = ...
 
-local Peers, Sync = PartySync.Peers, PartySync.Sync
+local Peers, Sync, Comm, L = PartySync.Peers, PartySync.Sync, PartySync.Comm, PartySync.L
 
 local Accept = {}
 PartySync.Accept = Accept
 
 local SHARE_DELAY = 0.5
 local ACCEPT_DELAY = 0.3
+-- Between quests shared one after another: the game turns a share away while the member's
+-- dialog for the last one is still open, and a member accepts after ACCEPT_DELAY.
+local SHARE_GAP = 2
 
 -- The last quest dialog: which quest, and whether a player rather than an NPC offered it.
 local lastDetail = {}
@@ -106,7 +109,8 @@ function Accept:QUEST_ACCEPTED(first, second)
 	C_Timer.After(SHARE_DELAY, function() Accept:Share(questID) end)
 end
 
-function Accept:Share(questID)
+--- `quiet`: no chat line, for a run of shares that says how many once.
+function Accept:Share(questID, quiet)
 	local index
 	if C_QuestLog and C_QuestLog.GetLogIndexForQuestID then
 		index = C_QuestLog.GetLogIndexForQuestID(questID)
@@ -135,6 +139,149 @@ function Accept:Share(questID)
 	end
 	PartySync:Trace("quests", "sharing quest %d (log index %d)", questID, index)
 	QuestLogPushQuest(index)
-	PartySync:Print("shared %s with the party", QuestTitle(questID))
+	if not quiet then PartySync:Print("shared %s with the party", QuestTitle(questID)) end
 	return true
 end
+
+--------------------------------------------------------------------------------
+-- Every quest at once, by request
+--------------------------------------------------------------------------------
+
+-- Bumped by each run, so a newer run stops what an older one has left to share.
+local shareRun = 0
+
+--- Every quest in this character's log the game lets it share.
+local function ShareableQuests()
+	local list = {}
+	local log = C_QuestLog
+	if not (log and log.GetNumQuestLogEntries and log.GetInfo) then
+		return list
+	end
+	for index = 1, log.GetNumQuestLogEntries() or 0 do
+		local info = log.GetInfo(index)
+		local questID = info and not info.isHeader and info.questID
+		if questID and questID ~= 0 and (not log.IsPushableQuest or log.IsPushableQuest(questID)) then
+			table.insert(list, questID)
+		end
+	end
+	return list
+end
+
+--- Why this character would not share its quests now: "party", "rule", "group" or "none".
+local function WhyNoShareAll(quests)
+	if not Peers:InParty() then return "party" end
+	if not Peers:MayShare() then return "rule" end
+	if not MemberInGroup() then return "group" end
+	if not quests[1] then return "none" end
+	return nil
+end
+
+--- What a "why" says, on the side that reads it: the rule in its own words.
+function Accept:Reason(why)
+	if why == "rule" then
+		return (Peers:Rules().share or "anyone") == "leader" and L.SHARE_LEADER or L.SHARE_NOBODY
+	end
+	return ({ party = L.OPT_IN_PARTY, group = L.SHARE_NO_GROUP, none = L.SHARE_NONE })[why] or tostring(why)
+end
+
+--- Share every quest the log can share, SHARE_GAP apart. Returns how many, or nil and why.
+function Accept:ShareAll()
+	local quests = ShareableQuests()
+	local why = WhyNoShareAll(quests)
+	if why then
+		PartySync:Trace("quests", "not sharing every quest: %s", why)
+		return nil, why
+	end
+	shareRun = shareRun + 1
+	local run = shareRun
+	for i, questID in ipairs(quests) do
+		C_Timer.After((i - 1) * SHARE_GAP, function()
+			if run == shareRun and Peers:InParty() then Accept:Share(questID, true) end
+		end)
+	end
+	PartySync:Trace("quests", "sharing every quest: %d", #quests)
+	return #quests
+end
+
+--- Why `key` would not share when asked, as far as this computer knows the rule, or nil.
+function Accept:WhyNotAsk(key)
+	if not Peers:InParty() then return L.OPT_IN_PARTY end
+	local share = Peers:Rules().share or "anyone"
+	if share == "nobody" then return L.SHARE_NOBODY end
+	if share == "leader" and key ~= Peers:Leader() then return L.SHARE_LEADER end
+	return nil
+end
+
+local function ShareHere()
+	local count, why = Accept:ShareAll()
+	if count then
+		PartySync:Print("sharing your %d quest(s) with the party", count)
+	else
+		PartySync:Print("%s", Accept:Reason(why))
+	end
+	return count ~= nil
+end
+
+--- Ask `key` to share every quest it can; this character's own key shares here.
+function Accept:Ask(key)
+	local why = self:WhyNotAsk(key)
+	if why then
+		PartySync:Print("%s", why)
+		return false
+	end
+	if key == PartySync:MyKey() then
+		return ShareHere()
+	end
+	local name = Peers:MemberName(key)
+	PartySync:Trace("quests", "asking %s to share every quest", key)
+	Comm:Whisper(name, "SQ")
+	PartySync:Print("asked %s to share their quests", PartySync:ShortName(name))
+	return true
+end
+
+--- Everyone shares every quest: this character's here, and each member online who may share
+--- is asked for theirs.
+function Accept:AskAll()
+	if not Peers:InParty() then
+		PartySync:Print("%s", L.OPT_IN_PARTY)
+		return false
+	end
+	local asked = {}
+	for _, key in ipairs(Peers:OnlineMembers()) do
+		if not self:WhyNotAsk(key) then
+			Comm:Whisper(Peers:MemberName(key), "SQ")
+			table.insert(asked, PartySync:ShortName(Peers:MemberName(key)))
+		end
+	end
+	PartySync:Trace("quests", "asking everyone to share every quest: %s", table.concat(asked, ", "))
+	if asked[1] then PartySync:Print("asked %s to share their quests", table.concat(asked, ", ")) end
+	if not self:WhyNotAsk(PartySync:MyKey()) then
+		ShareHere()
+	elseif not asked[1] then
+		PartySync:Print("%s", self:WhyNotAsk(PartySync:MyKey()))
+	end
+	return true
+end
+
+Comm:On("SQ", function(sender)
+	if not Peers:IsMember(sender) then return end
+	local count, why = Accept:ShareAll()
+	local who = PartySync:ShortName(sender)
+	if count then
+		PartySync:Print("%s asked you to share your quests: sharing %d", who, count)
+	else
+		PartySync:Print("%s asked you to share your quests: %s", who, Accept:Reason(why))
+	end
+	Comm:Whisper(sender, "SA", count or 0, why or "")
+end)
+
+Comm:On("SA", function(sender, channel, count, why)
+	if not Peers:IsMember(sender) then return end
+	count = tonumber(count) or 0
+	local who = PartySync:ShortName(sender)
+	if count > 0 then
+		PartySync:Print("%s is sharing %d quest(s) with the party", who, count)
+	else
+		PartySync:Print("%s shares no quest: %s", who, Accept:Reason(why ~= "" and why or "none"))
+	end
+end)
