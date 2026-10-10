@@ -524,9 +524,19 @@ ns.Peers:Invite(MIRA)
 window = _G.SpokenPartySyncWindow
 Expect("an invitation sent brings it up", window and window.shown, true)
 P.Receive(stub, MIRA, "IA", P.SESSION)
-stub.Advance(9)
+stub.Advance(60)
 ns:RefreshWindow()
-Expect("...until a while after the answer", window.shown, false)
+Expect("...and it stays once answered, with nothing wrong left: only its X closes it", window.shown, true)
+local account, character = _G.SpokenPartySyncDB, _G.SpokenPartySyncCharDB
+_G.SpokenPartySyncWindow:Hide()
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP, { account = account, character = character })
+Expect("...through a /reload too", _G.SpokenPartySyncWindow.shown, true)
+window = _G.SpokenPartySyncWindow
+window.close:Click()
+account, character = _G.SpokenPartySyncDB, _G.SpokenPartySyncCharDB
+_G.SpokenPartySyncWindow:Hide()
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP, { account = account, character = character })
+Expect("closed by its X, a /reload leaves it closed", _G.SpokenPartySyncWindow.shown, false)
 
 ---------------------------------------------------------------- a member whose module cannot rebuild the line
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)

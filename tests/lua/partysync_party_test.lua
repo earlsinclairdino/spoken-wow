@@ -400,7 +400,8 @@ Expect("on \"when something is wrong\" a problem opens it", window.shown, true)
 ns:Resolve("test")
 stub.Advance(10)
 ns:RefreshWindow()
-Expect("...and it goes a little after the problem does", window.shown, false)
+Expect("...and stays after the problem goes: it never hides itself", window.shown, true)
+ns:ShowWindow(false)
 
 Expect("the settings page is built", ns.optionsPanel ~= nil, true)
 

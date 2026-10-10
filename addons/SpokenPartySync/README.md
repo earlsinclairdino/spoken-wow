@@ -106,9 +106,10 @@ group, joining a raid, or questing apart.
   installed there), the last two with Re-invite. Re-invite asks back someone dropped from the
   party in the last ten minutes (into a new party with the old one's rules, if it ended), and
   they rejoin without a popup. Compact keeps the members and the line. By default it only
-  appears when something is wrong or an invitation is waiting; Spoken's minimap menu (Open
-  Party Window) and `/sps window` open it; only its X (or `/sps window`) closes it: Escape and
-  the game's panels opening or closing leave it be. Nothing in it is protected, so it works in combat.
+  opens by itself when something is wrong or an invitation is waiting; Spoken's minimap menu
+  (Open Party Window) and `/sps window` open it. Once open it stays, through a `/reload` too,
+  until its X (or `/sps window`) closes it: it never hides itself, and Escape and the game's
+  panels opening or closing leave it be. Nothing in it is protected, so it works in combat.
 
 Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 
