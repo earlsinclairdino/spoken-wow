@@ -109,6 +109,19 @@ ns.Peers:Resume()
 Expect("...the hello to them naming the party", P.Last("HI", LALA) and P.Last("HI", LALA).fields[4], P.SESSION)
 P.Receive(stub, LALA, "HI", "0.4.0", 1, P.SESSION, 0)
 Expect("her answer keeps the party", ns.Peers:IsMember(LALA) and ns.Peers.list["lala throwaway"].state, "online")
+
+-- Leading, with a rule changed before the member answered: she is told it as she does.
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, "me")
+account, character = _G.SpokenPartySyncDB, _G.SpokenPartySyncCharDB
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP, { account = account, character = character })
+P.Clear()
+ns.Room:SetTriggered(true)
+Expect("a rule set before a member answered since login is not sent to her", P.Last("PS", LALA), nil)
+P.Receive(stub, LALA, "HI", "0.5.0", 1, P.SESSION, 0)
+Expect("...but is the moment she is heard", P.Last("PS", LALA) and P.Last("PS", LALA).fields[3], "trigger")
+Expect("...with the roster", P.Last("RO", LALA) ~= nil, true)
+
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP, { account = account, character = character })
 stub.Advance(70)
 ns.Peers:Tick()

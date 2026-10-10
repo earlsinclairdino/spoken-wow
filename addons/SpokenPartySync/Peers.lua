@@ -547,6 +547,11 @@ Comm:On("HI", function(sender, channel, version, reply, sessionId, own, plays, m
 	if Peers:IsMember(sender) then
 		if not wasOnline then
 			PartySync:Print("%s is here (Spoken Party Sync %s)", PartySync:ShortName(sender), tostring(version))
+			-- Rules changed while they were unheard went to the online members only.
+			if sessionId == Peers:SessionId() and Peers:AmLeader() then
+				Peers:SendRoster()
+				Peers:SendRules(key)
+			end
 		end
 		-- In another party, or in none: gone from this one. A hello sent just before they
 		-- accepted may arrive after, so a newcomer is given a moment.
