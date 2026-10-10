@@ -70,7 +70,9 @@ aloud in the room. Not on 1.12, which has no captions.
 
 A feature addon can turn it on for the session without touching the setting,
 `Spoken:SetCaptionsOnlyOverride(true)`, and lift it with `false`: Spoken Party Sync does this
-on the client that is not the room's speaker.
+on the client that is not the room's speaker. For one line only, `clip.captionsOnly = true` on
+the clip it queues does the same for that clip: Party Sync uses it when the line's own trigger
+is the one to play it.
 
 ## Settings language
 

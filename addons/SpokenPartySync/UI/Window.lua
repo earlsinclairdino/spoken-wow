@@ -270,7 +270,7 @@ local HEALTH = {
 local function AudioLines()
 	local lines = {}
 	local summary = Room:Summary()
-	if summary ~= "mixed" then
+	if summary ~= "mixed" and not Room:Triggered() then
 		table.insert(lines, format(L.AUDIO_RULE_FMT, L.MENU_ALL_SOUND, Room:Describe(summary)))
 	else
 		for _, channel in ipairs(Room.CHANNELS) do
@@ -292,7 +292,8 @@ local function ChipsModel()
 	local shareReason = Peers:WhyNoShare()
 	return {
 		-- Live for everyone: whoever does not lead still decides this computer's own sound in it.
-		audio = { text = format(L.CHIP_AUDIO_FMT, Room:Short(Room:Summary())), title = L.CHIP_AUDIO_TITLE,
+		audio = { text = format(L.CHIP_AUDIO_FMT, Room:Triggered() and L.ROOM_TRIGGER_SHORT or Room:Short(Room:Summary())),
+			title = L.CHIP_AUDIO_TITLE,
 			body = AudioLines() },
 		playback = { text = format(L.CHIP_PLAYBACK_FMT, CONTROLS[rules.controls] or tostring(rules.controls)),
 			title = L.OPT_CONTROLS, body = L.OPT_CONTROLS_TIP, reason = RulesReason() },
@@ -484,7 +485,7 @@ local function RuleChannels(reason)
 	for _, channel in ipairs(Room.CHANNELS) do
 		local current = Room:Owner(channel)
 		table.insert(entries, { text = format(L.AUDIO_RULE_FMT, Room:Name(channel), Room:Short(current)),
-			tip = Room:Tip(channel), children = Radios(Room:Choices(current), current, DescribeOwner,
+			tip = Room:Tip(channel), children = Radios(Room:Choices(current, channel), current, DescribeOwner,
 				function(owner) Room:Set(channel, owner) end, reason) })
 	end
 	return entries
@@ -504,8 +505,9 @@ local function OwnChannels()
 end
 
 --- In layers, the plain choices first: all the sound on one computer (the leader's rule) or on
---- every one, each channel apart under Advanced, then whether this computer follows the party,
---- which is everyone's to answer.
+--- every one, the voice to whoever triggers a line (a tick on top of those, the voice set apart),
+--- each channel apart under Advanced, then whether this computer follows the party, which is
+--- everyone's to answer.
 function PartySync:WindowAudioMenu()
 	local reason = RulesReason()
 	local summary = Room:Summary()
@@ -514,6 +516,8 @@ function PartySync:WindowAudioMenu()
 		function(owner) return format(L.ALL_ON_FMT, Room:Describe(owner)) end,
 		function(owner) Room:SetAll(owner) end, reason, L.OPT_ALL_SOUND_TIP)
 	table.insert(entries, 1, { title = L.MENU_WHO_PLAYS })
+	table.insert(entries, { text = L.MENU_VOICE_TRIGGER, checked = Room:Triggered(), tip = L.MENU_VOICE_TRIGGER_TIP,
+		reason = reason, onClick = function() Room:SetTriggered(not Room:Triggered()) end })
 	table.insert(entries, { text = L.MENU_ADVANCED, tip = L.MENU_ADVANCED_RULE_TIP, children = RuleChannels(reason) })
 	local own = Room:OwnSummary()
 	local follow = Radios(Room:OwnChoices(), own, function(value) return Room:DescribeFollow(value) end,

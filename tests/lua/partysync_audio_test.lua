@@ -212,5 +212,66 @@ ns:DB().cvarCache = { music = "1" }
 ns:ResetOptions()
 Expect("Reset keeps what the channels go back to", ns:DB().cvarCache.music, "1")
 
+---------------------------------------------------------------- the voice on whoever triggers it
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, "me")
+Expect("whoever triggers it is offered for the voice", ns.Room:Choices("none", "voice")[2], "trigger")
+Expect("...not for a game channel", ns.Room:Choices("none", "music")[2], ns:MyKey())
+Expect("...nor for all the sound at once", ns.Room:Choices("none")[2], ns:MyKey())
+ns.Room:Set("music", "lala throwaway")
+P.Clear()
+ns.Room:SetTriggered(true)
+Expect("the voice on its trigger is a rule for the party", Fields(P.Last("PS", LALA)),
+	"anyone|trigger|1111|anyone|music=lala throwaway;effects=none;ambience=none;dialog=none")
+Expect("...that leaves the game's channels alone", ns.Room:Owner("music"), "lala throwaway")
+Expect("...and sets the voice apart from their summary", ns.Room:Summary(), "mixed")
+ns.Room:Set("music", "none")
+Expect("...which is theirs alone", ns.Room:Summary(), "none")
+Expect("nobody owns the voice", ns.Room:Voices("lala throwaway") or ns.Room:Voices(ns:MyKey()), false)
+Expect("...each computer playing its own lines", ns.Room:Plays("voice") and not Spoken:IsCaptionsOnly(), true)
+Expect("...and the others' captions only", ns.Room:CaptionsHere(), true)
+Expect("...unless this one decides its voice", (function() ns.Room:SetOwn("sound"); local here = ns.Room:CaptionsHere(); ns.Room:SetOwn(""); return here end)(), false)
+Expect("...in words", ns.Room:Describe("trigger"), ns.L.ROOM_TRIGGER)
+Expect("a game channel refuses it", select(2, ns.Room:Set("music", "trigger")), ns.L.TRIGGER_VOICE_ONLY)
+Expect("...as does all the sound at once", select(2, ns.Room:SetAll("trigger")), ns.L.TRIGGER_VOICE_ONLY)
+ns:ShowWindow(true)
+Expect("the chip reads it", ns.windowModel.chips.audio.text, format(ns.L.CHIP_AUDIO_FMT, ns.L.ROOM_TRIGGER_SHORT))
+Expect("...listing each channel", ns.windowModel.chips.audio.body:find(ns.L.CHANNEL_VOICE .. ": " .. ns.L.ROOM_TRIGGER, 1, true) ~= nil, true)
+entries = ns:WindowAudioMenu()
+local trigger = P.Entry(entries, ns.L.MENU_VOICE_TRIGGER)
+Expect("the audio menu's tick is on", trigger.checked, true)
+Expect("...beside All on Every Computer, ticked too", P.Entry(entries, format(ns.L.ALL_ON_FMT, ns.L.ROOM_NOBODY)).radio, true)
+local function Offered(channel)
+	local names = {}
+	for _, entry in ipairs(P.Entry(entries, ns.L.MENU_ADVANCED).children) do
+		if entry.children and entry.text:find(channel, 1, true) then
+			for _, child in ipairs(entry.children) do table.insert(names, child.text) end
+		end
+	end
+	return table.concat(names, "|")
+end
+Expect("Advanced offers it for the voice", Offered(ns.L.CHANNEL_VOICE):find(ns.L.ROOM_TRIGGER, 1, true) ~= nil, true)
+Expect("...not for the music", Offered(ns.L.CHANNEL_MUSIC):find(ns.L.ROOM_TRIGGER, 1, true), nil)
+trigger.onClick()
+Expect("the tick off puts the voice on every computer", ns.Room:Owner("voice"), "none")
+SlashCmdList["SPOKENPARTYSYNC"]("audio voice trigger")
+Expect("/sps audio voice trigger sets it", ns.Room:Triggered(), true)
+SlashCmdList["SPOKENPARTYSYNC"]("audio music trigger")
+Expect("/sps audio music trigger does not", ns.Room:Owner("music"), "none")
+ns.optionsPanel:Show()
+ns:RefreshOptions()
+Expect("the page's tick reads it", PageRow(ns.L.MENU_VOICE_TRIGGER).layoutRead(), true)
+local voiceValues = table.concat(Rows(ns.L.CHANNEL_VOICE)[1].layoutValues(), "|")
+Expect("...and its Voice row offers it", voiceValues:find("trigger", 1, true) ~= nil, true)
+Expect("...its Music row not", table.concat(Rows(ns.L.CHANNEL_MUSIC)[1].layoutValues(), "|"):find("trigger", 1, true), nil)
+ns.optionsPanel:Hide()
+
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+P.Receive(stub, LALA, "PS", "anyone", "trigger", "1111", "anyone", NONE)
+Expect("the leader putting the voice on its trigger reaches a member", ns.Room:Triggered(), true)
+Expect("...whose sound stays on for its own lines", Spoken:IsCaptionsOnly(), false)
+Expect("...the tick greyed for it", P.Entry(ns:WindowAudioMenu(), ns.L.MENU_VOICE_TRIGGER).reason, ns.L.OPT_RULES_LEADER)
+
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll party sync audio tests passed")

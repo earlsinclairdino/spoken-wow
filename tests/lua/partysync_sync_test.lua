@@ -382,5 +382,48 @@ Expect("...captions only here by choice", Spoken:IsCaptionsOnly(), true)
 ns.Room:SetOwn("")
 Expect("...and back to the party's rule", Spoken:IsCaptionsOnly(), true)
 
+---------------------------------------------------------------- the voice on whoever triggers it
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, nil, { room = "trigger" })
+Expect("the voice on whoever triggers it leaves the player's sound on", Spoken:IsCaptionsOnly(), false)
+P.Receive(stub, LALA, "LN", "102-accept", "q", 1, 102, 1234, "2.00", "", 0, "Giver", "Quest 102")
+clip = Spoken:GetCurrent()
+Expect("a line she triggers is queued here", clip and clip.key, "102-accept")
+Expect("...and she is told so", P.Last("AK", LALA) and P.Last("AK", LALA).fields[3], "queued")
+local probed = #world.played
+P.Receive(stub, LALA, "GO", "102-accept", 0)
+Expect("...her start starts it", Spoken:IsPlaying(clip), true)
+Expect("...captions only, this computer not being its trigger", #world.played == probed and clip.silent, true)
+Expect("...which she hears as started", P.Last("AK", LALA).fields[3], "started")
+stub.Advance(3)
+Expect("...and finished", P.Last("AK", LALA).fields[3], "finished")
+VO.Player:Enqueue(QuestLine(VO, 101))
+clip = Spoken:GetCurrent()
+P.Receive(stub, LALA, "AK", "101-accept", "queued")
+stub.Advance(0.55)
+Expect("a line this computer triggers plays here with its sound", world.played[#world.played], "Interface\\AddOns\\TestPack\\101-accept.ogg")
+Expect("...not marked captions only", clip.captionsOnly, nil)
+stub.Advance(3)
+ns.Room:SetOwn("sound")
+P.Receive(stub, LALA, "LN", "103-accept", "q", 1, 103, 1234, "2.00", "", 0, "Giver", "Quest 103")
+probed = #world.played
+P.Receive(stub, LALA, "GO", "103-accept", 0)
+Expect("deciding the sound here plays her lines too", #world.played, probed + 1)
+stub.Advance(3)
+ns.Room:SetOwn("captions")
+Expect("...and captions only here is the player's switch", Spoken:IsCaptionsOnly(), true)
+ns.Room:SetOwn("")
+
+-- Both triggered it: this copy was queued here with its sound and keeps it as it yields.
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, nil, { room = "trigger" })
+VO.Player:Enqueue(QuestLine(VO, 103))
+clip = Spoken:GetCurrent()
+P.Receive(stub, LALA, "LN", "103-accept", "q", 1, 103, 1234, "2.00", "", 0, "Giver", "Quest 103")
+Expect("the same line started on both sides, this copy yields to the leader's", clip.partySync.role, "follower")
+probed = #world.played
+P.Receive(stub, LALA, "GO", "103-accept", 0)
+Expect("...and plays with its sound: this computer triggered it too", #world.played == probed + 1 and not clip.silent, true)
+
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll party sync tests passed")

@@ -3,11 +3,14 @@
 --
 -- Each channel's owner is one of the party's rules, the leader's to set: "none" (every
 -- computer), a member's key (that computer alone, or every computer while it is offline), or
--- "-<key>,<key>" (every computer but those). A computer may decide a channel for itself instead
--- (Play My Own Sound): "" (as the party decides), "plays" or "muted". The voice is Spoken's lines: a
--- computer that does not play it shows them as captions, through the player's session override
--- (Spoken:SetCaptionsOnlyOverride), never its saved setting, so the sound comes back the moment
--- the party or the owner goes. The game's own channels are switched in Channels.lua.
+-- "-<key>,<key>" (every computer but those). The voice alone may be "trigger": the computer that
+-- triggered a line plays it, the others show its captions (Sync marks their copy of the clip
+-- captions only); the game's channels have no trigger. A computer may decide a channel for
+-- itself instead (Play My Own Sound): "" (as the party decides), "plays" or "muted". The voice
+-- is Spoken's lines: a computer that does not play it shows them as captions, through the
+-- player's session override (Spoken:SetCaptionsOnlyOverride), never its saved setting, so the
+-- sound comes back the moment the party or the owner goes. The game's own channels are switched
+-- in Channels.lua.
 --
 -- The voice's rule and own choice live in `rules.room` and `soundOwn` ("sound"/"captions"),
 -- where the PS message and saved settings carry them.
@@ -60,24 +63,31 @@ function Room:Owner(channel)
 	return rules.audio and rules.audio[channel] or "none"
 end
 
---- `read(channel)` for every channel when they all agree, else "mixed".
-local function Same(read)
-	local first = read(Room.CHANNELS[1])
-	for _, channel in ipairs(Room.CHANNELS) do
+--- `read(channel)` for every channel of `list` when they all agree, else "mixed".
+local function Same(read, list)
+	list = list or Room.CHANNELS
+	local first = read(list[1])
+	for _, channel in ipairs(list) do
 		if read(channel) ~= first then return "mixed" end
 	end
 	return first
 end
 
---- One owner for every channel, or "mixed".
+--- Whether the voice goes to whoever triggers a line.
+function Room:Triggered()
+	return self:Owner("voice") == "trigger"
+end
+
+--- One owner for every channel, or "mixed". The voice on its trigger is set apart: the summary
+--- is then the game's channels'.
 function Room:Summary()
-	return Same(function(channel) return self:Owner(channel) end)
+	return Same(function(channel) return self:Owner(channel) end, self:Triggered() and PartySync.GAME_CHANNELS or nil)
 end
 
 local function RulePlays(channel, key, me)
 	if not Peers:InParty() then return true end
 	local owner = Room:Owner(channel)
-	if owner == "none" then return true end
+	if owner == "none" or owner == "trigger" then return true end
 	local excluded = Excluded(owner)
 	if excluded then return not excluded[key] end
 	if owner == key then return true end
@@ -144,7 +154,14 @@ end
 --- Whether `key`'s computer is one that plays the voice where not every computer does: what the
 --- "voice" beside a name says.
 function Room:Voices(key)
-	return self:Owner("voice") ~= "none" and self:Plays("voice", key)
+	local owner = self:Owner("voice")
+	return owner ~= "none" and owner ~= "trigger" and self:Plays("voice", key)
+end
+
+--- Whether a line another computer drives is captions only here: the voice goes to its trigger
+--- and this computer has not decided its voice for itself.
+function Room:CaptionsHere()
+	return self:Triggered() and self:OwnValue("voice") == ""
 end
 
 --- Keep the player, the game's channels and the party in step with the rules: called on every
@@ -174,10 +191,12 @@ function Room:Update()
 	end
 end
 
---- The owners a channel's rule offers: every computer, then each member's, this one first, and
---- `current` where it is one the list would not offer ("mixed", every computer but some).
-function Room:Choices(current)
+--- The owners a channel's rule offers: every computer, whoever triggers it for the voice, then
+--- each member's, this one first, and `current` where it is one the list would not offer
+--- ("mixed", every computer but some).
+function Room:Choices(current, channel)
 	local list = { "none" }
+	if channel == "voice" then table.insert(list, "trigger") end
 	for _, key in ipairs(Peers:MemberKeys()) do table.insert(list, key) end
 	local me = PartySync:MyKey()
 	if not Peers:InParty() and me then table.insert(list, me) end
@@ -198,6 +217,7 @@ end
 function Room:Describe(owner)
 	if owner == nil or owner == "" or owner == "none" then return L.ROOM_NOBODY end
 	if owner == "mixed" then return L.MIXED end
+	if owner == "trigger" then return L.ROOM_TRIGGER end
 	local excluded = Excluded(owner)
 	if excluded then return format(L.ROOM_ALL_BUT_FMT, Names(excluded)) end
 	if owner == PartySync:MyKey() or owner == "me" then return L.ROOM_ME end
@@ -208,6 +228,7 @@ end
 function Room:Short(owner)
 	local excluded = Excluded(owner)
 	if excluded then return format(L.ROOM_ALL_BUT_SHORT_FMT, Names(excluded, true)) end
+	if owner == "trigger" then return L.ROOM_TRIGGER_SHORT end
 	if owner and owner ~= "none" and owner ~= "mixed" and owner ~= "me" and owner ~= "" and owner ~= PartySync:MyKey() then
 		return PartySync:FirstName(Peers:MemberName(owner))
 	end
@@ -223,7 +244,9 @@ end
 --- Who plays `channel`, a rule for the party: the leader's to set; outside a party, this
 --- computer's own for the next.
 function Room:Set(channel, owner)
-	return Peers:SetRule("audio", channel, Normal(owner))
+	owner = Normal(owner)
+	if owner == "trigger" and channel ~= "voice" then return false, L.TRIGGER_VOICE_ONLY end
+	return Peers:SetRule("audio", channel, owner)
 end
 
 --- Who plays the voice.
@@ -231,9 +254,15 @@ function Room:Choose(choice)
 	return self:Set("voice", choice)
 end
 
+--- The voice to whoever triggers a line, or back to every computer.
+function Room:SetTriggered(on)
+	return self:Set("voice", on and "trigger" or "none")
+end
+
 --- Every channel on one owner.
 function Room:SetAll(owner)
 	owner = Normal(owner)
+	if owner == "trigger" then return false, L.TRIGGER_VOICE_ONLY end
 	return Peers:EditRules(function(rules)
 		rules.room = owner
 		rules.audio = rules.audio or {}

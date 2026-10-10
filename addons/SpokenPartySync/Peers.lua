@@ -961,9 +961,9 @@ function Peers:EditRules(change)
 	return true
 end
 
---- Set a rule: `controls` ("anyone", "leader", "nobody"), `room` (who plays the voice),
---- `share` ("anyone", "leader", "nobody"), `sync` with a kind and whether it is on, or `audio`
---- with a channel and its owner ("none", a member's key, or "-<key>,<key>").
+--- Set a rule: `controls` ("anyone", "leader", "nobody"), `room` (who plays the voice: an
+--- owner, or "trigger"), `share` ("anyone", "leader", "nobody"), `sync` with a kind and whether
+--- it is on, or `audio` with a channel and its owner ("none", a member's key, or "-<key>,<key>").
 function Peers:SetRule(name, value, on)
 	return self:EditRules(function(rules)
 		if name == "sync" then

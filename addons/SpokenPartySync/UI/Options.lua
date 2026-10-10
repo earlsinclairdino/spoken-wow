@@ -369,11 +369,13 @@ function PartySync:SetupOptions()
 		function() return Room:Choices(Room:Summary()) end,
 		function() return Room:Summary() end, function(value) if value ~= "mixed" then Room:SetAll(value) end end, refresh,
 		function(value) return Room:Describe(value) end))
+	RuleRow(layout:Checkbox(L.MENU_VOICE_TRIGGER, L.MENU_VOICE_TRIGGER_TIP,
+		function() return Room:Triggered() end, function(value) Room:SetTriggered(value) end, refresh))
 	self.rulesAdvanced = Accordion(L.OPT_ADVANCED_RULE_TIP, function() return Room:Summary() == "mixed" end, function()
 		local rows = {}
 		for _, channel in ipairs(Room.CHANNELS) do
 			table.insert(rows, RuleRow(layout:Dropdown(Room:Name(channel), Room:Tip(channel),
-				function() return Room:Choices(Room:Owner(channel)) end,
+				function() return Room:Choices(Room:Owner(channel), channel) end,
 				function() return Room:Owner(channel) end, function(value) Room:Set(channel, value) end, refresh,
 				function(value) return Room:Describe(value) end)))
 		end

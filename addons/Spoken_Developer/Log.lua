@@ -150,7 +150,7 @@ function Log:Watch()
 	end)
 	Spoken:RegisterCallback("CLIP_STARTED", function(clip)
 		Log:Add("player", "started %s, length %s%s", Describe(clip), tostring(clip and clip.length),
-			Spoken.IsCaptionsOnly and Spoken:IsCaptionsOnly() and ", captions only" or "")
+			((Spoken.IsCaptionsOnly and Spoken:IsCaptionsOnly()) or (clip and clip.silent)) and ", captions only" or "")
 	end)
 	Spoken:RegisterCallback("CLIP_STOPPED", function(clip, finished)
 		Log:Add("player", "%s %s", finished and "finished" or "stopped", Describe(clip))
