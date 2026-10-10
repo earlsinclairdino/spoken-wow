@@ -111,7 +111,10 @@ Expect("the first layer is the plain choices, Advanced and Follow the Party", ta
 		format(ns.L.ALL_ON_FMT, format(ns.L.ROOM_MEMBER_FMT, LALA)), ns.L.MENU_VOICE_TRIGGER, ns.L.MENU_ADVANCED,
 		format(ns.L.MENU_FOLLOW_FMT, ns.L.FOLLOW_YES) }, "|"))
 Expect("...the one in force ticked", audio[2].radio, true)
-Expect("...and the voice's trigger a tick of its own, off", Entry(audio, ns.L.MENU_VOICE_TRIGGER).checked, false)
+Expect("...and the voice's trigger a tick of its own, off", Entry(audio, ns.L.MENU_VOICE_TRIGGER).checked(), false)
+Entry(audio, ns.L.MENU_VOICE_TRIGGER).onClick()
+Expect("...which the open menu shows ticked at once, without being built again", Entry(audio, ns.L.MENU_VOICE_TRIGGER).checked(), true)
+Entry(audio, ns.L.MENU_VOICE_TRIGGER).onClick()
 local advanced = Entry(audio, ns.L.MENU_ADVANCED)
 local layered = #advanced.children == #ns.Room.CHANNELS
 for i, channel in ipairs(ns.Room.CHANNELS) do
@@ -286,7 +289,7 @@ Expect("the window is full width", window.width, 320)
 Entry(ns:WindowTitleMenu(), ns.L.MENU_WINDOW_COMPACT).onClick()
 Expect("Compact narrows it", window.width, 220)
 Expect("...and leaves the chips out", window.chips.audio.shown, false)
-Expect("...and the title menu ticks it", Entry(ns:WindowTitleMenu(), ns.L.MENU_WINDOW_COMPACT).checked, true)
+Expect("...and the title menu ticks it", Entry(ns:WindowTitleMenu(), ns.L.MENU_WINDOW_COMPACT).checked(), true)
 Entry(ns:WindowTitleMenu(), ns.L.MENU_WINDOW_COMPACT).onClick()
 Expect("...until it is unticked", window.width, 320)
 ns:DB().window.show = "always"

@@ -239,7 +239,7 @@ Expect("the chip reads it", ns.windowModel.chips.audio.text, format(ns.L.CHIP_AU
 Expect("...listing each channel", ns.windowModel.chips.audio.body:find(ns.L.CHANNEL_VOICE .. ": " .. ns.L.ROOM_TRIGGER, 1, true) ~= nil, true)
 entries = ns:WindowAudioMenu()
 local trigger = P.Entry(entries, ns.L.MENU_VOICE_TRIGGER)
-Expect("the audio menu's tick is on", trigger.checked, true)
+Expect("the audio menu's tick is on", trigger.checked(), true)
 Expect("...beside All on Every Computer, ticked too", P.Entry(entries, format(ns.L.ALL_ON_FMT, ns.L.ROOM_NOBODY)).radio, true)
 local function Offered(channel)
 	local names = {}

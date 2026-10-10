@@ -412,7 +412,7 @@ function PartySync:WindowTitleMenu()
 			onClick = function() Autoform:Remember() end },
 		{ text = L.MENU_SHARE_ALL, tip = L.MENU_SHARE_ALL_TIP,
 			reason = WhyNoShareAll(), onClick = function() Accept:AskAll() end },
-		{ text = L.MENU_WINDOW_COMPACT, checked = DB().compact == true,
+		{ text = L.MENU_WINDOW_COMPACT, checked = function() return DB().compact == true end,
 			onClick = function() PartySync:SetWindowCompact(not DB().compact) end },
 		{ text = L.OPT_LEAVE, tip = L.OPT_LEAVE_TIP, reason = not inParty and L.OPT_IN_PARTY or nil,
 			onClick = function() Peers:Leave() end },
@@ -516,7 +516,7 @@ function PartySync:WindowAudioMenu()
 		function(owner) return format(L.ALL_ON_FMT, Room:Describe(owner)) end,
 		function(owner) Room:SetAll(owner) end, reason, L.OPT_ALL_SOUND_TIP)
 	table.insert(entries, 1, { title = L.MENU_WHO_PLAYS })
-	table.insert(entries, { text = L.MENU_VOICE_TRIGGER, checked = Room:Triggered(), tip = L.MENU_VOICE_TRIGGER_TIP,
+	table.insert(entries, { text = L.MENU_VOICE_TRIGGER, checked = function() return Room:Triggered() end, tip = L.MENU_VOICE_TRIGGER_TIP,
 		reason = reason, onClick = function() Room:SetTriggered(not Room:Triggered()) end })
 	table.insert(entries, { text = L.MENU_ADVANCED, tip = L.MENU_ADVANCED_RULE_TIP, children = RuleChannels(reason) })
 	local own = Room:OwnSummary()
@@ -574,7 +574,11 @@ AddEntry = function(root, entry)
 	elseif entry.radio ~= nil then
 		description = root:CreateRadio(text, function() return entry.radio end, Run)
 	elseif entry.checked ~= nil then
-		description = root:CreateCheckbox(text, function() return entry.checked end, Run)
+		-- Read each time the menu refreshes: a tick clicked stays open and must show its new state.
+		description = root:CreateCheckbox(text, function()
+			if type(entry.checked) == "function" then return entry.checked() end
+			return entry.checked
+		end, Run)
 	else
 		description = root:CreateButton(text, Run)
 	end
