@@ -24,9 +24,6 @@ local LINE_HEIGHT = 16
 local SUB_HEIGHT = 14
 local SUB_INDENT = 20
 local ICON_SIZE = 14
--- How long the window stays up after the last problem cleared, on "when something is wrong".
-local LINGER_SECONDS = 8
-
 local GREEN, YELLOW, RED, GREY = "|cff60ff60", "|cffffd060", "|cffff6060", "|cff909090"
 local DOTS = {
 	online = [[Interface\COMMON\Indicator-Green]],
@@ -54,10 +51,9 @@ local CONTROLS = { leader = L.CONTROLS_LEADER, anyone = L.CONTROLS_ANYONE, nobod
 local STATE_WORDS = { lost = L.STATE_LOST, offline = L.STATE_OFFLINE }
 
 local frame
--- Opened by hand (/sps window, the page, the minimap menu): shown whatever the setting says,
--- until closed by hand.
+-- Opened (by hand, or by itself on something wrong): shown whatever the setting says, until
+-- closed by hand. Saved, so a /reload brings it back open.
 local forced = false
-local lastProblemAt = nil
 -- Closed by hand: the problems (and the offer) on screen then, by key. It stays closed until
 -- one not among them comes up.
 local seenAtClose = nil
@@ -73,13 +69,14 @@ local function Attention(model)
 	return keys
 end
 
-local function Dismiss()
-	forced = false
-	seenAtClose = Attention(PartySync.windowModel)
-end
-
 local function DB()
 	return PartySync:DB().window
+end
+
+local function Dismiss()
+	forced = false
+	DB().open = nil
+	seenAtClose = Attention(PartySync.windowModel)
 end
 
 local function RulesReason()
@@ -1210,18 +1207,14 @@ local function Syncing()
 	return false
 end
 
+--- Whether the window opens by itself; once open, only a close by hand hides it.
 local function Wanted(attention)
 	if forced then return true end
 	local show = DB().show
 	if show == "always" then return Peers:InParty() or attention end
 	if show == "never" then return false end
 	if show == "syncing" then return Syncing() or attention end
-	-- "problems": anything worth it, and a few seconds after
-	if attention then
-		lastProblemAt = GetTime()
-		return true
-	end
-	return lastProblemAt ~= nil and GetTime() - lastProblemAt < LINGER_SECONDS
+	return attention
 end
 
 local function HideHere()
@@ -1253,6 +1246,8 @@ function PartySync:RefreshWindow()
 		return
 	end
 	seenAtClose = nil
+	forced = true
+	DB().open = true
 	Create()
 	Draw(model)
 	frame:Show()
@@ -1291,5 +1286,6 @@ end
 function PartySync:SetupWindow()
 	if self.windowReady then return end
 	self.windowReady = true
+	forced = DB().open and true or false
 	self:RefreshWindow()
 end
