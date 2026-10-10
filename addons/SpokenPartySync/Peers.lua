@@ -961,6 +961,7 @@ function Peers:EditRules(change)
 	change(session and session.rules or PartySync:DB().rules)
 	if session then
 		self:SendRules()
+		if Autoform() then Autoform():KeepRules() end
 	end
 	Changed()
 	return true
@@ -1012,6 +1013,7 @@ Comm:On("PS", function(sender, channel, controls, room, flags, share, audio)
 		if rules.audio[name] and owner ~= "" then rules.audio[name] = owner end
 	end
 	PartySync:Trace("party", "rules from %s: %s", key, DescribeRules(rules))
+	if Autoform() then Autoform():KeepRules() end
 	if PartySync.Room then PartySync.Room:Update() end
 	Changed()
 end)

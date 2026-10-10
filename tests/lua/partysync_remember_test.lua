@@ -52,6 +52,22 @@ Expect("...and tells her", P.Last("RM", LALA) ~= nil, true)
 ns:RefreshWindow()
 Expect("...and the offer goes", ns.windowModel.prompt, nil)
 
+-- The rules the leader sets later are the usual party's too: a party formed again after a
+-- member dropped out keeps them.
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, "me")
+ns.Room:SetTriggered(true)
+Expect("a rule set in a party not in the usual party is the party's alone", ns.Autoform:List().rules, nil)
+ns.Autoform:Remember()
+Expect("...remembered with its rules as they stand", ns.Autoform:List().rules.room, "trigger")
+ns.Room:SetTriggered(false)
+Expect("the leader changing a rule changes the usual party's", ns.Autoform:List().rules.room, "none")
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+ns.Autoform:Remember()
+P.Receive(stub, LALA, "PS", "anyone", "trigger", "1111", "anyone", "music=none;effects=none;ambience=none;dialog=none")
+Expect("...on a member's side too, as the leader's rules reach it", ns.Autoform:List().rules.room, "trigger")
+
 Expect("a short party is not offered", OfferAfter(function(session) session.started = time() - 60 end), nil)
 Expect("...nor one where nothing played together", OfferAfter(function(session) session.played = 0 end), nil)
 Expect("...nor one where someone was lost", OfferAfter(function(session) session.troubled = true end), nil)

@@ -140,6 +140,15 @@ function Autoform:Remembered()
 	return Listed(members)
 end
 
+--- The party's rules as its leader just set them: the usual party keeps them, so the party it
+--- forms next (after a member dropped out, say) has them rather than the ones it was remembered with.
+function Autoform:KeepRules()
+	if not self:Remembered() then
+		return
+	end
+	self:List().rules = PartySync.Copy(Peers:Rules())
+end
+
 --------------------------------------------------------------------------------
 -- Offering to remember a party that ended
 --------------------------------------------------------------------------------
