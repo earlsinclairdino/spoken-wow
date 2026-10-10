@@ -493,6 +493,7 @@ function Sync:Wins(a, b)
 	return a < b
 end
 
+-- The clip stays as it was queued, with its sound: this computer triggered the line too.
 local function Yield(entry, driver)
 	Trace("yield %s to %s (was %s)", entry.id, tostring(driver), entry.state)
 	entry.gen = entry.gen + 1
@@ -507,6 +508,8 @@ end
 local function Enqueue(entry, clip, source, why)
 	clip.partySync = entry
 	entry.clip = clip
+	-- The voice on whoever triggers it: another computer's line is captions only here.
+	clip.captionsOnly = PartySync.Room:CaptionsHere() or nil
 	local added, reason = source:Enqueue(clip)
 	Trace("follow %s from %s: %s%s", entry.id, tostring(entry.driver), added and ("queued as " .. tostring(clip.key)) or
 		("not queued: " .. tostring(reason)), why == "missing" and " (no file here: captions over silence)" or "")
@@ -657,6 +660,7 @@ Comm:On("LN", function(sender, channel, ...)
 	end
 	-- The same line already queued here and not announced -- queued before the party was
 	-- online, say: that copy follows, rather than a second one being refused as a duplicate.
+	-- It keeps its sound: this computer triggered the line too.
 	local adopted = false
 	for _, clip in ipairs(Spoken():GetQueue()) do
 		if not clip.partySync and Lines:Id(clip) == d.id then

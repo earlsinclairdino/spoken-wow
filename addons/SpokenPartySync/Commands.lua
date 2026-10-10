@@ -73,7 +73,8 @@ local function Lines()
 	for _, line in ipairs(lines) do PartySync:Print("  %s", line) end
 end
 
-local ROOM_WORDS = { me = "me", here = "me", none = "none", every = "none", all = "none", off = "none" }
+local ROOM_WORDS = { me = "me", here = "me", none = "none", every = "none", all = "none", off = "none",
+	trigger = "trigger", whoever = "trigger" }
 local CHANNEL_WORDS = { voice = "voice", music = "music", effects = "effects", sfx = "effects", ambience = "ambience",
 	dialog = "dialog", all = "all" }
 -- What /sps sound takes, the voice's words (sound, captions) included.
@@ -107,7 +108,7 @@ end
 
 local function Help()
 	PartySync:Print("party: /sps invite <name> | remove <name> | leave | members | lead [<name>] (pass the lead) | controls [anyone|leader|nobody] | share [anyone|leader|nobody]")
-	PartySync:Print("sound: /sps audio [voice|music|effects|ambience|dialog|all] [none|me|<name>] (who plays it, the party's rule) | room [none|me|<name>] (the voice) | sound [<channel>|all] [party|plays|muted] (this computer's)")
+	PartySync:Print("sound: /sps audio [voice|music|effects|ambience|dialog|all] [none|me|trigger|<name>] (who plays it, the party's rule; trigger: the voice only, whoever triggers a line) | room [none|me|trigger|<name>] (the voice) | sound [<channel>|all] [party|plays|muted] (this computer's)")
 	PartySync:Print("quests: /sps quests (everyone shares every quest now) | quests me | quests <name> (ask one member)")
 	PartySync:Print("usual party: /sps remember (the party you are in, or the one that just ended) | list [add <name> | remove <name> | auto <name> on|off]")
 	PartySync:Print("lines: /sps sync (what played together) | test <questID> (queue a quest's accept line here)")

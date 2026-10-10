@@ -38,6 +38,7 @@ setfenv(1, SpokenEnv)
 ---@field addedCallback? fun(clip)
 ---@field startCallback? fun(clip)
 ---@field stopCallback? fun(clip, finishedPlaying)
+---@field captionsOnly? boolean  This one clip shown and timed, never played: a feature addon's say.
 --- Set by the player, never by the caller:
 ---@field id number
 ---@field handle number|nil
@@ -395,6 +396,15 @@ function SoundQueue:IsCaptionsOnly()
         and not Transcript.unavailable
 end
 
+--- Captions only for `clip`: for every line, or for this one on its caller's say
+--- (clip.captionsOnly), which a party addon uses for a line another client in the room drives.
+local function CaptionsOnlyFor(self, clip)
+    if self:IsCaptionsOnly() then
+        return true
+    end
+    return clip ~= nil and clip.captionsOnly == true and not Transcript.unavailable
+end
+
 -- A line already speaking goes quiet at once and its captions run on to the end. Turned off,
 -- the line stays silent until the next one: the client cannot start a sound partway.
 local function CaptionsOnlyChanged(self, was)
@@ -475,7 +485,7 @@ function SoundQueue:PlaySound(clip)
     -- Captions only, there is nothing to start: the timer below ends the clip, as it always
     -- does, and the captions follow it as they always do. Marked silent, so Pause, Skip and
     -- Stop, which ask whether there is a sound they can stop, know there is none to stop.
-    clip.silent = self:IsCaptionsOnly() or nil
+    clip.silent = CaptionsOnlyFor(self, clip) or nil
     if not clip.silent then
         -- Whatever we muted, we cannot speak on. Lifted first, so a clip on the very channel
         -- the last line silenced is heard.
@@ -623,7 +633,7 @@ function SoundQueue:Add(clip, source, front)
     end
 
     local inaudible = SoundUtils:WhyInaudible(source:GetChannel())
-    local captionsOnly = self:IsCaptionsOnly()
+    local captionsOnly = CaptionsOnlyFor(self, clip)
     if inaudible and not SoundUtils:IsMutedByPlayer(source:GetChannel()) and not captionsOnly then
         return nil, inaudible
     end
@@ -699,7 +709,7 @@ function SoundQueue:PlayNow(clip, source)
     end
 
     local inaudible = SoundUtils:WhyInaudible(source:GetChannel())
-    if inaudible and not SoundUtils:IsMutedByPlayer(source:GetChannel()) and not self:IsCaptionsOnly() then
+    if inaudible and not SoundUtils:IsMutedByPlayer(source:GetChannel()) and not CaptionsOnlyFor(self, clip) then
         return false, inaudible
     end
 

@@ -494,7 +494,8 @@ end
 
 --- Captions only for this session, on a feature addon's say -- one that knows another client
 --- in the same room is speaking the line. Never saved, and the player's own setting is left as
---- it was: lift it with `false` when the reason goes away.
+--- it was: lift it with `false` when the reason goes away. For one line rather than the
+--- session, `clip.captionsOnly = true` on the clip queued does the same for that clip alone.
 function Spoken:SetCaptionsOnlyOverride(on)
     SoundQueue:SetCaptionsOnlyOverride(on)
 end

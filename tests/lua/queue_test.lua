@@ -393,5 +393,24 @@ local after = H.Clip()
 quests:Enqueue(after)
 Expect("lifted, lines play again", world.played[2], after.path)
 
+-- One clip captions only, on its caller's say: the party addon's line another client drives.
+CaptionsFresh()
+local alone = H.Clip()
+alone.captionsOnly = true
+quests:Enqueue(alone)
+Expect("a clip marked captions only is shown", rec:Has("CLIP_STARTED " .. alone.key), true)
+Expect("...and not played", world.played[1], nil)
+Expect("...and knows it has no sound to stop", alone.silent, true)
+Expect("...while the player is not captions only", Q:IsCaptionsOnly(), false)
+stub.Advance(1.55)
+local plain = H.Clip()
+quests:Enqueue(plain)
+Expect("the next plain clip plays", world.played[1], plain.path)
+CaptionsFresh()
+world.cvars.Sound_MasterVolume = "0"
+local quietOne = H.Clip()
+quietOne.captionsOnly = true
+Expect("marked so, a line is admitted on a muted channel without the probe", probedQuiet:Enqueue(quietOne) ~= nil, true)
+
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll queue tests passed")

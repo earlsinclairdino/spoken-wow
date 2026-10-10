@@ -57,7 +57,10 @@ group, joining a raid, or questing apart.
   only with members in its own group.
 - **Same room.** The leader chooses which computer plays each kind of sound: the voice
   (Spoken's lines), the music, the effects, the ambience and the NPCs' dialog. Each is played
-  by every computer, by one (while it is online), or by every computer but some. **Play All
+  by every computer, by one (while it is online), or by every computer but some; the voice alone
+  may go to **Whoever Triggers It**, the computer that opened the quest or spoke to the NPC, the
+  others reading its captions in step (a tick in the Audio menu and on the page, set apart from
+  the "All on" choices, which it leaves alone). **Play All
   Sound On** (the page), **Play Sound Here** (a member's row in the window), **Sound** (the
   page's party block) and the window's Audio menu put them all on one computer; each channel
   apart is under **Advanced** (a submenu in the window, rows that open on the page, shown anyway
@@ -120,7 +123,7 @@ Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 | `/sps invite <name>` | invite a character (starts a party, led here, when in none); `/sps remove <name>`, `/sps leave` |
 | `/sps members` | the party, who is online, who leads, which computer has the sound |
 | `/sps lead [<name>]` | who leads; with a name, pass the lead (the leader's to do) |
-| `/sps audio [voice\|music\|effects\|ambience\|dialog\|all] [none\|me\|<name>]` | who plays a channel (all of them without one), a rule of the party's; `/sps room` is the voice's |
+| `/sps audio [voice\|music\|effects\|ambience\|dialog\|all] [none\|me\|trigger\|<name>]` | who plays a channel (all of them without one), a rule of the party's; `trigger` is the voice's alone; `/sps room` is the voice's |
 | `/sps controls [anyone\|leader\|nobody]` | who controls playback (Stop, Replay, Skip) everywhere, a rule of the party's |
 | `/sps share [anyone\|leader\|nobody]` | whose accepted quests are shared with the party, a rule of the party's |
 | `/sps sound [<channel>\|all] [party\|plays\|muted]` | this computer's own choice (the voice without a channel; `sound`/`captions` still work) |
@@ -151,7 +154,7 @@ two parts and no realm: a whisper goes to the bare "First Last". The prefix is
 | `HI` | version, reply, session, own, plays, modules | hello: at login, when the group changes, to the usual party each heartbeat, and when what it plays changes; names the party this client is in, whether it decides any channel itself, the channels it plays (`v m e a d`, `-` for none; missing before 0.5: the rules decide), and the Spoken modules it runs (`S=3.1.0;Q=3.1.0+;...`: Spoken, Quests, Zones, Books, Developer, DialogueUI, a `+` after a source that can rebuild the party's lines; the store's build and Party Sync's share a version number) |
 | `IV` / `IA` / `ID` | session (`IV`: version, session, rejoin) | invite to the party, accepted, declined or left or removed (one naming another party is stale; from the inviter while its popup is up, the invitation withdrawn; answering an `IA` for an invitation withdrawn, leave); `rejoin` 1 asks back someone who was in a party with the inviter within ten minutes, who accepts without a popup |
 | `RO` | session, leader, members | the roster, from the leader, whenever it changes; a member not in it is out |
-| `PS` | controls, room, sync, share, audio | the rules, from the leader: whose controls, who plays the voice, four flags for the kinds played together, whose accepted quests are shared (missing from a 0.4.0 leader: anyone), and who plays each game channel (`music=<owner>;effects=...;ambience=...;dialog=...`, missing before 0.5: every computer). An owner is `none` (every computer), a member's key, or `-<key>,<key>` (every computer but those) |
+| `PS` | controls, room, sync, share, audio | the rules, from the leader: whose controls, who plays the voice, four flags for the kinds played together, whose accepted quests are shared (missing from a 0.4.0 leader: anyone), and who plays each game channel (`music=<owner>;effects=...;ambience=...;dialog=...`, missing before 0.5: every computer). An owner is `none` (every computer), a member's key, or `-<key>,<key>` (every computer but those); `room` may also be `trigger` (whoever triggers a line plays it; an older build takes it for an absent member and plays everything) |
 | `RM` | | "I added you to my usual party": the other side is asked whether to auto-accept |
 | `SQ` / `SA` | `SA`: count, why | "share every quest you can"; the answer: how many, or none and why (`rule`, `group`, `none`) |
 | `LN` | id, src, event, questID, npcID, length, flags, textParts, name, title | a line queued; `src` is q, z or b |

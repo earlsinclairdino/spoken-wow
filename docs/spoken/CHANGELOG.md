@@ -18,7 +18,7 @@ Spoken Player until 3.0.0, when it became Spoken and took its modules into one d
   one room, where both reading the same line is an echo. Muting the volume instead used to hide
   the player and its captions altogether.
 - For feature addons: `Spoken:IsCaptionsOnly`, `SetCaptionsOnly` and a session-only
-  `SetCaptionsOnlyOverride`; `Spoken:RecheckGates`, to start what a player-wide gate held as
+  `SetCaptionsOnlyOverride`, or `clip.captionsOnly` for one queued line; `Spoken:RecheckGates`, to start what a player-wide gate held as
   soon as it opens; and a source's optional `rebuild(fields)`, which re-creates one of its clips
   from another client's description.
 - For feature addons that queue nothing: `Spoken.Minimap:AddSection(key, title, order)` gives

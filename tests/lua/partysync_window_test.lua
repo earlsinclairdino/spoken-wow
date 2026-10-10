@@ -108,9 +108,10 @@ local first = {}
 for _, entry in ipairs(audio) do table.insert(first, entry.title or entry.text) end
 Expect("the first layer is the plain choices, Advanced and Follow the Party", table.concat(first, "|"),
 	table.concat({ ns.L.MENU_WHO_PLAYS, format(ns.L.ALL_ON_FMT, ns.L.ROOM_NOBODY), format(ns.L.ALL_ON_FMT, ns.L.ROOM_ME),
-		format(ns.L.ALL_ON_FMT, format(ns.L.ROOM_MEMBER_FMT, LALA)), ns.L.MENU_ADVANCED,
+		format(ns.L.ALL_ON_FMT, format(ns.L.ROOM_MEMBER_FMT, LALA)), ns.L.MENU_VOICE_TRIGGER, ns.L.MENU_ADVANCED,
 		format(ns.L.MENU_FOLLOW_FMT, ns.L.FOLLOW_YES) }, "|"))
 Expect("...the one in force ticked", audio[2].radio, true)
+Expect("...and the voice's trigger a tick of its own, off", Entry(audio, ns.L.MENU_VOICE_TRIGGER).checked, false)
 local advanced = Entry(audio, ns.L.MENU_ADVANCED)
 local layered = #advanced.children == #ns.Room.CHANNELS
 for i, channel in ipairs(ns.Room.CHANNELS) do
