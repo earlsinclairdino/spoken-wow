@@ -172,49 +172,91 @@ end
 -- Other logs, read beside this one
 --------------------------------------------------------------------------------
 
---- `list()` returns { { name, lines, offset }, ... }, each on its own clock, `offset` mapping it
---- onto this one; `clear()`, if given, drops them when this log is cleared.
+--- `list()` returns { { name, lines, offset, at }, ... }, each on its own clock, `offset`
+--- mapping it onto this one as it was at `at` ("YYYY-MM-DD HH:MM:SS"); `clear()`, if given, drops
+--- them when this log is cleared.
 function Log:AddSource(list, clear)
 	self.sources[#self.sources + 1] = { list = list, clear = clear }
 end
+
+-- GetTime() counts from when the computer started, so it starts over after a restart and a log
+-- kept across one goes back in time. Each run of the clock is kept together, oldest first, and
+-- sorted by time only within itself: sorted as one, two evenings' lines interleave.
+local WALL_CLOCK = "^session wall clock (%d+%-%d+%-%d+ %d+:%d+:%d+) at "
+local RESTARTED = "------ the times start over: a computer restarted ------"
 
 --- This log and every source's, on this client's clock, oldest first, each line headed by whose
 --- it is. `count` keeps the newest lines.
 function Log:Merged(count)
 	local rows = {}
+	-- Runs of this client's clock, each with the wall clock it first gave.
+	local runs = { {} }
 	-- `n` keeps lines with the same time in the order they were written: many happen in one
-	-- frame, and their order is often the very thing being looked for.
-	local function AddAll(lines, who, offset, rank)
+	-- frame, and their order is often the very thing being looked for. Lines before `from` are
+	-- in the run before (0: one the offset does not map, so ahead of everything).
+	local function AddAll(lines, who, offset, rank, run, from)
 		for i, line in ipairs(lines) do
 			local t, rest = line:match("^(%-?[%d%.]+) (.*)$")
 			t = tonumber(t)
 			if t then
-				rows[#rows + 1] = { t = t + (offset or 0), who = who, text = rest, rank = rank, n = i }
+				rows[#rows + 1] = { t = t + (offset or 0), who = who, text = rest, rank = rank, n = i,
+					run = i >= from and run or 0 }
 			end
 		end
 	end
-	AddAll(self:Lines(), Developer:PlayerName(), 0, 0)
+	local last
+	for i, line in ipairs(self:Lines()) do
+		local t, rest = line:match("^(%-?[%d%.]+) (.*)$")
+		t = tonumber(t)
+		if t then
+			if last and t < last then runs[#runs + 1] = {} end
+			last = t
+			local run = runs[#runs]
+			run.wall = run.wall or rest:match(WALL_CLOCK)
+			rows[#rows + 1] = { t = t, who = Developer:PlayerName(), text = rest, rank = 0, n = i, run = #runs }
+		end
+	end
+	-- The run a source's offset maps onto: the last one started before it was collected.
+	local function RunAt(at)
+		if type(at) ~= "string" or not at:match("^%d+%-") then return #runs end
+		for r = #runs, 1, -1 do
+			if not runs[r].wall or runs[r].wall <= at then return r end
+		end
+		return 1
+	end
 	local rank = 0
 	for _, source in ipairs(self.sources) do
 		local ok, logs = pcall(source.list)
 		if ok and type(logs) == "table" then
 			for _, log in ipairs(logs) do
 				rank = rank + 1
-				AddAll(log.lines or {}, tostring(log.name or "?"), log.offset or 0, rank)
+				local lines, from, previous = log.lines or {}, 1, nil
+				for i, line in ipairs(lines) do
+					local t = tonumber(line:match("^(%-?[%d%.]+) "))
+					if t then
+						if previous and t < previous then from = i end
+						previous = t
+					end
+				end
+				AddAll(lines, tostring(log.name or "?"), log.offset or 0, rank, RunAt(log.at), from)
 			end
 		end
 	end
 	table.sort(rows, function(x, y)
+		if x.run ~= y.run then return x.run < y.run end
 		if x.t ~= y.t then return x.t < y.t end
 		if x.rank ~= y.rank then return x.rank < y.rank end
 		return x.n < y.n
 	end)
-	local first = 1
-	if count and count < #rows then first = #rows - count + 1 end
 	local out = {}
-	for i = first, #rows do
-		local row = rows[i]
+	for i, row in ipairs(rows) do
+		if i > 1 and row.run ~= rows[i - 1].run then out[#out + 1] = format("%10s  %s", "", RESTARTED) end
 		out[#out + 1] = format("%10.3f  %-16s %s", row.t, row.who, row.text)
+	end
+	if count and count < #out then
+		local newest = {}
+		for i = #out - count + 1, #out do newest[#newest + 1] = out[i] end
+		return newest
 	end
 	return out
 end

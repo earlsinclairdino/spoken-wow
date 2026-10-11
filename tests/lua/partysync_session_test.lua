@@ -247,5 +247,82 @@ Expect("...with who leads", ns.Autoform:List().leader, "lala throwaway")
 Expect("...and the rules", ns.Autoform:List().rules.controls, "anyone")
 Expect("...and tells her", P.Last("RM", LALA) ~= nil, true)
 
+---------------------------------------------------------------- a member whose messages arrive late
+local LALA_KEY = "lala throwaway"
+-- A ping token as this client wrote it `seconds` ago: its answer comes back only now.
+local function SentBefore(seconds)
+	return format("%d-%d", math.floor((GetTime() - seconds) * 1000) % 1000000, 900)
+end
+local function ProblemFor(prefix)
+	for _, problem in ipairs(ns:Problems()) do
+		if problem.key:sub(1, #prefix) == prefix then return problem end
+	end
+end
+-- Her own pings keep arriving, late or not, as they do over a slow link.
+local function KeepHearing(seconds)
+	for _ = 1, math.floor(seconds / 10) do
+		stub.Advance(10)
+		P.Receive(stub, LALA, "PI", "1-1")
+	end
+end
+
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, "me")
+P.Receive(stub, LALA, "PO", SentBefore(220))
+Expect("a ping answered long after its wait says how late her messages arrive", math.floor(ns.Peers:Delay(LALA_KEY) + 0.5), 220)
+ns:ShowWindow(true)
+Expect("...her row says so", ns.windowModel.members[2].tag, format(ns.L.STATE_LATE_FMT, ns:Duration(220)))
+Expect("...a problem explains it", ProblemFor("late:") ~= nil, true)
+Expect("...and the party waits that long for her answers", ns.Peers:AnswerTime(LALA_KEY) >= 220, true)
+Expect("...as the diagnostics say", ns.Diagnostics:MemberLine(LALA_KEY):find("answers 220 s late", 1, true) ~= nil, true)
+ns.Peers:Ping(LALA, true)
+P.Receive(stub, LALA, "PO", P.Last("PI", LALA).fields[2])
+Expect("an answer in time again clears it", ns.Peers:Delay(LALA_KEY), nil)
+Expect("...and the problem", ProblemFor("late:"), nil)
+P.Receive(stub, LALA, "PO", SentBefore(6))
+Expect("an answer a few seconds after its wait is no slow link", ns.Peers:Delay(LALA_KEY), nil)
+
+-- An invitation waits for a slow member's answer, and the usual party does not send it again.
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Receive(stub, LALA, "HI", "0.5.0", 0, "", 0)
+P.Receive(stub, LALA, "PO", SentBefore(100))
+ns.Autoform:Add(LALA)
+ns.Autoform:List().leader = ns:MyKey()
+P.Clear()
+ns.Autoform:Form()
+local late = P.Last("IV", LALA).fields[3]
+KeepHearing(130)
+ns.Peers:CheckInvitations()
+Expect("an invitation to her is still waiting past the popup's time", ns.Peers:Inviting(LALA_KEY), true)
+Expect("...the window saying why", ns:WindowModel().invited[1] and ns:WindowModel().invited[1].late ~= nil, true)
+ns.Autoform:Form()
+Expect("...and the usual party does not send it again, which would start its wait over", #P.Sent("IV", LALA), 1)
+KeepHearing(110)
+ns.Peers:CheckInvitations()
+Expect("...given up after twice her delay", ns.Peers:Inviting(LALA_KEY), false)
+P.Receive(stub, LALA, "IA", late)
+Expect("...where a late acceptance still joins", ns.Peers:Count(), 2)
+
+-- An acceptance of a party that is over here: she is told to leave it, not left in it.
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+ns.Peers:Invite(LALA)
+local gone = P.Last("IV", LALA).fields[3]
+ns.Peers:CancelInvite(LALA_KEY)
+stub.Advance(2)
+ns.Peers:Invite(LALA)
+P.Clear()
+P.Receive(stub, LALA, "IA", gone)
+Expect("an acceptance of a party over here tells her to leave it", P.Last("ID", LALA) and P.Last("ID", LALA).fields[2], gone)
+Expect("...and does not join this one", ns.Peers:Count(), 1)
+
+-- Her side: the one who leads her party invites her to another of theirs.
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+P.Clear()
+P.Receive(stub, LALA, "IV", "0.5.0", "lala throwaway-9", 0)
+Expect("an invitation from the leader to a new party of theirs is not declined", P.Last("ID", LALA), nil)
+Expect("...the party it replaces is left", ns.Peers:SessionId() ~= P.SESSION, true)
+Expect("...and the new one offered", stub.popups[#stub.popups].key, "SPOKENPARTYSYNC_INVITE")
+
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll party sync session tests passed")

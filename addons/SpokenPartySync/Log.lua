@@ -232,7 +232,7 @@ end)
 function LogBook:Sources()
 	local list = {}
 	for _, log in pairs(Collected()) do
-		list[#list + 1] = { name = log.name, lines = log.lines or {}, offset = log.offset or 0 }
+		list[#list + 1] = { name = log.name, lines = log.lines or {}, offset = log.offset or 0, at = log.at }
 	end
 	table.sort(list, function(a, b) return tostring(a.name) < tostring(b.name) end)
 	return list

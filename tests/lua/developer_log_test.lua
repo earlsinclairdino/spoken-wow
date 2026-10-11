@@ -323,6 +323,35 @@ Spoken:AddDeveloperSettings(function(layout)
 end)
 Expect("a section handed in after the page is built is added to it", added ~= nil, true)
 
+---------------------------------------------------------------- a log kept across a restart
+-- GetTime() starts over when the computer restarts: two evenings' times overlap.
+Dev.Log.sources = {}
+Dev:DB().lines = {
+    "4000.000 session wall clock 2026-10-10 20:46:08 at GetTime 4000.000",
+    "4500.000 sync yesterday, late on",
+    "300.000 session wall clock 2026-10-11 10:49:09 at GetTime 300.000",
+    "4400.000 sync today, after a while",
+}
+Spoken:AddLogSource(function()
+    return { { name = "Lala Throwaway", offset = 4550, at = "2026-10-10 21:00:00", lines = {
+        "4900.000 sync hers, before her own restart",
+        "50.000 sync hers, collected yesterday",
+    } } }
+end)
+local restarted = Dev.Log:Merged()
+local function At(text)
+    for i, line in ipairs(restarted) do
+        if line:find(text, 1, true) then return i end
+    end
+    return 0
+end
+Expect("a log kept across a restart keeps each run of the clock together",
+    At("yesterday, late on") < At("today, after a while"), true)
+Expect("...told apart where the times start over", (restarted[At("2026-10-11") - 1] or ""):find("start over", 1, true) ~= nil, true)
+Expect("another log goes with the run it was collected in",
+    At("yesterday, late on") < At("hers, collected yesterday") and At("hers, collected yesterday") < At("2026-10-11"), true)
+Expect("...its lines from before its own restart, which nothing maps, first", At("before her own restart"), 1)
+
 Expect("nothing went wrong in a callback", #env.Callbacks.errors, 0)
 
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end

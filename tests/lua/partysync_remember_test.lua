@@ -67,6 +67,13 @@ P.Party(stub, ns)
 ns.Autoform:Remember()
 P.Receive(stub, LALA, "PS", "anyone", "trigger", "1111", "anyone", "music=none;effects=none;ambience=none;dialog=none")
 Expect("...on a member's side too, as the leader's rules reach it", ns.Autoform:List().rules.room, "trigger")
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, "me")
+ns.Autoform:Remember()
+-- Set before the usual party learned to keep the rules, as a party saved by an older build.
+ns:Party().session.rules.room = "trigger"
+ns.Peers:Leave()
+Expect("a party that ends hands its rules to the usual party, for the next one", ns.Autoform:List().rules.room, "trigger")
 
 Expect("a short party is not offered", OfferAfter(function(session) session.started = time() - 60 end), nil)
 Expect("...nor one where nothing played together", OfferAfter(function(session) session.played = 0 end), nil)

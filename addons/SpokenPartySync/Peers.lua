@@ -57,6 +57,9 @@ local LOST_SECONDS = 65
 local BURST_REPORT_SECONDS = 3
 -- Until a round trip has been measured: about what the Forever beta takes (0.9 to 1.1 s).
 local DEFAULT_RTT = 1000
+-- A ping answered this late, after its wait was given up, says the link to that member is
+-- slow: the window says so, and the party's timers wait that long for its answers.
+local LATE_SECONDS = 10
 -- How long an invitation stands, as long as its popup.
 local INVITE_SECONDS = 125
 -- A member in the party this long is dropped when its hello names another party or none. A
@@ -148,6 +151,19 @@ function Peers:Rtt(key)
 	return peer and peer.rtt or DEFAULT_RTT
 end
 
+--- How late `key`'s messages arrive, in seconds, once that is LATE_SECONDS or more; else nil.
+function Peers:Delay(key)
+	local peer = self.list[key]
+	local delay = peer and peer.delay
+	return delay and delay >= LATE_SECONDS and delay or nil
+end
+
+--- How long an answer from `key` takes, in seconds: the round trip, or how late its messages
+--- arrive when that is longer.
+function Peers:AnswerTime(key)
+	return math.max(self:Rtt(key) / 1000, self:Delay(key) or 0)
+end
+
 --- How many seconds `key` has been silent, once that is past a heartbeat; nil while it answers.
 function Peers:Quiet(key)
 	local peer = self.list[key]
@@ -166,8 +182,15 @@ end
 -- has been in for long enough.
 local joinedAt = {}
 -- key -> { at, id, name, expired }: invitations this client sent and has had no answer to.
--- One past INVITE_SECONDS is kept, expired: a late acceptance still joins.
+-- One past its time is kept, expired: a late acceptance still joins.
 local invited = {}
+
+--- How long an invitation to `key` stands: its popup's time, or longer for a member whose
+--- messages arrive late, there and back.
+local function InviteSeconds(key)
+	local delay = Peers:Delay(key)
+	return delay and math.max(INVITE_SECONDS, 2 * delay + 30) or INVITE_SECONDS
+end
 -- key -> { at, id }: members who left a party here, by wall clock, for REJOIN_SECONDS.
 local left = {}
 
@@ -224,6 +247,8 @@ function Peers:EndSession(why, quiet)
 	local session = self:Session()
 	if not session then return end
 	PartySync:Trace("party", "party %s ended here: %s", session.id, tostring(why))
+	-- Rules set before the usual party learned to keep them reach it now, for the next party.
+	if Autoform() then Autoform():KeepRules() end
 	local me = PartySync:MyKey()
 	local members = {}
 	for key, name in pairs(session.members) do
@@ -555,7 +580,8 @@ Comm:On("HI", function(sender, channel, version, reply, sessionId, own, plays, m
 		end
 		-- In another party, or in none: gone from this one. A hello sent just before they
 		-- accepted may arrive after, so a newcomer is given a moment.
-		if sessionId ~= Peers:SessionId() and (not joinedAt[key] or GetTime() - joinedAt[key] > JOIN_GRACE) then
+		local grace = JOIN_GRACE + (Peers:Delay(key) or 0)
+		if sessionId ~= Peers:SessionId() and (not joinedAt[key] or GetTime() - joinedAt[key] > grace) then
 			Peers:Gone(key, sessionId == "" and "in no party now" or "in another party")
 		end
 	elseif not told[key] and not (Autoform() and Autoform():Entry(key)) then
@@ -637,7 +663,8 @@ function Peers:Invitations()
 	local id, now, list = self:SessionId(), GetTime(), {}
 	for key, pending in pairs(invited) do
 		if pending.id == id and not pending.expired then
-			table.insert(list, { key = key, name = pending.name or key, seconds = math.floor(now - pending.at + 0.5) })
+			table.insert(list, { key = key, name = pending.name or key, seconds = math.floor(now - pending.at + 0.5),
+				late = self:Delay(key) })
 		end
 	end
 	table.sort(list, function(a, b) return a.key < b.key end)
@@ -656,11 +683,17 @@ end
 function Peers:CheckInvitations()
 	local now = GetTime()
 	for key, pending in pairs(invited) do
-		if not pending.expired and now - pending.at > INVITE_SECONDS then
+		if not pending.expired and now - pending.at > InviteSeconds(key) then
 			pending.expired = true
 			InvitationFailed(key, format(L.PROBLEM_NO_INVITE_ANSWER_FMT, PartySync:ShortName(pending.name or key)))
 		end
 	end
+end
+
+--- Whether an invitation to `key` into this party is still waiting for its answer.
+function Peers:Inviting(key)
+	local pending = invited[key]
+	return pending ~= nil and not pending.expired and pending.id == self:SessionId()
 end
 
 --- The client said `key` is not online: an invitation just sent to them goes nowhere.
@@ -775,6 +808,10 @@ Comm:On("IV", function(sender, channel, version, sessionId, rejoin)
 			PartySync:Trace("party", "%s's invitation crosses this party of one: theirs wins", key)
 			invited = {}
 			Peers:EndSession("their invitation came first", true)
+		elseif session.leader == key then
+			-- Their party here is one they have left: an answer that came too late for it.
+			PartySync:Trace("party", "%s, who led %s here, invites to %s: that one is over", key, session.id, sessionId)
+			Peers:EndSession(format("%s started a new Spoken party.", PartySync:ShortName(sender)), true)
 		else
 			PartySync:Trace("party", "%s's invitation to %s declined: already in a party", key, sessionId)
 			PartySync:Print("%s invited you to a Spoken party, but you are in one already", PartySync:ShortName(sender))
@@ -802,8 +839,16 @@ end)
 Comm:On("IA", function(sender, channel, sessionId)
 	local key = PartySync:NameKey(sender)
 	local session = Peers:Session()
+	Peers:Seen(sender)
+	-- An acceptance that arrived after the party it answered was over here: they joined a party
+	-- led by this character that is gone, and are told to leave it.
+	if sessionId and sessionId ~= "" and not (session and session.id == sessionId) then
+		PartySync:Trace("party", "%s accepted %s, over here: told to leave it", key, sessionId)
+		Comm:Whisper(sender, "ID", sessionId)
+		return
+	end
 	-- Only an answer to a question this client asked, for the party it leads.
-	if not (session and session.leader == PartySync:MyKey() and (sessionId == "" or sessionId == session.id)) then
+	if not (session and session.leader == PartySync:MyKey()) then
 		return
 	end
 	if not (invited[key] or session.members[key]) then
@@ -1086,7 +1131,7 @@ function Peers:DropEmpty()
 	if not Alone() then return end
 	local now = GetTime()
 	for key, pending in pairs(invited) do
-		if now - pending.at <= INVITE_SECONDS then return end
+		if now - pending.at <= InviteSeconds(key) then return end
 		invited[key] = nil
 	end
 	self:EndSession("nobody joined", true)
@@ -1187,10 +1232,40 @@ local function PathOf(channel)
 	return channel == "WHISPER" and "whisper" or "group"
 end
 
+-- When a ping was sent, from its token: a late answer is measured with it, its wait given up.
+local function SentAt(token)
+	local ms = tonumber(tostring(token):match("^(%d+)%-%d+$"))
+	if not ms then return nil end
+	return GetTime() - ((math.floor(GetTime() * 1000) - ms) % 1000000) / 1000
+end
+
+--- How late `key`'s answers come, or nil for one in time: said once as it becomes late, and
+--- resolved when an answer comes in time again.
+local function Late(key, peer, seconds)
+	local was = Peers:Delay(key)
+	peer.delay = seconds
+	local now = Peers:Delay(key)
+	if now and not was then
+		PartySync:Trace("party", "%s answers %d s late", key, math.floor(now + 0.5))
+		PartySync:Problem("late:" .. key, format(L.PROBLEM_LATE_FMT, PartySync:ShortName(peer.name or key),
+			PartySync:Duration(now)), { kind = "late", who = key })
+	elseif was and not now then
+		PartySync:Trace("party", "%s answers in time again", key)
+		PartySync:Resolve("late:" .. key)
+	end
+	if now or was then Changed() end
+end
+
 Comm:On("PO", function(sender, channel, token)
 	local peer = Peers:Seen(sender)
+	if not peer then
+		return
+	end
+	local key = PartySync:NameKey(sender)
 	local ping = token and pending[token]
-	if not (peer and ping) then
+	if not ping then
+		local sentAt = token and channel == "WHISPER" and SentAt(token)
+		if sentAt then Late(key, peer, GetTime() - sentAt) end
 		return
 	end
 	ping.answers = ping.answers + 1
@@ -1200,6 +1275,7 @@ Comm:On("PO", function(sender, channel, token)
 	if channel == "WHISPER" then
 		-- A running average: one slow round trip should move the start, not decide it.
 		peer.rtt = peer.rtt and (peer.rtt * 0.7 + ms * 0.3) or ms
+		Late(key, peer, nil)
 	end
 	if ping.stats and PartySync:NameKey(sender) == ping.stats.peer then
 		table.insert(ping.stats[PathOf(channel)], ms)
