@@ -9,14 +9,16 @@
 --
 -- Messages:
 --
---   HI  version, reply, session, own, plays
---                           hello. Whispered to every member at login and when the group
+--   HI  version, reply, session, own, plays, modules, can
+--                           hello. Sent to every member at login and when the group
 --                           changes, broadcast to the group so others running the addon can
---                           be told about it; answered by whisper. reply=1 marks the answer,
+--                           be told about it; answered to the sender. reply=1 marks the answer,
 --                           which is never answered. `session` is the party this client is
 --                           in, or empty; `own` is 1 while it decides a channel by itself;
 --                           `plays` the channels it plays, a letter each (v voice, m music,
---                           e effects, a ambience, d dialog), "-" for none.
+--                           e effects, a ambience, d dialog), "-" for none. `can` says, in
+--                           words separated by commas, what this version reads: "to" for
+--                           messages addressed to it on the group channel (Comm.lua).
 --   IV  version, session, rejoin
 --                           an invitation to the party `session`. Asked of the player in a
 --                           popup, unless the usual party accepts it, or rejoin=1 asks back
@@ -501,17 +503,26 @@ end
 -- What the others read in this computer's hello besides who it is: whether it decides a channel
 -- itself, what it plays, and which Spoken modules it runs.
 local function HelloFields()
-	return PartySync.Room:IsOwn() and 1 or 0, PartySync.Room:PlaysLetters(), PartySync.Diagnostics:Modules()
+	return PartySync.Room:IsOwn() and 1 or 0, PartySync.Room:PlaysLetters(), PartySync.Diagnostics:Modules(), Comm.CAN
 end
+
+local helloAt = nil
 
 --- To the group, for whoever runs the addon there.
 function Peers:Hello()
 	return Comm:Broadcast("HI", PartySync.version, 0, SessionWord(), HelloFields())
 end
 
---- To `name`, by whisper: a member at login, or someone in the usual party who may be
---- online by now.
+--- To `name`: a member at login, or someone in the usual party who may be online by now.
 function Peers:Greet(name, reply)
+	-- Someone in the group not yet known to read addressed messages would be whispered, and a
+	-- whispered hello can arrive minutes later naming a party that is over. The group's hello
+	-- reaches them at once, and once, however many are greeted together.
+	if not reply and Comm:InGroup(name) and not Comm:Addressable(name) then
+		if helloAt == GetTime() then return true, "with the group's hello" end
+		helloAt = GetTime()
+		return self:Hello()
+	end
 	return Comm:Whisper(name, "HI", PartySync.version, reply and 1 or 0, SessionWord(), HelloFields())
 end
 
@@ -555,7 +566,7 @@ end
 
 local told = {}
 
-Comm:On("HI", function(sender, channel, version, reply, sessionId, own, plays, modules)
+Comm:On("HI", function(sender, channel, version, reply, sessionId, own, plays, modules, can)
 	local known = Peers:Get(sender)
 	local wasOnline = known and known.state == "online"
 	local peer = Peers:Seen(sender, version)
@@ -568,6 +579,7 @@ Comm:On("HI", function(sender, channel, version, reply, sessionId, own, plays, m
 	modules = (modules ~= nil and modules ~= "") and modules or nil
 	changed = changed or peer.modules ~= modules
 	peer.modules = modules
+	peer.can = (can ~= nil and can ~= "") and can or nil
 	local key = PartySync:NameKey(sender)
 	if Peers:IsMember(sender) then
 		if not wasOnline then
@@ -1156,7 +1168,10 @@ end
 function Peers:Ping(target, quiet, stats)
 	local token = Token()
 	local sent, answer
-	if target then
+	if target and stats then
+		-- `/sps latency` times the whisper itself, wherever the party's messages go.
+		sent, answer = Comm:Send("WHISPER", PartySync:WhisperName(target), "PI", token)
+	elseif target then
 		sent, answer = Comm:Whisper(target, "PI", token)
 	else
 		sent, answer = Comm:Broadcast("PI", token)
@@ -1221,15 +1236,12 @@ end
 
 Comm:On("PI", function(sender, channel, token)
 	Peers:Seen(sender)
-	if channel == "WHISPER" then
-		Comm:Whisper(sender, "PO", token)
-	else
-		Comm:Send(channel, nil, "PO", token)
-	end
+	Comm:Answer(sender, "PO", token)
 end)
 
-local function PathOf(channel)
-	return channel == "WHISPER" and "whisper" or "group"
+-- Which way a pong came: a whisper, or the group channel (addressed or not).
+local function PathOf()
+	return Comm.road == "WHISPER" and "whisper" or "group"
 end
 
 -- When a ping was sent, from its token: a late answer is measured with it, its wait given up.
@@ -1262,23 +1274,26 @@ Comm:On("PO", function(sender, channel, token)
 		return
 	end
 	local key = PartySync:NameKey(sender)
+	-- Only the way this member's messages go times the party: a whisper to someone in the group,
+	-- sent before they said they read addressed messages or by `/sps latency`, says nothing of it.
+	local current = channel == "WHISPER" and (Comm.road == "TO") == Comm:Addressable(sender)
 	local ping = token and pending[token]
 	if not ping then
-		local sentAt = token and channel == "WHISPER" and SentAt(token)
+		local sentAt = token and current and SentAt(token)
 		if sentAt then Late(key, peer, GetTime() - sentAt) end
 		return
 	end
 	ping.answers = ping.answers + 1
 	local ms = (GetTime() - ping.sentAt) * 1000
 	peer.rtts = peer.rtts or {}
-	peer.rtts[PathOf(channel)] = ms
-	if channel == "WHISPER" then
+	peer.rtts[PathOf()] = ms
+	if current then
 		-- A running average: one slow round trip should move the start, not decide it.
 		peer.rtt = peer.rtt and (peer.rtt * 0.7 + ms * 0.3) or ms
 		Late(key, peer, nil)
 	end
 	if ping.stats and PartySync:NameKey(sender) == ping.stats.peer then
-		table.insert(ping.stats[PathOf(channel)], ms)
+		table.insert(ping.stats[PathOf()], ms)
 	end
 	local round = Peers.pingRound
 	if round and not ping.quiet and ping.sentAt >= round.at then

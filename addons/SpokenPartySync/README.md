@@ -151,13 +151,24 @@ Settings: **Options > AddOns > Spoken > Party Sync**, or `/sps settings`.
 
 ## How it works
 
-Everything goes over addon messages, whispered to each member by name. On Forever names have
-two parts and no realm: a whisper goes to the bare "First Last". The prefix is
-`SpokenPartySync`, and a message is a two-letter kind and tab-separated fields:
+Everything goes over addon messages, each for one member by name. A member in the game's group,
+online, whose hello says it reads them (`can` has `to`), is sent them on the group channel,
+addressed (`TO`); everyone else is whispered. On 2026-10-11 the server held every addon whisper
+between two players for about 110 s each way for a whole session, while the party channel took
+under a second: a party whose every answer comes two minutes late falls apart (invitations
+cross, members are dropped as lost). A message for several members goes once, to `*`, since the
+client lets the group channel carry ten messages at once and then one a second; for the same
+reason a line's text goes in at most eight pieces in a group. A debug log's header and lines
+(hundreds of them) and the burst test are always whispered, and a member in the group not yet
+heard from is greeted by the group's hello rather than a whisper that could arrive after the
+party it names is over. On Forever names have two parts and no realm: a whisper goes to the bare
+"First Last". The prefix is `SpokenPartySync`, and a message is a two-letter kind and
+tab-separated fields:
 
 | Kind | Fields | |
 |---|---|---|
-| `HI` | version, reply, session, own, plays, modules | hello: at login, when the group changes, to the usual party each heartbeat, and when what it plays changes; names the party this client is in, whether it decides any channel itself, the channels it plays (`v m e a d`, `-` for none; missing before 0.5: the rules decide), and the Spoken modules it runs (`S=3.1.0;Q=3.1.0+;...`: Spoken, Quests, Zones, Books, Developer, DialogueUI, a `+` after a source that can rebuild the party's lines; the store's build and Party Sync's share a version number) |
+| `TO` | key, kind, fields | on the group channel: the message after it is for `key` alone, or for every member of the sender's party with `*`; others drop it. An older build ignores the kind, which is why it is only sent to members whose hello says `to` |
+| `HI` | version, reply, session, own, plays, modules, can | hello: at login, when the group changes, to the usual party each heartbeat, and when what it plays changes; names the party this client is in, whether it decides any channel itself, the channels it plays (`v m e a d`, `-` for none; missing before 0.5: the rules decide), and the Spoken modules it runs (`S=3.1.0;Q=3.1.0+;...`: Spoken, Quests, Zones, Books, Developer, DialogueUI, a `+` after a source that can rebuild the party's lines; the store's build and Party Sync's share a version number), and what it reads (`to`: addressed messages on the group channel) |
 | `IV` / `IA` / `ID` | session (`IV`: version, session, rejoin) | invite to the party, accepted, declined or left or removed (one naming another party is stale; from the inviter while its popup is up, the invitation withdrawn; answering an `IA` for an invitation withdrawn, leave); `rejoin` 1 asks back someone who was in a party with the inviter within ten minutes, who accepts without a popup |
 | `RO` | session, leader, members | the roster, from the leader, whenever it changes; a member not in it is out |
 | `PS` | controls, room, sync, share, audio | the rules, from the leader: whose controls, who plays the voice, four flags for the kinds played together, whose accepted quests are shared (missing from a 0.4.0 leader: anyone), and who plays each game channel (`music=<owner>;effects=...;ambience=...;dialog=...`, missing before 0.5: every computer). An owner is `none` (every computer), a member's key, or `-<key>,<key>` (every computer but those); `room` may also be `trigger` (whoever triggers a line plays it; an older build takes it for an absent member and plays everything) |

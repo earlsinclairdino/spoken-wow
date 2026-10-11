@@ -4,9 +4,14 @@
 -- C_ChatInfo.SendAddonMessage and arrives as CHAT_MSG_ADDON on the other side. Nothing here
 -- shows in chat: an addon whisper opens no whisper tab and prints nothing to either player.
 --
--- WHISPER to each member is the main link, not a fallback. It works grouped, ungrouped and in
--- a raid, and it does not send every raid member messages their client has to discard. The
--- group channels are only for reaching players whose names we do not know yet: the hello.
+-- Each message is for one member, by name. A member outside the game's group is whispered. A
+-- member in it is sent the message on the group channel, addressed to them (TO below), once
+-- their hello says they read that: on 2026-10-11 addon whispers between two players took 110 s
+-- each way for a whole evening while the party channel took under a second, and a party whose
+-- every answer comes minutes late falls apart. The hello itself is broadcast to the group, for
+-- players whose names we do not know yet.
+--
+--   TO  key, kind, fields   a message for `key` alone; every other client in the group drops it.
 --
 -- A message is a kind and its fields, tab-separated. The kind is two letters because the
 -- whole message, kind included, has to fit in 255 bytes, and a caption chunk wants as many of
@@ -26,6 +31,9 @@ PartySync.Comm = Comm
 -- 15 of the 16 characters a prefix may have.
 Comm.PREFIX = "SpokenPartySync"
 Comm.MAX_LENGTH = 255
+-- What a message's fields may take when the message may be addressed on the group channel: the
+-- address goes in front.
+Comm.ROOM = Comm.MAX_LENGTH - 48
 
 local SEP = "\t"
 local C = C_ChatInfo
@@ -34,6 +42,12 @@ local handlers = {}
 
 -- Not logged one by one: a log being sent is hundreds of these, and a burst test is a test.
 local QUIET = { LL = true, BU = true }
+-- Always whispered. A log is hundreds of lines, which the group channel's allowance would
+-- spread over minutes with every line of dialogue queued behind them; its header goes the same
+-- way so it arrives first. A burst test measures whispers.
+local WHISPERED = { LH = true, LL = true, BU = true, BR = true }
+-- What a hello's last field says this version reads.
+Comm.CAN = "to"
 
 --- Every API the transport needs, by name, and whether the client has it. For `/sps api`.
 function Comm:Probe()
@@ -204,7 +218,7 @@ local function Drain()
 	while backlog[1] and tokens >= 1 do
 		local entry = table.remove(backlog, 1)
 		tokens = tokens - 1
-		SendNow(entry.channel, entry.target, entry.message, entry.kind)
+		SendNow(entry)
 	end
 	if backlog[1] and not drainScheduled then
 		drainScheduled = true
@@ -212,7 +226,11 @@ local function Drain()
 	end
 end
 
-SendNow = function(channel, target, message, kind)
+-- `entry`: the channel, the whisper's target, the message as sent and its kind. A message
+-- addressed on the group channel also has `to`, who it is for, and `body`, itself without the
+-- address, so the log reads the same either way.
+SendNow = function(entry)
+	local channel, target, message, kind = entry.channel, entry.target, entry.message, entry.kind
 	-- pcall, because a restricted send can raise rather than return: a line in a dungeon
 	-- should fail to sync, not stop the addon.
 	local ok, result = pcall(C.SendAddonMessage, Comm.PREFIX, message, channel, target)
@@ -224,9 +242,10 @@ SendNow = function(channel, target, message, kind)
 	end
 	if not QUIET[kind] then
 		-- The fields after the kind say which line a message was about; cut, they stay readable.
-		local detail = message:sub(#kind + 2, #kind + 61):gsub("\t", " ")
-		PartySync:Log("-> %s%s %s %s [%s, %s]", channel, target and format(" %q", target) or "",
-			kind, detail, answer, Comm:Context())
+		local body = entry.body or message
+		local detail = body:sub(#kind + 2, #kind + 61):gsub("\t", " ")
+		local address = entry.to and format(" to %s", entry.to) or (target and format(" %q", target) or "")
+		PartySync:Log("-> %s%s %s %s [%s, %s]", channel, address, kind, detail, answer, Comm:Context())
 	end
 	if channel == "WHISPER" and not sent and tostring(answer):find("TargetOffline", 1, true) and PartySync.Peers then
 		-- Clients from 11.1 on answer TargetOffline up front instead of printing a message.
@@ -235,26 +254,26 @@ SendNow = function(channel, target, message, kind)
 	return sent, answer
 end
 
---- Send `kind` and its fields. Returns whether the client accepted it (or queued it, where
---- the client's allowance is spent), and its answer in words. Accepted is not delivered: only
---- a reply says that.
-function Comm:Send(channel, target, kind, ...)
-	if not self:Register() then
-		return false, "prefix not registered: " .. tostring(self.registerResult)
-	end
+local function Pack(kind, ...)
 	local fields = { kind }
 	for i = 1, select("#", ...) do
 		local value = select(i, ...)
 		table.insert(fields, value == nil and "" or tostring(value))
 	end
-	local message = table.concat(fields, SEP)
-	if #message > self.MAX_LENGTH then
-		return false, format("message is %d bytes, the limit is %d", #message, self.MAX_LENGTH)
+	return table.concat(fields, SEP)
+end
+
+local function Deliver(entry)
+	if not Comm:Register() then
+		return false, "prefix not registered: " .. tostring(Comm.registerResult)
 	end
-	if Throttled(channel) then
+	if #entry.message > Comm.MAX_LENGTH then
+		return false, format("message is %d bytes, the limit is %d", #entry.message, Comm.MAX_LENGTH)
+	end
+	if Throttled(entry.channel) then
 		Refill()
 		if backlog[1] or tokens < 1 then
-			table.insert(backlog, { channel = channel, target = target, message = message, kind = kind })
+			table.insert(backlog, entry)
 			if not drainScheduled then
 				drainScheduled = true
 				C_Timer.After(1, Drain)
@@ -263,15 +282,79 @@ function Comm:Send(channel, target, kind, ...)
 		end
 		tokens = tokens - 1
 	end
-	return SendNow(channel, target, message, kind)
+	return SendNow(entry)
 end
 
+--- Send `kind` and its fields. Returns whether the client accepted it (or queued it, where
+--- the client's allowance is spent), and its answer in words. Accepted is not delivered: only
+--- a reply says that.
+function Comm:Send(channel, target, kind, ...)
+	return Deliver({ channel = channel, target = target, kind = kind, message = Pack(kind, ...) })
+end
+
+--- Whether the group channel reaches `name`: in this character's group, and online.
+function Comm:InGroup(name)
+	local unit = self:GroupChannel() and PartySync:UnitFor(name)
+	if not unit then
+		return false
+	end
+	return not UnitIsConnected or (UnitIsConnected(unit) and true or false)
+end
+
+--- Whether `name` is sent its messages on the group channel: in the group, and running a
+--- version whose hello says it reads them there.
+function Comm:Addressable(name)
+	local peer = PartySync.Peers and PartySync.Peers:Get(name)
+	local can = peer and peer.can
+	if not (can and ("," .. can .. ","):find("," .. self.CAN .. ",", 1, true)) then
+		return false
+	end
+	return self:InGroup(name)
+end
+
+-- `body` addressed to `address` (a key, or "*" for the sender's whole party) on the group
+-- channel, or nil when the address leaves it no room.
+local function Addressed(address, kind, body, to)
+	local wire = Pack("TO", address) .. SEP .. body
+	if #wire > Comm.MAX_LENGTH then
+		return nil
+	end
+	return { channel = Comm:GroupChannel(), kind = kind, message = wire, to = to, body = body }
+end
+
+--- `kind` to the player `target`: addressed on the group channel where that reaches them,
+--- whispered otherwise.
 function Comm:Whisper(target, kind, ...)
 	local to = PartySync:WhisperName(target)
 	if not to then
 		return false, "no name"
 	end
-	return self:Send("WHISPER", to, kind, ...)
+	local body = Pack(kind, ...)
+	local entry = not WHISPERED[kind] and self:Addressable(to) and Addressed(PartySync:NameKey(to), kind, body, format("%q", to))
+	return Deliver(entry or { channel = "WHISPER", target = to, kind = kind, message = body })
+end
+
+--- `kind` to each of `names`, members of this character's party: one message on the group
+--- channel for all those it reaches, since the client lets a group channel carry one message
+--- a second once ten have gone, and a whisper to each of the others.
+function Comm:WhisperEach(names, kind, ...)
+	local grouped, rest = {}, {}
+	for _, name in ipairs(names) do
+		if not WHISPERED[kind] and self:Addressable(name) then
+			table.insert(grouped, name)
+		else
+			table.insert(rest, name)
+		end
+	end
+	if #grouped > 1 then
+		local entry = Addressed("*", kind, Pack(kind, ...), "the party")
+		if entry then
+			Deliver(entry)
+			grouped = {}
+		end
+	end
+	for _, name in ipairs(grouped) do self:Whisper(name, kind, ...) end
+	for _, name in ipairs(rest) do self:Whisper(name, kind, ...) end
 end
 
 --- To the group, or false when there is none.
@@ -283,11 +366,24 @@ function Comm:Broadcast(kind, ...)
 	return self:Send(channel, nil, kind, ...)
 end
 
---- How many caption pieces a line may send: unlimited where whispers are, eight inside an
---- instance, where a line's announcement, its text and its start have ten messages between
---- them before the client makes the rest wait a second each.
+--- Answer the message being handled the way it came: by whisper, addressed, or to the group.
+--- A ping's answer has to, for `/sps latency` to time each way on its own.
+function Comm:Answer(sender, kind, ...)
+	local road = self.road
+	if road == "WHISPER" then
+		return self:Send("WHISPER", PartySync:WhisperName(sender), kind, ...)
+	elseif road == "TO" or not road then
+		return self:Whisper(sender, kind, ...)
+	end
+	return self:Send(road, nil, kind, ...)
+end
+
+--- How many caption pieces a line may send: unlimited where whispers are, eight in a group
+--- (where it goes on the group channel) or inside an instance (where whispers are paced too),
+--- since a line's announcement, its text and its start have ten messages between them before
+--- the client makes the rest wait a second each.
 function Comm:TextBudget()
-	return self:InInstance() and 8 or nil
+	return (self:InInstance() or self:GroupChannel()) and 8 or nil
 end
 
 --------------------------------------------------------------------------------
@@ -307,6 +403,14 @@ local function Split(text)
 	end
 end
 
+-- Whether a message addressed to `address` on the group channel is for this character.
+local function ForMe(address, sender)
+	if address == "*" then
+		return PartySync.Peers ~= nil and PartySync.Peers:IsMember(sender)
+	end
+	return address == PartySync:MyKey()
+end
+
 --- CHAT_MSG_ADDON, from Events.lua.
 function Comm:Receive(prefix, text, channel, sender)
 	if prefix ~= self.PREFIX or not text or not sender then
@@ -318,12 +422,28 @@ function Comm:Receive(prefix, text, channel, sender)
 	end
 	local fields = Split(text)
 	local kind = fields[1]
+	local road, label = channel, channel
+	if kind == "TO" then
+		-- Another member's, in this group: dropped unread.
+		if not ForMe(fields[2], sender) then
+			return
+		end
+		text = text:sub(#fields[1] + #fields[2] + 3)
+		table.remove(fields, 1)
+		table.remove(fields, 1)
+		kind = fields[1] or ""
+		-- Handled as a whisper: the handlers ask only whether a message was for this
+		-- character, not which road it took.
+		road, label, channel = "TO", channel .. " to me", "WHISPER"
+	end
 	if not QUIET[kind] then
-		PartySync:Log("<- %s %q %s %s", channel, sender, kind, (text:sub(#kind + 2, #kind + 61):gsub("\t", " ")))
+		PartySync:Log("<- %s %q %s %s", label, sender, kind, (text:sub(#kind + 2, #kind + 61):gsub("\t", " ")))
 	end
 	local handler = handlers[kind]
 	if handler then
+		self.road = road
 		local ok, err = pcall(handler, sender, channel, unpack(fields, 2))
+		self.road = nil
 		if not ok then
 			PartySync:Print("|cffff6060error handling %s from %s: %s|r", tostring(kind), tostring(sender), tostring(err))
 		end
