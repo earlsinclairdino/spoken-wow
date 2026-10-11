@@ -111,6 +111,9 @@ local function MemberModel(key, isMe, leader)
 		elseif quiet then
 			member.dot, member.state = "quiet", format(L.STATE_QUIET_FMT, quiet)
 			member.tag, member.colour = member.state, RED
+		elseif Peers:Delay(key) then
+			member.dot, member.state = "quiet", format(L.STATE_LATE_FMT, PartySync:Duration(Peers:Delay(key)))
+			member.tag, member.colour = member.state, RED
 		else
 			member.state = L.STATE_ONLINE
 		end
@@ -1090,7 +1093,8 @@ local function DrawMembers(model, y, metrics, inner)
 			YELLOW .. format(L.STATE_INVITED_FMT, invite.seconds) .. "|r")
 		row.key, row.invited, row.name = nil, invite.key, invite.name
 		row.alert:Hide()
-		row.tip = { title = invite.name, body = L.INVITED_TIP, hint = L.INVITED_HINT }
+		row.tip = { title = invite.name, hint = L.INVITED_HINT,
+			body = invite.late and format(L.INVITED_LATE_FMT, PartySync:Duration(invite.late)) or L.INVITED_TIP }
 		y = y + metrics.row
 	end
 	HideFrom(frame.rows, count + 1)

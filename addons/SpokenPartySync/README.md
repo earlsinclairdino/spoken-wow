@@ -93,7 +93,7 @@ group, joining a raid, or questing apart.
   close cross. Under the title, the rules as chips (Audio, Playback,
   Quests; on a second row when they do not fit), the leader's to change, with this computer's
   own sound in the Audio menu for everyone. Then a row per member with one tag (no answer for
-  how long, voice, leads, own audio; the rest on hover) and a menu on click (Make Leader, Play
+  how long, how late its messages arrive, voice, leads, own audio; the rest on hover) and a menu on click (Make Leader, Play
   Sound Here, Remove from Party, Whisper, and Versions: what that computer runs, module by
   module, and whether its modules can play the party's lines; on your own row Leave Party
   instead of Remove and Whisper). Each hello is also a handshake: every computer, this one
@@ -106,7 +106,13 @@ group, joining a raid, or questing apart.
   how many more are queued; and what went wrong, each with its fix beside it (Re-invite,
   Remove, Mute There, Dismiss). An invitation's outcome is one of those: declined, not
   online, or no answer within the popup's two minutes (most often Spoken Party Sync is not
-  installed there), the last two with Re-invite. Re-invite asks back someone dropped from the
+  installed there), the last two with Re-invite. A member whose messages arrive late (a ping
+  answered after its wait was given up says by how much) is shown so, with a problem saying
+  why, and the party waits that long for it: its answers about a line, an invitation to it
+  (twice the delay, there and back; the usual party does not send it again meanwhile), and a
+  hello naming no party, which may predate its joining. An acceptance of a party that is over
+  is answered by being sent away; an invitation from the leader of the party one is in, to
+  another of theirs, replaces it. Re-invite asks back someone dropped from the
   party in the last ten minutes (into a new party with the old one's rules, if it ended), and
   they rejoin without a popup. Compact keeps the members and the line. By default it only
   opens by itself when something is wrong or an invitation is waiting; Spoken's minimap menu

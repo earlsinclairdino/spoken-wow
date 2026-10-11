@@ -452,7 +452,7 @@ local function Announce(entry, d)
 			Send(key, "TX", d.id, i, #parts, part)
 		end
 		entry.peers[key] = { state = "sent", at = GetTime() }
-		C_Timer.After(Peers:Rtt(key) / 1000 + ANSWER_GRACE, function()
+		C_Timer.After(Peers:AnswerTime(key) + ANSWER_GRACE, function()
 			local peer = entry.peers[key]
 			if peer and peer.state == "sent" then
 				peer.state = "noanswer"

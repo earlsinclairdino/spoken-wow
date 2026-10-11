@@ -241,7 +241,8 @@ end
 
 local function InviteOnce(key)
 	local at = invitedAt[key]
-	if at and GetTime() - at < INVITE_RETRY then
+	-- Sent again, an invitation starts its wait over: one to a slow member would never be answered.
+	if (at and GetTime() - at < INVITE_RETRY) or Peers:Inviting(key) then
 		return
 	end
 	invitedAt[key] = GetTime()

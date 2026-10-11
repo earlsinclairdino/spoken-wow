@@ -39,6 +39,15 @@ PartySync.MIN_WINDOW_SCALE = MIN_WINDOW_SCALE
 -- A middle dot between the parts of one line, as the game's own tooltips join them.
 PartySync.DOT = " \194\183 "
 
+--- `seconds` as a reader says it: "40 s", "3 min 40 s".
+function PartySync:Duration(seconds)
+	seconds = math.floor((seconds or 0) + 0.5)
+	if seconds < 60 then
+		return format(PartySync.L.DURATION_SECONDS_FMT, seconds)
+	end
+	return format(PartySync.L.DURATION_MINUTES_FMT, math.floor(seconds / 60), seconds % 60)
+end
+
 -- The kinds of sound a party shares out: Spoken's voice, then the game's own channels.
 PartySync.CHANNELS = { "voice", "music", "effects", "ambience", "dialog" }
 PartySync.GAME_CHANNELS = { "music", "effects", "ambience", "dialog" }

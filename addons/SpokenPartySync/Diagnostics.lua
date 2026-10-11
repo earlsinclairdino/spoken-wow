@@ -159,6 +159,7 @@ function Diagnostics:MemberLine(key, leader)
 	local parts = { peer and peer.state or "not heard from" }
 	if peer then
 		if peer.rtt then table.insert(parts, format("%d ms", math.floor(peer.rtt + 0.5))) end
+		if Peers:Delay(key) then table.insert(parts, format("answers %d s late", math.floor(Peers:Delay(key) + 0.5))) end
 		if peer.version then table.insert(parts, "v" .. peer.version) end
 		if peer.session and peer.session ~= "" and peer.session ~= Peers:SessionId() then
 			table.insert(parts, "in another party")

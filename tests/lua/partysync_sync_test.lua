@@ -85,6 +85,25 @@ stub.Advance(3.5)
 Expect("a member who never answered is a problem", ns:Problems()[1] ~= nil, true)
 Expect("...and the line played anyway", P.started[1] ~= nil, true)
 
+-- A member whose messages arrive late is waited for that long before being called silent.
+ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
+P.Party(stub, ns)
+P.Receive(stub, LALA, "PO", format("%d-%d", math.floor((GetTime() - 30) * 1000) % 1000000, 900))
+local function NoAnswer()
+	for _, problem in ipairs(ns:Problems()) do
+		if problem.key:sub(1, 7) == "answer:" then return true end
+	end
+	return false
+end
+VO.Player:Enqueue(QuestLine(VO, 101))
+stub.Advance(3.5)
+Expect("a member answering 30 s late is not silent after the usual wait", NoAnswer(), false)
+for _ = 1, 3 do
+	stub.Advance(10)
+	P.Receive(stub, LALA, "PI", "1-1")
+end
+Expect("...but is once her delay has passed", NoAnswer(), true)
+
 ---------------------------------------------------------------- following a line
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
