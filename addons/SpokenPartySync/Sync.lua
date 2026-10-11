@@ -135,10 +135,14 @@ local function Send(key, kind, ...)
 	return Comm:Whisper(Peers:MemberName(key), kind, ...)
 end
 
+local function OnlineNames()
+	local names = {}
+	for _, key in ipairs(Peers:OnlineMembers()) do table.insert(names, Peers:MemberName(key)) end
+	return names
+end
+
 local function SendAll(kind, ...)
-	for _, key in ipairs(Peers:OnlineMembers()) do
-		Send(key, kind, ...)
-	end
+	Comm:WhisperEach(OnlineNames(), kind, ...)
 end
 
 local function Ack(entry, state, ms)
@@ -437,20 +441,21 @@ end
 local function Announce(entry, d)
 	local parts = {}
 	if d.text and d.text ~= "" then
-		parts = Comm.Chunk(d.text, Comm.MAX_LENGTH - (#"TX" + #d.id + 12))
+		parts = Comm.Chunk(d.text, Comm.ROOM - (#"TX" + #d.id + 12))
 		local budget = Comm:TextBudget()
-		-- Inside an instance a long text would use up the allowance and arrive after the line
-		-- started; the others then read their own copy of it, where they have one.
+		-- Where messages are paced, a long text would use up the allowance and arrive after
+		-- the line started; the others then read their own copy of it, where they have one.
 		if budget and #parts > budget then parts = {} end
 	end
 	local fields = Lines:Encode(d, #parts)
 	Trace("drive %s (%s): announced to %s, %d text piece(s)", d.id, LabelOf(entry),
 		table.concat(Peers:OnlineMembers(), ", "), #parts)
+	local names = OnlineNames()
+	Comm:WhisperEach(names, "LN", unpack(fields))
+	for i, part in ipairs(parts) do
+		Comm:WhisperEach(names, "TX", d.id, i, #parts, part)
+	end
 	for _, key in ipairs(Peers:OnlineMembers()) do
-		Send(key, "LN", unpack(fields))
-		for i, part in ipairs(parts) do
-			Send(key, "TX", d.id, i, #parts, part)
-		end
 		entry.peers[key] = { state = "sent", at = GetTime() }
 		C_Timer.After(Peers:AnswerTime(key) + ANSWER_GRACE, function()
 			local peer = entry.peers[key]

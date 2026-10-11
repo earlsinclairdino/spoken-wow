@@ -120,7 +120,7 @@ function Lines:Encode(d, textParts)
 		d.length and format("%.2f", d.length) or "", flags, textParts or 0 }
 	local used = #"LN"
 	for _, field in ipairs(fields) do used = used + 1 + #tostring(field) end
-	local room = Comm.MAX_LENGTH - used - 2
+	local room = Comm.ROOM - used - 2
 	local name = Cut(Comm.Escape(d.name or ""), math.max(0, math.min(60, room)))
 	local title = Cut(Comm.Escape(d.title or ""), math.max(0, room - #name))
 	table.insert(fields, name)

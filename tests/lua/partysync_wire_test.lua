@@ -176,5 +176,90 @@ Expect("another character on this computer has its own, empty list", ns3.Autofor
 ns3 = P.Boot(stub, LOOKUP, { account = account, character = character })
 Expect("the first character logging back in has its list again", ns3.Autoform:Entry("Lala Throwaway") ~= nil, true)
 
+---------------------------------------------------------------- the group channel
+-- 2026-10-11: whispers between two players took 110 s each way all evening while the party
+-- channel took under a second, so a member in the group is sent its messages there, addressed.
+ns = P.Boot(stub, LOOKUP)
+local connected = true
+_G.UnitIsConnected = function() return connected end
+local function FromGroup(sender, ...)
+	stub.FireEvent("CHAT_MSG_ADDON", "SpokenPartySync", table.concat({ ... }, "\t"), "PARTY", sender)
+end
+P.Party(stub, ns)
+P.client.units.party1 = "Lala Throwaway"
+P.Clear()
+ns.Comm:Whisper("Lala Throwaway", "PI", "g1")
+Expect("a member whose hello does not say it reads addressed messages is whispered, grouped or not",
+	P.Last("PI") and P.Last("PI").channel, "WHISPER")
+ns.Peers:Greet("Lala Throwaway", true)
+Expect("this version's hello says it reads them, in its last field", P.Last("HI").fields[8], "to")
+P.Receive(stub, P.LALA, "HI", "0.5.1", 1, P.SESSION, 0, "v", "", "to")
+P.Clear()
+ns.Comm:Whisper("Lala Throwaway", "PI", "g2")
+local addressed = P.Last("TO")
+Expect("once it does, and she is in the group, it goes on the group channel",
+	addressed and addressed.channel, "PARTY")
+Expect("...addressed to her", P.Fields(addressed), "lala throwaway|PI|g2")
+Expect("...and is not whispered", P.Last("PI"), nil)
+P.client.units.party1 = nil
+P.Clear()
+ns.Comm:Whisper("Lala Throwaway", "PI", "g3")
+Expect("out of the group she is whispered", P.Last("PI") and P.Last("PI").channel, "WHISPER")
+P.client.units.party1 = "Lala Throwaway"
+connected = false
+P.Clear()
+ns.Comm:Whisper("Lala Throwaway", "PI", "g4")
+Expect("...and offline in it, so the client can say she is gone", P.Last("PI") and P.Last("PI").channel, "WHISPER")
+connected = true
+P.Clear()
+ns.Comm:Whisper("Lala Throwaway", "TX", string.rep("x", 240))
+Expect("a message with no room for the address is whispered", P.Last("TX") and P.Last("TX").channel, "WHISPER")
+P.Clear()
+ns.Comm:Whisper("Lala Throwaway", "LL", "t", 1, "a line")
+Expect("a log's lines are whispered: hundreds would hold the party's messages back", P.Last("TO"), nil)
+
+P.Clear()
+FromGroup(P.LALA, "TO", "tata throwaway", "PI", "g5")
+Expect("a message addressed here is handled", P.Fields(P.Last("TO")), "lala throwaway|PO|g5")
+P.Clear()
+FromGroup(P.LALA, "TO", "mira throwaway", "PI", "g6")
+Expect("one addressed to someone else in the group is dropped", #P.sent, 0)
+FromGroup(P.LALA, "TO", "*", "PI", "g7")
+Expect("one for the whole party is handled when it comes from a member", P.Fields(P.Last("TO")), "lala throwaway|PO|g7")
+P.Clear()
+FromGroup("Bob Stranger", "TO", "*", "PI", "g8")
+Expect("...and dropped from anyone else", #P.sent, 0)
+
+-- Lala's ping is answered on the group channel and timed: her pong measures the way used.
+ns.Peers:Ping("Lala Throwaway", true)
+local token = P.Fields(P.Last("TO")):match("PI|(.+)$")
+stub.Advance(0.4)
+FromGroup(P.LALA, "TO", "tata throwaway", "PO", token)
+Expect("a pong addressed on the group channel times the party's messages", math.floor(ns.Peers:Rtt("lala throwaway") / 100 + 0.5), 4)
+P.Receive(stub, P.LALA, "PO", "1000-1")
+Expect("a whisper still on its way from before she was addressed does not make her late", ns.Peers:Delay("lala throwaway"), nil)
+
+-- Two members in the group: what is for both goes once.
+ns:Party().session.members["mira throwaway"] = "Mira Throwaway"
+P.client.units.party2 = "Mira Throwaway"
+P.Receive(stub, "Mira Throwaway", "HI", "0.5.1", 1, P.SESSION, 0, "v", "", "to")
+P.Clear()
+ns.Comm:WhisperEach({ "Lala Throwaway", "Mira Throwaway" }, "SK", "101-accept")
+Expect("a message for two members in the group is sent once, to the party", #P.Sent("TO"), 1)
+Expect("...addressed to all of it", P.Fields(P.Last("TO")), "*|SK|101-accept")
+Expect("in a group a line's text goes in at most eight pieces, so its start is not held back", ns.Comm:TextBudget(), 8)
+
+-- At login, a member in the group not yet heard from is greeted with the group's hello: a
+-- whispered one can arrive minutes later and say a party that is over.
+ns = P.Boot(stub, LOOKUP)
+ns:Party().session = { id = P.SESSION, leader = ns:NameKey(P.LALA), rules = ns.Rules(),
+	members = { [ns:MyKey()] = P.ME, [ns:NameKey(P.LALA)] = P.LALA, ["mira throwaway"] = "Mira Throwaway" } }
+P.client.units.party1, P.client.units.party2 = "Lala Throwaway", "Mira Throwaway"
+P.Clear()
+ns.Peers:HelloMembers()
+Expect("members in the group are greeted by the group's hello, not whispered", P.Last("HI") and P.Last("HI").channel, "PARTY")
+Expect("...once for both", #P.Sent("HI"), 1)
+_G.UnitIsConnected = nil
+
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll party sync wire tests passed")
