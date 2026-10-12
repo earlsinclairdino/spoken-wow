@@ -261,5 +261,109 @@ Expect("members in the group are greeted by the group's hello, not whispered", P
 Expect("...once for both", #P.Sent("HI"), 1)
 _G.UnitIsConnected = nil
 
+---------------------------------------------------------------- whispers held by the server
+-- A member reached on the group channel is checked by whisper now and then, so slow whispers
+-- are known before they are needed; once whispers carry the party's messages, the player is
+-- told it is the server and that grouping helps.
+ns = P.Boot(stub, LOOKUP)
+_G.UnitIsConnected = function() return true end
+local groupInvites = {}
+_G.C_PartyInfo = { InviteUnit = function(name) table.insert(groupInvites, name) end }
+local function ProblemFor(prefix)
+	for _, problem in ipairs(ns:Problems()) do
+		if problem.key:sub(1, #prefix) == prefix then return problem end
+	end
+end
+local function ShownProblem(prefix)
+	ns:RefreshWindow()
+	for _, problem in ipairs(ns.windowModel.problems) do
+		if problem.key:sub(1, #prefix) == prefix then return problem end
+	end
+end
+local function LalaRow()
+	ns:RefreshWindow()
+	for _, member in ipairs(ns.windowModel.members) do
+		if member.key == "lala throwaway" then return member end
+	end
+end
+local LALA_HELLO = { "HI", "0.5.1", 1, P.SESSION, 0, "v", "", "to" }
+P.Party(stub, ns, nil, "me")
+ns:ShowWindow(true)
+P.client.units.party1 = "Lala Throwaway"
+P.Receive(stub, P.LALA, unpack(LALA_HELLO))
+P.Clear()
+ns.Peers:Tick()
+local check = P.Last("PI", "Lala Throwaway")
+Expect("a member on the group channel is sent a whisper ping of its own", check and check.channel, "WHISPER")
+stub.Advance(20)
+FromGroup(P.LALA, "TO", "tata throwaway", unpack(LALA_HELLO))
+ns.Peers:Tick()
+local delay, atLeast = ns.Peers:WhisperDelay("lala throwaway")
+Expect("unanswered while she is heard on the party channel, whispers are slow", atLeast and math.floor(delay + 0.5), 20)
+Expect("...no warning while the party channel carries the party's messages", ProblemFor("whisper:"), nil)
+Expect("...but her row's tooltip says it", LalaRow().whispers,
+	format(ns.L.WHISPERS_SLOW_FMT, format(ns.L.WHISPER_MORE_FMT, ns:Duration(10))))
+Expect("...and one check is out at a time", #P.Sent("PI", "Lala Throwaway"), 1)
+stub.Advance(90)
+stub.FireEvent("CHAT_MSG_ADDON", "SpokenPartySync", "PO\t" .. check.fields[2], "WHISPER", P.LALA)
+Expect("its answer measures them", math.floor(ns.Peers:WhisperDelay("lala throwaway") + 0.5), 110)
+Expect("...as the diagnostics say",
+	ns.Diagnostics:MemberLine("lala throwaway"):find("whispers 110 s there and back (the party channel is used)", 1, true) ~= nil, true)
+Expect("...and she is not taken for late: the party's own messages are not", ns.Peers:Delay("lala throwaway"), nil)
+
+P.client.units.party1 = nil
+ns.Peers:Tick()
+local warning = ShownProblem("whisper:")
+Expect("out of the group, whispers carry the party's messages: the warning says why and what helps", warning and warning.text,
+	format(ns.L.PROBLEM_WHISPER_FMT, "Lala Throwaway", format(ns.L.WHISPER_ABOUT_FMT, ns:Duration(55))))
+Expect("...with Invite to Group, then Dismiss", warning and (warning.actions[1].label .. "|" .. warning.actions[2].label),
+	ns.L.ACTION_GROUP_INVITE .. "|" .. ns.L.ACTION_DISMISS)
+Expect("...which can be clicked", warning.actions[1].reason, nil)
+warning.actions[1].run()
+Expect("...and invites her to the game's group", groupInvites[1], "Lala Throwaway")
+P.client.units.party1 = "Lala Throwaway"
+ns.Peers:Tick()
+Expect("grouped again, the warning goes", ProblemFor("whisper:"), nil)
+
+P.client.units.party1, P.client.units.party2, P.client.leader = nil, "Mira Throwaway", "party2"
+ns.Peers:Tick()
+Expect("in someone else's group, only its leader or an assistant may invite",
+	ShownProblem("whisper:") and ShownProblem("whisper:").actions[1].reason, ns.L.REASON_NOT_GROUP_LEADER)
+P.client.units.party2, P.client.leader = nil, nil
+
+-- In the group with a build that cannot use the party channel: updating is what helps.
+P.client.units.party1 = "Lala Throwaway"
+P.Receive(stub, P.LALA, "HI", "0.5.0", 1, P.SESSION, 0, "v", "")
+ns.Peers:Tick()
+warning = ShownProblem("whisper:")
+Expect("grouped with a build too old for the party channel, the warning says to update it", warning and warning.text,
+	format(ns.L.PROBLEM_WHISPER_OLD_FMT, "Lala Throwaway", format(ns.L.WHISPER_ABOUT_FMT, ns:Duration(55))))
+Expect("...and offers no group invitation", warning and #warning.actions, 1)
+
+-- Whispered all along, apart: her late answers are the whispers' delay.
+ns = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, "me")
+P.Receive(stub, P.LALA, "PO", format("%d-1", (math.floor(GetTime() * 1000) - 80000) % 1000000))
+Expect("apart, a late answer by whisper raises the same warning",
+	ProblemFor("whisper:") and ProblemFor("whisper:").text,
+	format(ns.L.PROBLEM_WHISPER_FMT, "Lala Throwaway", format(ns.L.WHISPER_ABOUT_FMT, ns:Duration(40))))
+Expect("...not a second one about late messages", ProblemFor("late:"), nil)
+
+-- Fine whispers say nothing.
+ns = P.Boot(stub, LOOKUP)
+P.Party(stub, ns, nil, "me")
+P.client.units.party1 = "Lala Throwaway"
+P.Receive(stub, P.LALA, unpack(LALA_HELLO))
+P.Clear()
+ns.Peers:Tick()
+stub.Advance(1)
+stub.FireEvent("CHAT_MSG_ADDON", "SpokenPartySync", "PO\t" .. P.Last("PI", "Lala Throwaway").fields[2], "WHISPER", P.LALA)
+Expect("a whisper answered in a second is fine", ns.Peers:WhisperDelay("lala throwaway"), nil)
+stub.Advance(60)
+P.Clear()
+ns.Peers:Tick()
+Expect("...and not checked again for two minutes", #P.Sent("PI", "Lala Throwaway"), 0)
+_G.UnitIsConnected, _G.C_PartyInfo = nil, nil
+
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll party sync wire tests passed")

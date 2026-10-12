@@ -133,6 +133,8 @@ local function MemberModel(key, isMe, leader)
 	if own then table.insert(member.tags, L.TAG_OWN_SOUND) end
 	member.plays = PlaysText(key)
 	member.differs = PartySync.Diagnostics:Differences(key)
+	local whispers = not isMe and Peers:WhisperDelayText(key)
+	member.whispers = whispers and format(L.WHISPERS_SLOW_FMT, whispers) or nil
 	return member
 end
 
@@ -214,8 +216,15 @@ local function ProblemActions(problem)
 			run = function() Room:Exclude("voice", who); PartySync:Resolve(key) end,
 		} }
 	end
+	local dismiss = { label = L.ACTION_DISMISS, tip = L.ACTION_DISMISS_TIP, run = function() PartySync:Resolve(key) end }
+	if problem.kind == "whisper" and Peers:IsMember(who) then
+		return { {
+			label = L.ACTION_GROUP_INVITE, tip = L.ACTION_GROUP_INVITE_TIP, reason = Peers:WhyNoGroupInvite(who),
+			run = function() Peers:InviteToGroup(who) end,
+		}, dismiss }
+	end
 	if problem.kind ~= "silent" then
-		return { { label = L.ACTION_DISMISS, tip = L.ACTION_DISMISS_TIP, run = function() PartySync:Resolve(key) end } }
+		return { dismiss }
 	end
 	-- A member is greeted again by anyone; someone out of the party, invited by its leader.
 	local actions = { {
@@ -1075,6 +1084,7 @@ local function DrawMembers(model, y, metrics, inner)
 		end
 		if member.tags[1] then table.insert(facts, table.concat(member.tags, PartySync.DOT)) end
 		table.insert(facts, member.plays)
+		if member.whispers then table.insert(facts, member.whispers) end
 		row.tip = { title = row.label:GetText(), body = table.concat(facts, "\n"), hint = member.isMe and L.ROW_HINT_ME or L.ROW_HINT,
 			reason = member.differs and (L.VERSION_DIFFERS_TIP .. "\n" .. table.concat(member.differs, "\n")) or nil }
 		if member.differs then
