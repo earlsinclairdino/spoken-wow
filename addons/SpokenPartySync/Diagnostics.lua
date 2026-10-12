@@ -160,6 +160,11 @@ function Diagnostics:MemberLine(key, leader)
 	if peer then
 		if peer.rtt then table.insert(parts, format("%d ms", math.floor(peer.rtt + 0.5))) end
 		if Peers:Delay(key) then table.insert(parts, format("answers %d s late", math.floor(Peers:Delay(key) + 0.5))) end
+		local whispers, atLeast = Peers:WhisperDelay(key)
+		if whispers then
+			table.insert(parts, format("whispers %s%d s there and back%s", atLeast and "over " or "", math.floor(whispers + 0.5),
+				PartySync.Comm:Addressable(peer.name) and " (the party channel is used)" or ""))
+		end
 		if peer.version then table.insert(parts, "v" .. peer.version) end
 		if peer.session and peer.session ~= "" and peer.session ~= Peers:SessionId() then
 			table.insert(parts, "in another party")

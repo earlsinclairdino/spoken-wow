@@ -1253,10 +1253,25 @@ end
 
 --- How late `key`'s answers come, or nil for one in time: said once as it becomes late, and
 --- resolved when an answer comes in time again.
+local WarnWhispers
+
 local function Late(key, peer, seconds)
 	local was = Peers:Delay(key)
 	peer.delay = seconds
 	local now = Peers:Delay(key)
+	if Comm.road == "WHISPER" then
+		-- Whispers carry this member's messages: their delay is the server's, and the warning
+		-- says so and what helps.
+		peer.whisperDelay, peer.whisperAtLeast = seconds, nil
+		if now and not was then
+			PartySync:Trace("party", "%s answers %d s late, by whisper", key, math.floor(now + 0.5))
+		elseif was and not now then
+			PartySync:Trace("party", "%s answers in time again", key)
+		end
+		WarnWhispers(key)
+		if now or was then Changed() end
+		return
+	end
 	if now and not was then
 		PartySync:Trace("party", "%s answers %d s late", key, math.floor(now + 0.5))
 		PartySync:Problem("late:" .. key, format(L.PROBLEM_LATE_FMT, PartySync:ShortName(peer.name or key),
@@ -1277,6 +1292,15 @@ Comm:On("PO", function(sender, channel, token)
 	-- Only the way this member's messages go times the party: a whisper to someone in the group,
 	-- sent before they said they read addressed messages or by `/sps latency`, says nothing of it.
 	local current = channel == "WHISPER" and (Comm.road == "TO") == Comm:Addressable(sender)
+	local check = peer.whisperCheck
+	if check and token == check.token and Comm.road == "WHISPER" then
+		peer.whisperCheck = nil
+		peer.whisperDelay, peer.whisperAtLeast = GetTime() - check.at, nil
+		PartySync:Trace("party", "%s: a whisper took %.1f s there and back", key, peer.whisperDelay)
+		WarnWhispers(key)
+		Changed()
+		return
+	end
 	local ping = token and pending[token]
 	if not ping then
 		local sentAt = token and current and SentAt(token)
@@ -1304,6 +1328,129 @@ Comm:On("PO", function(sender, channel, token)
 		PartySync:Print("|cff60ff60pong from %s: %d ms round trip|r (by %s)", PartySync:ShortName(sender), math.floor(ms + 0.5), channel)
 	end
 end)
+
+--------------------------------------------------------------------------------
+-- Whispers held by the server
+--------------------------------------------------------------------------------
+--
+-- On 2026-10-11 the server held addon whispers about 110 s each way for a whole session while
+-- the party channel took under a second. Nothing an addon does fixes that, but the player can
+-- see it for themselves (a whisper typed in chat is slow too) and work round it by grouping, so
+-- the party says so. A member the group channel reaches is checked now and then with a
+-- whisper ping of its own, so it is known before whispers are needed again; one reached by
+-- whisper is measured by its late answers (Late).
+
+-- Slower than this, it is the server: the party channel answers in a second or two.
+local WHISPER_SLOW_SECONDS = 10
+-- How often a member on the group channel is checked by whisper.
+local WHISPER_CHECK_SECONDS = 120
+-- A check unanswered this long is given up and sent again.
+local WHISPER_GIVE_UP_SECONDS = 600
+
+--- How long a whisper to `key` takes there and back, and whether that is only how long one has
+--- been out so far; nil while whispers are fine.
+function Peers:WhisperDelay(key)
+	local peer = self.list[key]
+	local delay = peer and peer.whisperDelay
+	if delay and delay >= WHISPER_SLOW_SECONDS then
+		return delay, peer.whisperAtLeast == true
+	end
+	return nil
+end
+
+--- How long a whisper takes one way, in words: "about 55 s", "more than 20 s".
+function Peers:WhisperDelayText(key)
+	local delay, atLeast = self:WhisperDelay(key)
+	if not delay then return nil end
+	return format(atLeast and L.WHISPER_MORE_FMT or L.WHISPER_ABOUT_FMT, PartySync:Duration(delay / 2))
+end
+
+--- A whisper ping beside the party's own messages, for a member the group channel reaches.
+function Peers:CheckWhispers(key, peer, now)
+	if not Comm:Addressable(peer.name) then
+		return
+	end
+	local check = peer.whisperCheck
+	if check then
+		local out = now - check.at
+		-- Heard from since by the party channel: it is the whisper that is slow, not the member.
+		if out >= WHISPER_SLOW_SECONDS and (peer.lastSeen or 0) > check.at
+			and (not peer.whisperDelay or peer.whisperAtLeast) then
+			peer.whisperDelay, peer.whisperAtLeast = out, true
+			Changed()
+		end
+		if out < WHISPER_GIVE_UP_SECONDS then
+			return
+		end
+	elseif peer.whisperCheckedAt and now - peer.whisperCheckedAt < WHISPER_CHECK_SECONDS then
+		return
+	end
+	local token = Token()
+	if Comm:Send("WHISPER", peer.name, "PI", token) then
+		peer.whisperCheck, peer.whisperCheckedAt = { token = token, at = now }, now
+	end
+end
+
+-- What a member's slow whispers mean now: nothing while the group channel carries the party's
+-- messages; a warning, with what helps, while whispers do. Said once each time that changes.
+local warned = {}
+
+WarnWhispers = function(key)
+	local peer = Peers.list[key]
+	local text = Peers:WhisperDelayText(key)
+	local state = nil
+	if text and peer and Peers:IsMember(key) then
+		if Comm:Addressable(peer.name) then
+			state = "grouped"
+		elseif PartySync:UnitFor(peer.name) then
+			state = "old"
+		else
+			state = "apart"
+		end
+	end
+	if state == warned[key] then
+		return
+	end
+	warned[key] = state
+	if state == "apart" or state == "old" then
+		PartySync:Trace("party", "whispers to %s take %s each way: %s", key, text,
+			state == "old" and "their build cannot use the party channel" or "not in the group")
+		PartySync:Problem("whisper:" .. key, format(state == "old" and L.PROBLEM_WHISPER_OLD_FMT or L.PROBLEM_WHISPER_FMT,
+			Peers:ShortName(key), text), { kind = state == "old" and "late" or "whisper", who = key })
+	else
+		if state == "grouped" then
+			PartySync:Trace("party", "whispers to %s take %s each way: the party channel carries the party's messages", key, text)
+		end
+		PartySync:Resolve("whisper:" .. key)
+	end
+	Changed()
+end
+
+--- Why `key` cannot be invited to the game's group from here, or nil.
+function Peers:WhyNoGroupInvite(key)
+	if not ((C_PartyInfo and C_PartyInfo.InviteUnit) or InviteUnit) then
+		return L.REASON_NO_GROUP_INVITE
+	end
+	if PartySync:UnitFor(self:MemberName(key)) then
+		return L.REASON_GROUPED_ALREADY
+	end
+	if IsInGroup and IsInGroup() and not ((UnitIsGroupLeader and UnitIsGroupLeader("player"))
+		or (UnitIsGroupAssistant and UnitIsGroupAssistant("player"))) then
+		return L.REASON_NOT_GROUP_LEADER
+	end
+	return nil
+end
+
+--- Invite `key` to the game's group: the party's messages then go on its channel.
+function Peers:InviteToGroup(key)
+	local invite = (C_PartyInfo and C_PartyInfo.InviteUnit) or InviteUnit
+	if not invite or self:WhyNoGroupInvite(key) then
+		return false
+	end
+	PartySync:Trace("party", "%s invited to the game's group: whispers are slow", key)
+	invite(self:MemberName(key))
+	return true
+end
 
 --------------------------------------------------------------------------------
 -- Latency
@@ -1434,6 +1581,10 @@ function Peers:Tick()
 				Changed()
 			elseif now - (peer.lastSeen or 0) >= HEARTBEAT_SECONDS - 1 then
 				self:Ping(peer.name, true)
+			end
+			if self:IsMember(key) then
+				self:CheckWhispers(key, peer, now)
+				WarnWhispers(key)
 			end
 		end
 	end

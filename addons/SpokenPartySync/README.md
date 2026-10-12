@@ -161,7 +161,7 @@ client lets the group channel carry ten messages at once and then one a second; 
 reason a line's text goes in at most eight pieces in a group. A debug log's header and lines
 (hundreds of them) and the burst test are always whispered, and a member in the group not yet
 heard from is greeted by the group's hello rather than a whisper that could arrive after the
-party it names is over. On Forever names have two parts and no realm: a whisper goes to the bare
+party it names is over. Slow whispers are told apart from a slow member: a member on the group channel is sent a whisper ping of its own every two minutes, and one unanswered for 10 s while the member is heard on the party channel means the server is holding whispers (the member's tooltip and the diagnostics say how long; nothing else changes while the party channel carries the party). When whispers carry it (the member is not in the group, or its build is too old for the party channel), their delay is the `whisper:` problem instead of the `late:` one: it says it is the game's server, to whisper the member in chat to see it, and offers Invite to Group (`C_PartyInfo.InviteUnit`; greyed for a group this character does not lead), or for an old build, to update it. On Forever names have two parts and no realm: a whisper goes to the bare
 "First Last". The prefix is `SpokenPartySync`, and a message is a two-letter kind and
 tab-separated fields:
 
