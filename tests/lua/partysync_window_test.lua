@@ -588,7 +588,7 @@ Expect("...and what her hello says", lala[1], format(ns.L.VERSION_FMT, ns.L.TITL
 Expect("...with each module's version", lala[2], format(ns.L.VERSION_FMT, "Spoken", "3.1.0"))
 Expect("...a module without the Party Sync rebuild said so", lala[3],
 	format(ns.L.VERSION_FMT, "Spoken Quests", "3.1.0") .. ns.L.VERSION_NO_PARTY_LINES)
-Expect("...and one not running", lala[4], format(ns.L.VERSION_NOT_RUNNING_FMT, "Spoken Zones"))
+Expect("...and one not running", lala[4], format(ns.L.VERSION_NOT_RUNNING_FMT, "Spoken Places"))
 Expect("this character's own row says the same of this computer", VersionLines(ns:MyKey())[3],
 	format(ns.L.VERSION_FMT, "Spoken Quests", "3.1.0") .. ns.L.VERSION_PARTY_LINES)
 Expect("...and the diagnostics too", table.concat(ns.Diagnostics:Lines(), "\n"):find("runs S=3.1.0;Q=3.1.0;D=0.1.0", 1, true) ~= nil, true)

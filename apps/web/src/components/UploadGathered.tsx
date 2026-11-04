@@ -15,7 +15,7 @@ import { envelopesFromSavedVariables, MAX_ENVELOPES } from "@/lib/contributions/
 
 import { previewOf } from "./ContributeForm";
 
-const SOURCE_LABELS: Record<string, string> = { quests: "quest and conversation lines", books: "book pages" };
+const SOURCE_LABELS: Record<string, string> = { quests: "quest and conversation lines", readables: "book pages" };
 
 type Loaded = { envelopes: string[]; counts: Record<string, number>; unreadable: number; titles: string[] };
 
@@ -134,7 +134,7 @@ export default function UploadGathered({ signedInAs }: { signedInAs: string | nu
         }}
         className={
           "flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed px-6 py-8 text-center text-sm transition-colors outline-none focus-visible:ring-3 " +
-          (dragging ? "border-primary bg-muted" : "border-muted-foreground/40 hover:border-muted-foreground hover:bg-muted/50")
+          (dragging ? "border-primary-ink bg-muted" : "border-muted-foreground/40 hover:border-muted-foreground hover:bg-muted/50")
         }
       >
         <strong>{fileName ?? "Drop SpokenContributions.lua here"}</strong>

@@ -32,13 +32,7 @@ export type LexiconEntry = {
   grapheme: string;
   /** Exact pronunciation, for anyone who can write IPA. Exactly one of ipa and alias. */
   ipa?: string;
-  /**
-   * A respelling ElevenLabs reads in place of the name, for anyone who cannot.
-   *
-   * Written as something a reader would simply say - "nomeregan", not "NOME-reh-gan". The
-   * capitals-for-stress convention is for people: sent to a model, capitals can read as an
-   * acronym and hyphens as pauses, which is a worse pronunciation than the one being fixed.
-   */
+  /** A respelling ElevenLabs reads in place of the name, for anyone who cannot. */
   alias?: string;
   confidence: Confidence;
   note?: string;
@@ -190,15 +184,6 @@ export function validateEntry(input: unknown, index: number): LexiconEntry {
   // the bare phonemes and would try to pronounce a slash.
   if (ipa && /[/[\]]/.test(ipa)) {
     throw new LexiconError(`${where}: IPA for "${grapheme}" must not include / or [ ]`);
-  }
-
-  // An alias is read aloud as written, so the stress-capitals convention makes it worse as
-  // speech: capitals can read as an acronym, and a hyphen as a pause. "nomeregan" is a
-  // pronunciation; "NOME-reh-gan" is a note about one, and belongs in `note` if anywhere.
-  if (alias && /[A-Z]{2,}/.test(alias)) {
-    throw new LexiconError(
-      `${where}: respell "${grapheme}" as it should be said, not in stress capitals`,
-    );
   }
 
   const confidence = raw.confidence;

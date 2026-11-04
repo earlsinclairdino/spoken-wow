@@ -9,7 +9,7 @@ import type { ResultLine } from "@/lib/search";
  * The quests section's half of the player: which file a line plays, and what to call it.
  *
  * Everything else - the transport, the scrubber, the keyboard element - is AudioPlayer,
- * shared with zones.
+ * shared with places.
  */
 
 /**

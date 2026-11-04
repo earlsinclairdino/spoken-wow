@@ -25,8 +25,8 @@ local IsLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
 local MODULES = {
 	{ code = "S", folder = "Spoken", title = "Spoken", shared = true },
 	{ code = "Q", folder = "Spoken_Quests", title = "Spoken Quests", source = "quests", shared = true },
-	{ code = "Z", folder = "Spoken_Zones", title = "Spoken Zones", source = "zones", shared = true },
-	{ code = "B", folder = "Spoken_Books", title = "Spoken Books", source = "books", shared = true },
+	{ code = "P", folder = "Spoken_Places", title = "Spoken Places", source = "places", shared = true },
+	{ code = "R", folder = "Spoken_Readables", title = "Spoken Readables", source = "readables", shared = true },
 	{ code = "D", folder = "Spoken_Developer", title = "Spoken Developer" },
 	{ code = "U", folder = "DialogueUI", title = "DialogueUI" },
 }

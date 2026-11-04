@@ -1,21 +1,23 @@
-// The languages this project knows about, for every half of it: the zones and books
+// The languages this project knows about, for every half of it: the places and readables
 // pipelines and the site (apps/web/src/lib/lang.ts). What a language IS lives here; what
-// one section does with it -- the folder a zones pack ships in, say -- lives with that
+// one section does with it -- the folder a places pack ships in, say -- lives with that
 // section.
 //
-// Must stay in step with the addons' own lists (SpokenZones.LOCALES in
-// addons/Spoken_Zones/Language.lua); pipelines/zones/tools/validate.mjs fails the build if
+// Must stay in step with the addons' own lists (SpokenPlaces.LOCALES in
+// addons/Spoken_Places/Language.lua); pipelines/places/tools/validate.mjs fails the build if
 // they drift, and apps/web/src/lib/lang.test.ts does the same for the site.
 //
 // The clients the Classic-family addons run on, plus the languages a community translates
-// into that no client ships. Italian is the one: no Classic client has ever run in it, so its
-// text comes from the QuestIT translators (pipelines/quests/tools/import_questit.py) and the
-// site, and a player hears it by choosing it, never because the client is in it.
+// into that no client ships. Italian and Vietnamese are those: no Classic client has ever run
+// in them, so their text comes from their translators (pipelines/quests/tools/import_questit.py,
+// pipelines/quests/tools/import_forever_csv.py) and the site, and a player hears them by
+// choosing them, never because the client is in them.
 
 export const BASE_LOCALE = "enUS";
 
 // `script` is what a client's fonts must be able to draw -- the addon uses it to
-// hide a language a player's client would render as boxes.
+// hide a language a player's client would render as boxes. Vietnamese is its own: its stacked
+// diacritics (ệ, ữ) are glyphs a font that draws French can still lack.
 //
 // `elevenLabs` is the language_code sent with a synthesis request: ISO 639-1, which
 // is what the multilingual models take. It names the language, not the region, so
@@ -33,7 +35,7 @@ export const BASE_LOCALE = "enUS";
 //
 // `client: false` is a language no game client runs in. GetLocale() never returns it, so
 // everything keyed by what the client shows is never built for it -- area-name aliases,
-// gossip locale text, a books page index, giver names, interface strings -- and nothing
+// gossip locale text, a readables page index, giver names, interface strings -- and nothing
 // that follows the client ("auto", contributions) ever lands on it. Absent means true.
 export const LOCALES = [
   { code: "enUS", name: "English", script: "latin", elevenLabs: "en", bcp47: "en-US", vmangos: 0 },
@@ -47,6 +49,7 @@ export const LOCALES = [
   { code: "koKR", name: "Korean", script: "korean", elevenLabs: "ko", bcp47: "ko-KR", vmangos: 1 },
   { code: "zhCN", name: "Chinese (S)", script: "simplifiedchinese", elevenLabs: "zh", bcp47: "zh-CN", vmangos: 4 },
   { code: "zhTW", name: "Chinese (T)", script: "traditionalchinese", elevenLabs: "zh", bcp47: "zh-TW", vmangos: 5 },
+  { code: "viVN", name: "Vietnamese", script: "vietnamese", elevenLabs: "vi", bcp47: "vi-VN", vmangos: null, client: false },
 ];
 
 export const CODES = LOCALES.map((l) => l.code);

@@ -1,28 +1,12 @@
--- The settings layout every Spoken addon builds its panel with.
---
--- BYTE-IDENTICAL IN EVERY SPOKEN ADDON. A copy lives in Spoken, SpokenQuests,
--- SpokenZones and SpokenBooks, and the packaging tests assert the copies are the same file.
--- The addons cannot share a file at runtime -- each is installed on its own, and the player is
--- only an optional dependency of the others -- so they share it by carrying it, the way
--- vendored libraries do. Edit one copy and copy it over the others; do not edit in place.
+-- The settings layout Spoken's page and every module's build with: the global SpokenLayout.
 --
 -- Deliberately idiom-free: no setfenv, no addon table, no localisation. Every label and
 -- every accessor is passed in, so the same file suits an addon that runs in a private
 -- environment and one that does not.
 --
--- Lua 5.0 rules, because this loads on 1.12: no `#`, no literal-string method calls.
---
 -- A page is a list of items -- its header, its sections, and the rows in them -- recorded as
 -- they are built and placed by Reflow, top to bottom. Placing them all in one pass is what lets
 -- a row be hidden (ShowWhen) and everything under it close up, rather than leaving a hole.
-
-local VERSION = 59
-
--- LibStub's contract, for LibStub's reason: several addons load this file and the newest
--- copy must win, whichever of them the client happens to load last.
-if SpokenLayout and SpokenLayout.VERSION and SpokenLayout.VERSION >= VERSION then
-    return
-end
 
 local format = string.format
 
@@ -65,18 +49,22 @@ local MAX_WIDTH = 2000
 local RIGHT_MARGIN = 10       -- room for the scroll bar
 local LABEL_PADDING = 24      -- room a button's end caps take either side of its label
 local BOX_MARGIN = 0          -- the rows' own edges: frames a page draws itself line up with them
--- Inside a group's box: the box spans the cards' width, and what is in it moves in from its sides
--- by GROUP_PAD. A section's title sits SECTION_TITLE_X further in, so the box keeps that much
--- above its first title and under its last row too: the titles are as far from its top and
--- bottom as from its left.
-local GROUP_PAD = 16
-local GROUP_PAD_Y = GROUP_PAD + SECTION_TITLE_X
-local GROUP_LINE = { 1, 1, 1, 0.22 }  -- the box's line where the client has no backdrops
+-- Every box on a page -- a list -- spans the same: from where a section's title starts to
+-- BOX_RIGHT short of the rows' right edge. A layout can set its own (`boxLeft`, `boxRight`): the
+-- welcome window's lists span its width.
+local BOX_LEFT = SECTION_TITLE_X
+local BOX_RIGHT = 14
+local DIVIDER_GAP = 16        -- either side of a divider between a group's sections
+local DIVIDER_COLOR = { 0.55, 0.40, 0.24 }  -- ...a thin line in the bronze of the lists' frame,
+local DIVIDER_ALPHA = 0.5     -- ...faint
+local SUBTITLE_HEIGHT = 14    -- a group's section title: GameFontHighlight, at the rows' labels,
+local SUBTITLE_GAP = 8        -- ...the divider 8 after it, through its middle,
+local SUBTITLE_BELOW = 10     -- ...and its rows 10 under it
 local GOLD = { 1, 0.82, 0 }      -- NORMAL_FONT_COLOR: a setting's name
 local WHITE = { 1, 1, 1 }        -- HIGHLIGHT_FONT_COLOR: a page's and a section's title
 local GREY = { 0.5, 0.5, 0.5 }   -- GameFontDisable: a setting greyed out
 
-local Layout = { VERSION = VERSION }
+local Layout = {}
 Layout.__index = Layout
 
 --- Widen a button to its label, never below `width`. The widths the panels ask for were
@@ -92,29 +80,24 @@ function Layout.Percent(value) return format("%d%%", value * 100) end
 function Layout.Seconds(value) return format("%.1fs", value) end
 function Layout.Number(value) return format("%d", math.floor(value + 0.5)) end
 
--- Where a font the game may not have falls back to one it does: 1.12 names fewer of them.
-local function Font(name, fallback)
-    if _G[name] then return name end
-    return fallback
-end
-
 -- The tooltip a row shows anywhere along it: what it is, what it does, and -- greyed out --
 -- why, under that. A control that does nothing, with no word on what would make it work,
--- reads as broken.
+-- reads as broken. A row with nothing to say beyond its label shows only the band: a tooltip
+-- that repeats the label is noise.
 local function ShowTip(frame, title, body)
     local band = frame.layoutBand or (frame.layoutHit and frame.layoutHit.layoutBand)
     if band then band:Show() end
-    if not body and not title then return end
+    local reason = frame.layoutReason or (frame.layoutControl and frame.layoutControl.layoutReason)
+    if not body and not reason and not frame.layoutHint then return end
     GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
     if title then
         GameTooltip:SetText(title)
-    else
+    elseif body then
         GameTooltip:SetText(body, 1, 1, 1, 1, true)
     end
     if title and body then
         GameTooltip:AddLine(body, 1, 1, 1, true)
     end
-    local reason = frame.layoutReason or (frame.layoutControl and frame.layoutControl.layoutReason)
     if reason then
         GameTooltip:AddLine(reason, 1, 0.5, 0.25, true)
     end
@@ -131,37 +114,20 @@ local function HideTip(frame)
     GameTooltip:Hide()
 end
 
--- 1.12 and 2.4.3 hand a script handler nothing: the frame is in `this` and its arguments in
--- `arg1` and `arg2`. This file has no environment, so its frames come from the client's own
--- CreateFrame and not a wrapper that would pass them on: every handler here is set through
--- Script or Hook, which do it themselves. Asked each time rather than once as the file loads,
--- so a test that switches clients after loading it gets the client it switched to. 1.12's
--- GetBuildInfo has no interface number at all.
-local function Legacy()
-    if WOW_PROJECT_ID ~= nil or not GetBuildInfo then return false end
-    local _, _, _, interface = GetBuildInfo()
-    return interface == nil or interface < 30000
-end
-
-local function Wrap(fn)
-    if not fn or not Legacy() then return fn end
-    return function() return fn(this, arg1, arg2) end
-end
-
 local function Script(frame, script, fn)
-    frame:SetScript(script, Wrap(fn))
+    frame:SetScript(script, fn)
 end
 
 local function Hook(frame, script, fn)
-    frame:HookScript(script, Wrap(fn))
+    frame:HookScript(script, fn)
 end
 
 -- Run `fn` after whatever `frame` already does on `script`, so a button's own hover face and a
--- row's tooltip can share one OnEnter. Two arguments, not `...`: 1.12 loads this file too.
+-- row's tooltip can share one OnEnter.
 local function Chain(frame, script, fn)
     local before = frame.GetScript and frame:GetScript(script)
     if before then
-        Script(frame, script, function(a, b) before(a, b); fn(a, b) end)
+        Script(frame, script, function(...) before(...); fn(...) end)
     else
         Script(frame, script, fn)
     end
@@ -193,7 +159,7 @@ end
 --
 -- Every control is the game's own, as its settings draw them: the minimal checkbox, the slider
 -- with steppers, the dropdown with steppers, the red panel button. A client without one of them
--- -- the legacy clients this file also loads on -- gets the classic template in its place.
+-- gets the classic template in its place.
 
 local function HasAtlas(name)
     return C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(name) ~= nil or false
@@ -207,6 +173,19 @@ local function AtlasTexture(frame, layer, atlas, useAtlasSize)
     texture.layoutAtlas = atlas
     return texture
 end
+
+Layout.AtlasTexture = AtlasTexture
+
+--- `size` in whole screen pixels, as `frame` is drawn: the interface scale cuts a plain 1 into a pixel
+--- and a bit, which draws a line one pixel wide here and two there, and an icon with a ragged edge.
+--- `least` is the fewest pixels it may be (1 for a size, 0 for a place).
+function Layout.Pixels(frame, size, least)
+    if PixelUtil and PixelUtil.GetNearestPixelSize then
+        return PixelUtil.GetNearestPixelSize(size, frame:GetEffectiveScale(), least or 1)
+    end
+    return size
+end
+Layout.HEADER_HEIGHT = HEADER_HEIGHT
 
 -- The settings' own sounds: the checkbox's on and off, as the game's settings play them.
 local function Sound(name)
@@ -242,6 +221,13 @@ function Layout.New(parent, x, top)
     return layout
 end
 
+--- Where a box's edges are, left and right, on this page: every box spans the same.
+function Layout:BoxSpan()
+    local left = self.left - BOX_MARGIN + (self.boxLeft or BOX_LEFT)
+    local right = self.left + self:Width() + BOX_MARGIN - (self.boxRight or BOX_RIGHT)
+    return left, right
+end
+
 --- How wide the page's rows run: the canvas's width less its margins, never narrower than
 --- the page was designed at, nor so wide that a row is hard to read across.
 function Layout:Width()
@@ -259,7 +245,7 @@ end
 --- Every control below indexes itself, so a page is searchable by being built.
 function Layout:Index(frame, label, tooltip)
     table.insert(self.entries, { frame = frame, label = label, tooltip = tooltip,
-        section = self.section, page = self.page })
+        section = self.section })
     return frame
 end
 
@@ -297,6 +283,20 @@ function Layout:Columns(count)
     return self
 end
 
+-- An item onto the page: at the end, or, while Fill runs, where its Keep stands.
+local function AddItem(layout, item)
+    local keep = layout.filling
+    if keep then
+        for index, other in ipairs(layout.items) do
+            if other == keep then
+                table.insert(layout.items, index, item)
+                return
+            end
+        end
+    end
+    table.insert(layout.items, item)
+end
+
 -- A row, recorded: how tall it is, what it holds, and `place(top, x)`, which puts it there.
 -- `control` is the frame its layoutY is kept on. Rows on one line of columns share `line`.
 function Layout:AddRow(height, control, regions, place)
@@ -318,7 +318,7 @@ function Layout:AddRow(height, control, regions, place)
     if self.current then
         table.insert(self.current.rows, row)
     else
-        table.insert(self.items, row)
+        AddItem(self, row)
     end
     control.layoutRow = row
     self.dirty = true
@@ -395,6 +395,7 @@ function Layout:Reflow()
     local y = self.top
     local started = false
     local loose
+    local underDivider = false
     local function EndLoose(rows, top)
         local bottom = PlaceRows(self, rows, top)
         for _, row in ipairs(rows) do
@@ -406,6 +407,8 @@ function Layout:Reflow()
         return top
     end
     for _, item in ipairs(self.items) do
+        local first = underDivider
+        underDivider = false
         if item.kind == "intro" then
             for _, region in ipairs(item.regions) do region:Show() end
             item.place(y)
@@ -413,17 +416,13 @@ function Layout:Reflow()
             -- over a scrolling page, the list's own top is already 2 under the divider.
             y = self.intro.fixed and -(HEADER_PAD - 2) or -(HEADER_HEIGHT + HEADER_PAD)
             if item.body then y = item.body(y) end
+            underDivider = self.intro.fixed and not item.body
             started = false
-        elseif item.kind == "header" then
-            if self.headerHidden then
-                for _, region in ipairs(item.regions or {}) do region:Hide() end
-            else
-                item.place(y)
-                y = y - item.height - HEADER_PAD
-            end
         elseif item.kind == "row" then
             -- Rows outside any section -- a page's search box, its status, its main switch --
-            -- placed as one run, so they space like the rows in a box.
+            -- placed as one run, so they space like the rows in a box. Right under the divider,
+            -- they stand as far under it as the section's title after them stands under them.
+            if first and not loose then y = y - (ROW_GAP + SECTION_TITLE_Y - HEADER_PAD) end
             loose = loose or {}
             table.insert(loose, item)
         elseif item.kind == "group" then
@@ -440,44 +439,25 @@ function Layout:Reflow()
             item.shown = any
             if not any then
                 item.heading:Hide()
-                item.box:Hide()
             else
+                -- Its title as a section's, its first section's rows under it.
                 if started then y = y - ROW_GAP end
                 item.heading:Show()
                 Put(item.heading, self.parent, self.left + SECTION_TITLE_X, y - SECTION_TITLE_Y)
                 item.heading.layoutY = y
-                y = y - SECTION_HEIGHT
+                y = y - SECTION_HEIGHT - ROW_GAP
                 item.top = y
-                -- The padding reaches the first section's title, not the top of its band: the title
-                -- sits SECTION_TITLE_Y down the band.
-                local first
-                for _, section in ipairs(item.sections) do
-                    for _, row in ipairs(section.rows) do
-                        if not first and Visible(row) then first = section end
-                    end
-                end
-                y = y - GROUP_PAD_Y + ((first and first.text) and SECTION_TITLE_Y or 0)
-                -- Everything inside, in from the box's sides by its padding, until the group ends.
-                item.baseLeft = self.left
-                self.left, self.inset = self.left + GROUP_PAD, GROUP_PAD
-                -- Its first section starts at the padding, with no gap of its own.
+                -- Its first section follows its title, with no divider of its own.
                 started = false
             end
         elseif item.kind == "groupEnd" then
             local group = item.group
             if group.shown then
-                self.left, self.inset = group.baseLeft or self.left, nil
-                y = y - GROUP_PAD_Y
                 group.bottom = y
-                -- The cards' width: from the rows' left edge across the page's width.
-                group.left, group.right = self.left - BOX_MARGIN, self.left + self:Width() + BOX_MARGIN
-                local box = group.box
-                Put(box, self.parent, group.left, group.top)
-                box:SetWidth(group.right - group.left)
-                box:SetHeight(group.top - group.bottom)
-                box:Show()
                 started = true
             end
+        elseif item.kind == "keep" then
+            -- Where Fill puts later sections; it takes no room itself.
         else
             if loose then
                 y = EndLoose(loose, y)
@@ -493,8 +473,33 @@ function Layout:Reflow()
                 for _, row in ipairs(item.rows) do ShowRegions(row, false); row.shown = false end
             else
                 -- Each a list element, 9 from the one before: the section's title in its own 45,
-                -- and its rows under it.
-                if started then y = y - ROW_GAP end
+                -- and its rows under it. In a group, a divider where its title would be, from
+                -- where its rows' labels start to where the boxes end, DIVIDER_GAP from the rows
+                -- either side.
+                local divider, small = item.divider, item.small
+                if divider and (started or small) then
+                    -- Its small title where the rows' labels start, the line on from it; an
+                    -- untitled one, the line alone. DIVIDER_GAP under the rows above.
+                    if started then y = y - DIVIDER_GAP end
+                    local _, right = self:BoxSpan()
+                    local left = self.left + LABEL_X
+                    local height, from = divider:GetHeight(), left
+                    if small then
+                        Put(small, self.parent, left, y)
+                        small:Show()
+                        small.layoutY = y
+                        height = SUBTITLE_HEIGHT
+                        from = left + math.ceil(small:GetStringWidth() or 0) + SUBTITLE_GAP
+                    end
+                    Put(divider, self.parent, from, y - math.floor((height - divider:GetHeight()) / 2))
+                    divider:SetWidth(math.max(1, right - from))
+                    divider:Show()
+                    y = y - height - (small and SUBTITLE_BELOW or DIVIDER_GAP)
+                elseif started then
+                    y = y - ROW_GAP
+                elseif divider then
+                    divider:Hide()
+                end
                 item.place(y)
                 local rowsTop = y - item.band - (item.band > 0 and ROW_GAP or 0)
                 local bottom = PlaceRows(self, item.rows, rowsTop)
@@ -510,63 +515,10 @@ function Layout:Reflow()
     return y
 end
 
---- Drop the page's title and description: a tab shows the page's name already.
-function Layout:HideHeader()
-    self.headerHidden = true
-    self.dirty = true
-end
-
 --- How tall the panel has grown. For a scrolling host that must size its content.
 function Layout:Height()
     self:Reflow()
     return self.top - self.y
-end
-
---- The top of a page: its icon, its name, and one sentence saying what the page is for.
---- Neither is a row: the panel tests measure rows and sections, and a title is neither.
-function Layout:Header(title, description, width, icon)
-    local parent, left = self.parent, self.left
-    local texture
-    if icon then
-        texture = parent:CreateTexture(nil, "ARTWORK")
-        texture:SetWidth(40)
-        texture:SetHeight(40)
-        texture:SetTexture(icon)
-        self.icon = texture
-    end
-    local textX = icon and 40 + 12 or 0
-    local fs = parent:CreateFontString(nil, "ARTWORK", Font("GameFontHighlightHuge", "GameFontHighlightLarge"))
-    fs:SetJustifyH("LEFT")
-    fs:SetText(title)
-    fs.layoutTitle = true
-    self.page = title
-    local line
-    if description then
-        -- Smaller and softer than the title, so the eye reads it as what the page is about
-        -- rather than as one more setting.
-        line = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-        line:SetJustifyH("LEFT")
-        line:SetJustifyV("TOP")
-        line:SetTextColor(0.78, 0.78, 0.78)
-        line:SetHeight(32)
-        line:SetText(description)
-    end
-    local height = 26 + (description and 32 or 0)
-    if icon and height < 40 then height = 40 end
-    local layout = self
-    local regions = { fs }
-    if texture then table.insert(regions, texture) end
-    if line then table.insert(regions, line) end
-    table.insert(self.items, { kind = "header", height = height, regions = regions, place = function(top)
-        if texture then Put(texture, parent, left, top) end
-        Put(fs, parent, left + textX, top - 2)
-        if line then
-            line:SetWidth(width or (layout:Width() - textX))
-            Put(line, parent, left + textX, top - 26)
-        end
-    end })
-    self.dirty = true
-    return fs
 end
 
 -- The game's own settings divider (SettingsListSectionHeader), faded at both ends, where the
@@ -578,16 +530,27 @@ local function Rule(parent)
     if info and rule.SetAtlas then
         -- At its own size, as the game's header draws it (useAtlasSize).
         rule:SetAtlas(DIVIDER_ATLAS, true)
-        rule:SetHeight(info.height or 2)
+        rule:SetHeight(Layout.Pixels(parent, info.height or 2))
         rule.layoutAtlas = DIVIDER_ATLAS
     else
         if rule.SetColorTexture then rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.3) end
-        rule:SetHeight(1)
+        rule:SetHeight(Layout.Pixels(parent, 1))
     end
     return rule
 end
 -- The welcome window draws its footer's divider with the header's.
 Layout.Rule = Rule
+
+-- A divider between a group's sections: one thin line in one colour. The header's divider is
+-- for under a title.
+local function Divider(parent)
+    local line = Flat(parent, "ARTWORK", 1, 1, 1, 1)
+    line:SetVertexColor(DIVIDER_COLOR[1], DIVIDER_COLOR[2], DIVIDER_COLOR[3])
+    line:SetAlpha(DIVIDER_ALPHA)
+    line:SetHeight(Layout.Pixels(parent, 1))
+    line.layoutColor = DIVIDER_COLOR
+    return line
+end
 
 --- A new section: its title in the game's section header -- GameFontHighlightLarge, white, 7 in
 --- and 16 down in a 45-tall element -- and its rows under it, as the game's settings lay a page
@@ -597,24 +560,34 @@ function Layout:Section(text, plain)
     self.section = text
     local parent, left = self.parent, self.left
     local fs
-    if text then
-        fs = parent:CreateFontString(nil, "ARTWORK", Font("GameFontHighlightLarge", "GameFontNormalLarge"))
+    -- Inside a group a section has no title: a divider stands where it would, and its name is
+    -- still what search says its rows are under.
+    if text and not self.group then
+        fs = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
         fs:SetJustifyH("LEFT")
         fs:SetJustifyV("TOP")
         fs:SetTextColor(WHITE[1], WHITE[2], WHITE[3])
         fs:SetText(text)
         fs.layoutHeading, fs.layoutHeight = true, SECTION_HEIGHT
     end
+    -- In a group, a small title instead, where its rows' labels start, the divider running on
+    -- from it to where the boxes end (Reflow).
+    local small
+    if text and self.group then
+        small = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+        small:SetJustifyH("LEFT")
+        small:SetText(text)
+        small:Hide()
+    end
     local layout = self
-    local section = { kind = "section", text = text, rows = {}, heading = fs,
-        band = text and SECTION_HEIGHT or 0, plain = plain }
+    local section = { kind = "section", text = text, rows = {}, heading = fs, small = small,
+        band = fs and SECTION_HEIGHT or 0, plain = plain, divider = self.group and Divider(parent) or nil }
     section.place = function(top)
         if fs then
             fs:Show()
-            -- The layout's left edge as it is now: a group's box moves it in.
             local here = layout.left
-            if layout.centred then
-                -- Across the rows' middle, in a window that centres its titles (the welcome).
+            if layout.centred and not layout.leftTitles then
+                -- Across the rows' middle, in a window that centres its titles.
                 fs:SetJustifyH("CENTER")
                 fs:ClearAllPoints()
                 fs:SetPoint("TOP", parent, "TOPLEFT", math.floor(here + layout:Width() / 2), top - SECTION_TITLE_Y)
@@ -631,8 +604,10 @@ function Layout:Section(text, plain)
     end
     section.hide = function()
         if fs then fs:Hide() end
+        if small then small:Hide() end
+        if section.divider then section.divider:Hide() end
     end
-    table.insert(self.items, section)
+    AddItem(self, section)
     if self.group then table.insert(self.group.sections, section) end
     self.current = section
     self.empty = false
@@ -653,68 +628,58 @@ function Layout:Section(text, plain)
     return fs
 end
 
---- A titled box around the sections that follow, up to EndGroup: settings that belong together,
---- a narrator style's, set apart from the rest of the page. The title sits above the box as a
---- section's does; the box is the game's tooltip border and background, as the module cards are
---- drawn, as wide as they are, with those sections GROUP_PAD inside it on every side; it goes with
---- them when none is showing.
+--- A title over the sections that follow, up to EndGroup: settings that belong together, a
+--- narrator style's. The title is a section's; the sections under it have none of their own, a
+--- divider between each where its title would be. It goes with them when none is showing.
 function Layout:Group(title)
     self:Columns(nil)
     local parent = self.parent
-    local fs = parent:CreateFontString(nil, "ARTWORK", Font("GameFontHighlightLarge", "GameFontNormalLarge"))
+    local fs = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
     fs:SetJustifyH("LEFT")
     fs:SetJustifyV("TOP")
     fs:SetTextColor(WHITE[1], WHITE[2], WHITE[3])
     fs:SetText(title)
     fs.layoutHeading, fs.layoutHeight = true, SECTION_HEIGHT
-    local template = BackdropTemplateMixin and "BackdropTemplate" or nil
-    local box = CreateFrame("Frame", nil, parent, template)
-    local edges = {}
-    if box.SetBackdrop then
-        -- The cards' border and background (Card, below), in the grey of a card not chosen.
-        box:SetBackdrop({ bgFile = [[Interface\Tooltips\UI-Tooltip-Background]],
-            edgeFile = [[Interface\Tooltips\UI-Tooltip-Border]], tile = true, tileSize = 16, edgeSize = 14,
-            insets = { left = 4, right = 4, top = 4, bottom = 4 } })
-        box:SetBackdropColor(0.06, 0.06, 0.06, 0.6)
-        box:SetBackdropBorderColor(0.45, 0.45, 0.45, 1)
-    end
-    -- Under the page, not over it: the rows' labels are the page's own, and a frame of its own
-    -- above the page drew its background over them.
-    local level = parent.GetFrameLevel and parent:GetFrameLevel() or 0
-    if level < 1 and parent.SetFrameLevel then
-        parent:SetFrameLevel(1)
-        level = 1
-    end
-    if box.SetFrameLevel then box:SetFrameLevel(math.max(0, level - 1)) end
-    for _, side in ipairs(box.SetBackdrop and {} or { "top", "bottom", "left", "right" }) do
-        local line = Flat(box, "BORDER", GROUP_LINE[1], GROUP_LINE[2], GROUP_LINE[3], GROUP_LINE[4])
-        if side == "top" or side == "bottom" then
-            line:SetHeight(1)
-            line:SetPoint(side == "top" and "TOPLEFT" or "BOTTOMLEFT", box, side == "top" and "TOPLEFT" or "BOTTOMLEFT", 0, 0)
-            line:SetPoint(side == "top" and "TOPRIGHT" or "BOTTOMRIGHT", box, side == "top" and "TOPRIGHT" or "BOTTOMRIGHT", 0, 0)
-        else
-            line:SetWidth(1)
-            line:SetPoint(side == "left" and "TOPLEFT" or "TOPRIGHT", box, side == "left" and "TOPLEFT" or "TOPRIGHT", 0, 0)
-            line:SetPoint(side == "left" and "BOTTOMLEFT" or "BOTTOMRIGHT", box, side == "left" and "BOTTOMLEFT" or "BOTTOMRIGHT", 0, 0)
-        end
-        edges[side] = line
-    end
-    box:Hide()
-    local group = { kind = "group", text = title, heading = fs, box = box, edges = edges, sections = {} }
-    table.insert(self.items, group)
+    fs:Hide()
+    local group = { kind = "group", text = title, heading = fs, sections = {} }
+    AddItem(self, group)
     self.group, self.current = group, nil
     self.dirty = true
     return fs
 end
 
---- The end of the box Group opened.
+--- The end of the sections Group opened.
 function Layout:EndGroup()
     self:Columns(nil)
     if self.group then
-        table.insert(self.items, { kind = "groupEnd", group = self.group })
+        AddItem(self, { kind = "groupEnd", group = self.group })
     end
     self.group, self.current = nil, nil
     self.dirty = true
+end
+
+--- A place on the page for sections added later, by another addon after the page was built:
+--- Fill puts them there, in the order they come, inside the group this stands in.
+function Layout:Keep()
+    self:Columns(nil)
+    local keep = { kind = "keep", group = self.group, x = self.x }
+    table.insert(self.items, keep)
+    self.current = nil
+    return keep
+end
+
+--- Run build(layout) with the sections and rows it adds going in at `keep`, then carry on where
+--- the page was. Hands back what build did; an error in it is raised again once the page is back.
+function Layout:Fill(keep, build)
+    local group, current, section, x, filling = self.group, self.current, self.section, self.x, self.filling
+    self:Columns(nil)
+    self.group, self.current, self.x, self.filling = keep.group, nil, keep.x, keep
+    local ok, result = pcall(build, self)
+    self:Columns(nil)
+    self.group, self.current, self.section, self.x, self.filling = group, current, section, x, filling
+    self.dirty = true
+    if not ok then error(result, 0) end
+    return result
 end
 
 -- A row's hover: the game's HoverBackground, white at a tenth, from 10 left of the row to 5 short
@@ -795,9 +760,7 @@ end
 -- 85 short of the row's middle; small for an option under another.
 local function PlaceLabel(layout, caption, x, top)
     local start = x + LABEL_X
-    -- The font object itself: the legacy clients take no font by its name here.
-    local font = x > layout.left and "GameFontNormalSmall" or "GameFontNormal"
-    caption:SetFontObject(_G[font] or font)
+    caption:SetFontObject(x > layout.left and "GameFontNormalSmall" or "GameFontNormal")
     caption:SetWidth(math.max(40, layout:Middle() - LABEL_END - start))
     Put(caption, layout.parent, start, top)
 end
@@ -827,10 +790,12 @@ local function EachRow(layout, fn)
     end
 end
 
-function Layout:RequiresAll(applies, reason, except)
+function Layout:RequiresAll(applies, reason, ...)
+    local except = {}
+    for i = 1, select("#", ...) do except[(select(i, ...))] = true end
     EachRow(self, function(row)
         local control = row.control
-        if control and control ~= except and not control.layoutCard then
+        if control and not except[control] and not control.layoutCard then
             self:Requires(control, applies, reason)
         end
     end)
@@ -892,7 +857,7 @@ function Layout:Refresh()
     end
     -- A group whose every setting is greyed out -- a module switched off -- greys its title too.
     for _, item in ipairs(self.items) do
-        if item.kind == "section" and item.heading then
+        if item.kind == "section" and (item.heading or item.small) then
             local any, live = false, false
             for _, row in ipairs(item.rows) do
                 local control = row.control
@@ -903,7 +868,8 @@ function Layout:Refresh()
             end
             local grey = any and not live
             local color = grey and GREY or WHITE
-            item.heading:SetTextColor(color[1], color[2], color[3])
+            local title = item.heading or item.small
+            title:SetTextColor(color[1], color[2], color[3])
             item.greyed = grey
         end
     end
@@ -923,7 +889,7 @@ function Layout:Highlight(row)
         glow.texture:SetAllPoints()
         if glow.texture.SetColorTexture then glow.texture:SetColorTexture(1, 0.82, 0, 1) end
         Script(glow, "OnUpdate", function(frame, elapsed)
-            frame.left = frame.left - (elapsed or arg1 or 0)
+            frame.left = frame.left - elapsed
             if frame.left <= 0 then
                 frame:Hide()
                 return
@@ -1082,10 +1048,7 @@ function Layout:Slider(label, minValue, maxValue, step, read, write, apply, show
         frame = CreateFrame("Frame", nil, parent)
         frame:SetWidth(SLIDER_WIDTH)
         frame:SetHeight(20)
-        -- OptionsSliderTemplate is the legacy clients' name for it; WOW_PROJECT_ID exists on
-        -- every client that calls it UISliderTemplate.
-        local template = WOW_PROJECT_ID == nil and "OptionsSliderTemplate" or "UISliderTemplate"
-        slider = CreateFrame("Slider", nil, frame, template)
+        slider = CreateFrame("Slider", nil, frame, "UISliderTemplate")
         -- Both load-bearing: a slider given neither draws nothing at all.
         slider:SetHeight(16)
         slider:SetWidth(SLIDER_WIDTH - 50)
@@ -1104,9 +1067,8 @@ function Layout:Slider(label, minValue, maxValue, step, read, write, apply, show
             value:SetText(show(read()))
         end
         Script(frame, "OnShow", sync)
-        -- A slider has no SetEnabled on 2.4.3 and 3.3.5, and Refresh calls this for every slider
-        -- with a Requires: Enable and Disable where it has those, and where it has neither, it
-        -- at least stops taking the mouse.
+        -- Refresh calls this for every slider with a Requires: Enable and Disable where it has
+        -- no SetEnabled, and where it has neither, it at least stops taking the mouse.
         setEnabled = function(on)
             if slider.SetEnabled then
                 slider:SetEnabled(on)
@@ -1171,8 +1133,6 @@ function Layout:Cycle(label, tooltip, values, read, write, apply, describe)
                 break
             end
         end
-        -- Not math.mod: 1.12's Lua has it, LuaJIT does not, and the harness runs on
-        -- LuaJIT. Plain arithmetic is the same wrap on every one of them.
         local following = index + 1
         if following > count then
             following = 1
@@ -1211,6 +1171,12 @@ function Layout:Dropdown(label, tooltip, values, read, write, apply, describe)
     local caption = Caption(parent, label)
 
     local control, dropdown, Sync, setEnabled, offset
+    -- Tables by label, since a list built afresh hands back equal entries, not the same tables;
+    -- anything else by value, so two entries with one label are told apart.
+    local function Chosen(value, current)
+        if type(value) == "table" then return describe(value) == describe(current) end
+        return value == current
+    end
     local function Choose(value)
         write(value)
         if apply then apply() end
@@ -1227,11 +1193,9 @@ function Layout:Dropdown(label, tooltip, values, read, write, apply, describe)
     end
     if dropdown then
         dropdown:SetWidth(DROPDOWN_WIDTH)
-        -- Compared by what it says: a list built afresh each time hands back an equal entry, not
-        -- the same table.
         dropdown:SetupMenu(function(_, root)
             for _, value in ipairs(Resolve(values)) do
-                root:CreateRadio(describe(value), function() return describe(read()) == describe(value) end,
+                root:CreateRadio(describe(value), function() return Chosen(value, read()) end,
                     function() Choose(value) end, value)
             end
         end)
@@ -1249,7 +1213,7 @@ function Layout:Dropdown(label, tooltip, values, read, write, apply, describe)
             for _, value in ipairs(Resolve(values)) do
                 local info = UIDropDownMenu_CreateInfo()
                 info.text = describe(value)
-                info.checked = describe(value) == describe(current)
+                info.checked = Chosen(value, current)
                 info.func = function()
                     Choose(value)
                     if CloseDropDownMenus then CloseDropDownMenus() end
@@ -1283,11 +1247,10 @@ function Layout:Dropdown(label, tooltip, values, read, write, apply, describe)
 end
 
 --- A button that belongs to the section just begun rather than to a row: as wide as its label,
---- at the end of the section's title line, as the game's header has its Defaults button. In a
---- centred window, where the title sits across the middle, it goes under the title instead, as far
---- from it as from the rows under it. Its text may change: Layout.FitButton sizes it again.
+--- at the end of the section's title line, as the game's header has its Defaults button, in a
+--- centred window too, where the title sits across the middle. Its text may change:
+--- Layout.FitButton sizes it again.
 local HEADING_LINE = 17      -- GameFontHighlightLarge's line
-local HEADING_BUTTON_GAP = 12
 function Layout:HeadingButton(label, onClick, tooltip)
     local section = self.current
     local parent, layout = self.parent, self
@@ -1297,22 +1260,15 @@ function Layout:HeadingButton(label, onClick, tooltip)
     Above(button, parent)
     Tooltip(button, label, tooltip)
     self:Index(button, label, tooltip)
-    if self.centred then
-        section.band = SECTION_TITLE_Y + HEADING_LINE + 2 * HEADING_BUTTON_GAP + BUTTON_HEIGHT - ROW_GAP
-    end
     local place, hide = section.place, section.hide
     section.place = function(top)
         place(top)
         button:Show()
         button:ClearAllPoints()
-        if layout.centred then
-            button:SetPoint("TOP", parent, "TOPLEFT", math.floor(layout.left + layout:Width() / 2),
-                top - SECTION_TITLE_Y - HEADING_LINE - HEADING_BUTTON_GAP)
-        else
-            -- Its middle on the title's.
-            button:SetPoint("TOPRIGHT", parent, "TOPLEFT", layout.left + layout:Width(),
-                top - SECTION_TITLE_Y - math.floor((HEADING_LINE - BUTTON_HEIGHT) / 2))
-        end
+        -- Its middle on the title's, its right where the boxes' is.
+        local _, right = layout:BoxSpan()
+        button:SetPoint("TOPRIGHT", parent, "TOPLEFT", right,
+            top - SECTION_TITLE_Y - math.floor((HEADING_LINE - BUTTON_HEIGHT) / 2))
     end
     section.hide = function()
         hide()
@@ -1392,12 +1348,12 @@ end
 --------------------------------------------------------------------------------
 --
 -- For the choices a page is really about, where a column of switches would bury them: the
--- modules, and the narrator's style. Each option is a card of its own, in the game's tooltip
--- border, three to a line under the section's title, the row as wide as the rows below. The
--- chosen or enabled cards stand at full strength, gold round them, with a faint wash; the rest
--- stand back at lower opacity and come forward under the pointer. Everything on a card is drawn
--- with what the rest of the page uses: the game's checkbox and red button, a dark screen round
--- a picture.
+-- modules and the narrator's style, a row each in a list, or a card each, side by side, where a
+-- list is too tall. A list sits in the bronze frame across the box's span, a card in the game's
+-- tooltip border. What is chosen or enabled stands at full strength in gold; the rest stand back
+-- at lower opacity and come forward under the pointer.
+-- Everything is drawn with what the rest of the page uses: the game's checkbox and red button, a
+-- dark screen round a picture.
 
 local CARD_GAP = 10           -- between cards
 local CARD_PAD = 12            -- inside a card, in whole pixels so its edges line up
@@ -1407,8 +1363,6 @@ local DIM_OFF = 0.4           -- one that cannot be had: a module not installed
 local SKETCH_WIDTH = 110      -- a narrator style's sketch, drawn at this size, scaled to its screen
 local SKETCH_HEIGHT = 58
 local SCREEN_HEIGHT = 66      -- the small dark screen a style's sketch is shown in
-local ICON_FRAME = 44         -- a module's icon in the input field's frame, as a sketch is in its screen,
-local CARD_ICON = ICON_FRAME - 6  -- ...reaching its rim, its corners rounded to sit inside it
 local TITLE_GAP = 6           -- between a card's name and its words
 local STATUS_HEIGHT = 32
 
@@ -1425,11 +1379,10 @@ local function NewBadge(parent, clickable)
     if clickable then
         local ok, made = pcall(CreateFrame, "Button", nil, parent, "UIMenuButtonStretchTemplate")
         badge = ok and made or CreateFrame("Button", nil, parent)
-        badge:SetWidth(FIELD_WIDTH)
     else
         badge = CreateFrame("Frame", nil, parent)
-        badge:SetWidth(FIELD_WIDTH)
     end
+    badge:SetWidth(FIELD_WIDTH)
     badge:SetHeight(FIELD_HEIGHT)
     local text = badge:CreateFontString(nil, "ARTWORK", clickable and "GameFontHighlightSmall" or "GameFontHighlight")
     text:SetJustifyH(clickable and "CENTER" or "LEFT")
@@ -1468,53 +1421,6 @@ local function NewBadge(parent, clickable)
 end
 Layout.NewBadge = NewBadge
 
---- A count on a card: its words on the left and the number on the right, as "Voice Packs  3". A
---- status, not a control: nothing about it says click. `Set(kind, message, value)` as NewBadge's;
---- `SetGreyed(on)` turns it grey with its card's icon, as a module that is off.
-local COUNT_HEIGHT = 14
-local function NewCount(parent)
-    local line = CreateFrame("Frame", nil, parent)
-    line:SetHeight(COUNT_HEIGHT)
-    local text = line:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    text:SetPoint("TOPLEFT", line, "TOPLEFT", 0, 0)
-    text:SetJustifyH("LEFT")
-    if text.SetWordWrap then text:SetWordWrap(false) end
-    local count = line:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    count:SetPoint("TOPRIGHT", line, "TOPRIGHT", 0, 0)
-    count:SetJustifyH("RIGHT")
-    text:SetPoint("RIGHT", count, "LEFT", -6, 0)
-
-    local greyed, muted = false, false
-    local function Paint()
-        local grey = (greyed or muted) and 0.5 or 1
-        text:SetTextColor(grey, grey, grey)
-        count:SetTextColor(grey, grey, grey)
-    end
-
-    function line:Set(kind, message, value)
-        kind = TAG_ALIASES[kind] or kind
-        self.state, self.message, self.value = kind, message, value
-        if not kind then
-            self:SetAlpha(0)
-            return
-        end
-        self:SetAlpha(1)
-        muted = kind == "muted"
-        text:SetText(message or "")
-        count:SetText(value or "")
-        Paint()
-    end
-    function line:SetGreyed(on)
-        greyed = on and true or false
-        self.layoutGreyed = greyed
-        Paint()
-    end
-    line.text, line.count = text, count
-    line.layoutStatusLine = line
-    return line
-end
-Layout.NewCount = NewCount
-
 local function Updater(self, fn)
     self.updaters = self.updaters or {}
     table.insert(self.updaters, fn)
@@ -1525,29 +1431,47 @@ function Layout:OnRefresh(fn)
     Updater(self, fn)
 end
 
+-- Under the pointer, `frame.layoutOver` is set and `frame:Look()` asked to draw it. Still over
+-- the frame while over its checkbox or its button, which take the pointer from it: the hover ends
+-- when the pointer leaves the frame's bounds, not when it reaches a child.
+local function Hover(frame)
+    local function Inside() return frame.IsMouseOver and frame:IsMouseOver() end
+    local function Leave()
+        frame.layoutOver = false
+        Script(frame, "OnUpdate", nil)
+        frame:Look()
+    end
+    Chain(frame, "OnEnter", function()
+        frame.layoutOver = true
+        frame:Look()
+        Script(frame, "OnUpdate", function() if not Inside() then Leave() end end)
+    end)
+    Chain(frame, "OnLeave", function() if not Inside() then Leave() end end)
+end
+
+-- The game's tooltip border and background, as the game's own cards and lists are drawn.
+local function TooltipBackdrop(frame)
+    frame:SetBackdrop({ bgFile = [[Interface\Tooltips\UI-Tooltip-Background]],
+        edgeFile = [[Interface\Tooltips\UI-Tooltip-Border]], tile = true, tileSize = 16, edgeSize = 14,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 } })
+    frame:SetBackdropColor(0.06, 0.06, 0.06, 0.9)
+end
+
 -- A card: the game's tooltip border round it, the same whatever its state. Chosen or enabled
 -- (`layoutFaceOn`), it stands at full strength under the chosen tab's faint wash; otherwise it
 -- stands back, and comes forward under the pointer. `layoutFaceOff` marks an option that cannot
 -- be had (a module not installed), which stays furthest back and does not answer the pointer.
 local function Card(parent)
-    local template = BackdropTemplateMixin and "BackdropTemplate" or nil
-    local card = CreateFrame("Button", nil, parent, template)
-    -- The game's tooltip border and background, as the game's own cards are drawn; the wash a
-    -- faint light inside it.
-    if card.SetBackdrop then
-        card:SetBackdrop({ bgFile = [[Interface\Tooltips\UI-Tooltip-Background]],
-            edgeFile = [[Interface\Tooltips\UI-Tooltip-Border]], tile = true, tileSize = 16, edgeSize = 14,
-            insets = { left = 4, right = 4, top = 4, bottom = 4 } })
-        card:SetBackdropColor(0.06, 0.06, 0.06, 0.9)
-    end
+    local card = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    -- The wash is a faint light inside the border.
+    if card.SetBackdrop then TooltipBackdrop(card) end
     local wash = Flat(card, "BORDER", 1, 1, 1, 0.05)
     wash:SetPoint("TOPLEFT", card, "TOPLEFT", 4, -4)
     wash:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -4, 4)
-    local over = false
     -- Under the pointer, every card's wash comes up: a chosen one's from half strength to full,
     -- another's from nothing to half, as it comes forward.
     function card:Look()
-        local off = self.layoutFaceOff
+        local off, over = self.layoutFaceOff, self.layoutOver
         if self.layoutFaceOn and not off then
             wash:Show()
             wash:SetAlpha(over and 1 or 0.5)
@@ -1557,7 +1481,6 @@ local function Card(parent)
             wash:SetAlpha(0.5)
             self:SetAlpha((off and DIM_OFF) or (over and DIM_OVER) or DIM)
         end
-        self.layoutOver = over
         -- In the tooltip border: gold round what is chosen, lighter under the pointer.
         if self.SetBackdropBorderColor then
             if self.layoutFaceOn and not off then
@@ -1569,20 +1492,7 @@ local function Card(parent)
             end
         end
     end
-    -- Still over the card while over its checkbox or its button, which take the pointer from
-    -- it: the hover ends when the pointer leaves the card's bounds, not when it reaches a child.
-    local function Inside() return card.IsMouseOver and card:IsMouseOver() end
-    local function Leave()
-        over = false
-        Script(card, "OnUpdate", nil)
-        card:Look()
-    end
-    Chain(card, "OnEnter", function()
-        over = true
-        card:Look()
-        Script(card, "OnUpdate", function() if not Inside() then Leave() end end)
-    end)
-    Chain(card, "OnLeave", function() if not Inside() then Leave() end end)
+    Hover(card)
     card.layoutWash = wash
     return card
 end
@@ -1591,8 +1501,7 @@ end
 -- game's tooltip edge, as the card round it is, thinner and in grey so the card's stays the
 -- one that says what is chosen.
 local function InputFrame(parent)
-    local template = BackdropTemplateMixin and "BackdropTemplate" or nil
-    local frame = CreateFrame("Frame", nil, parent, template)
+    local frame = CreateFrame("Frame", nil, parent, "BackdropTemplate")
     local backing = Flat(frame, "BACKGROUND", 0, 0, 0, 0.55)
     backing:SetPoint("TOPLEFT", frame, "TOPLEFT", 2, -2)
     backing:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
@@ -1605,7 +1514,7 @@ local function InputFrame(parent)
 end
 
 -- A card's name and the line about it.
-local function Words(card, item, nameSize)
+local function Words(card, item)
     local title = card:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
     title:SetJustifyH("LEFT")
     if title.SetWordWrap then title:SetWordWrap(false) end
@@ -1644,8 +1553,10 @@ local function PlaceCards(layout, cards, top, head, foot, fallback)
     local height = math.floor(CARD_PAD + head + tallest + foot + CARD_PAD + 0.5)
     if not top then return height end
     local left = layout.left - BOX_MARGIN
+    -- The last takes what the others' whole pixels left over, so the row ends where the rows do.
+    local last = layout:Width() + BOX_MARGIN * 2 - (count - 1) * (width + CARD_GAP)
     for index, card in ipairs(cards) do
-        card:SetWidth(width)
+        card:SetWidth(index == count and last or width)
         card:SetHeight(height)
         card.text:SetWidth(width - CARD_PAD * 2)
         card.text:SetHeight(tallest)
@@ -1654,45 +1565,192 @@ local function PlaceCards(layout, cards, top, head, foot, fallback)
     return height, width
 end
 
---- The modules, a card each, side by side. An item is { icon, title, text, tooltip, read(),
---- write(on), apply(), disabled() -> reason or nil, status() -> kind, text, value, valueKind,
---- hint(on) -> text, button, onButton(), buttonEnabled() }. Its icon sits at its top left in the
---- input field's frame, its name beside it; the checkbox in its corner, or a click anywhere on
---- it, turns the module on or off; `status` is a value on the dropdown's face under its words;
---- the button along its foot opens the module's page. Off, the card stands back.
-local MODULE_HEAD = ICON_FRAME + 10 + 16 + TITLE_GAP
-local WORDS_ROOM = 8          -- under a card's words, before what follows them or its foot
-local CARD_RULE_GAP = 16      -- either side of the line between a card's words and its voice packs
-function Layout:Cards(items)
+-- A list: rows in one panel, the bronze frame round the lot (the tooltip border where the client
+-- lacks it) and a faint line between them. Each row has a picture at its left (a module's icon, a style's sketch), its name over a
+-- line about it, and its controls at its right; a click anywhere else on it does what its
+-- checkbox does. What is on or chosen stands at full strength, a gold light fading across it
+-- from the left; the rest stand back, as a card does, and come forward under the pointer.
+local LIST_INSET = 4          -- the tooltip border's inset
+local LIST_PAD = 12           -- inside a row, either side...
+local LIST_PAD_Y = 8          -- ...and above and below
+local LIST_ICON = 40          -- a module's icon frame...
+local LIST_SCREEN_WIDTH = 72  -- ...and a style's sketch in its dark screen, as tall, so the two
+local LIST_SCREEN_HEIGHT = LIST_ICON  -- lists' rows are too
+-- A layout can make its module list compact (`compactList`), as the welcome window does to fit a
+-- small screen: a smaller icon, less room above and below.
+local LIST_ICON_COMPACT = 32
+local LIST_PAD_Y_COMPACT = 6
+local LIST_GAP = 14           -- between the picture, the words and each control
+local LIST_LIGHT = 0.16       -- the gold light behind a row that is on, at its left
+local LIST_OVER = 0.06        -- the white under the pointer
+local LIST_LINE = 0.08        -- the line between rows
+local LIST_COUNT = 64         -- the voice packs' column, at its narrowest
+local LIST_BUTTON = 96        -- the Settings button, at its narrowest
+local LIST_NAME_GAP = 3       -- between a row's name and its line
+
+-- A light that fades from `a` at its left to nothing at its right. Each client has its own way of
+-- drawing one, and the oldest none: there it is flat, at a third.
+local function FadeRight(texture, r, g, b, a)
+    if texture.SetGradient and CreateColor then
+        local ok = pcall(texture.SetGradient, texture, "HORIZONTAL", CreateColor(r, g, b, a), CreateColor(r, g, b, 0))
+        if ok then return end
+    end
+    if texture.SetGradientAlpha then
+        texture:SetGradientAlpha("HORIZONTAL", r, g, b, a, r, g, b, 0)
+        return
+    end
+    texture:SetVertexColor(r, g, b)
+    texture:SetAlpha(a / 3)
+end
+
+-- A list's panel: the bronze frame the game's nameplate preview sits in (Nameplates.xml,
+-- options_frame_child), or the tooltip border where the client has not got it.
+local BRONZE = "options_frame_child"
+local function ListPanel(parent)
+    local panel = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    if HasAtlas(BRONZE) then
+        local frame = panel:CreateTexture(nil, "BACKGROUND")
+        frame:SetAtlas(BRONZE)
+        frame:SetAllPoints(panel)
+        panel.layoutFrame = frame
+    elseif panel.SetBackdrop then
+        TooltipBackdrop(panel)
+        panel:SetBackdropBorderColor(0.45, 0.45, 0.45, 1)
+    end
+    panel.lines = {}
+    panel.layoutRows = {}
+    return panel
+end
+
+-- A row of `panel`, for `item`. Its look follows `layoutFaceOn` (on or chosen), `layoutFaceOff`
+-- (cannot be had) and the pointer.
+local function ListRow(panel, item)
+    local row = CreateFrame("Button", nil, panel)
+    local light = Flat(row, "BACKGROUND", 1, 1, 1, 1)
+    light:SetAllPoints(row)
+    FadeRight(light, GOLD[1], GOLD[2], GOLD[3], LIST_LIGHT)
+    local over = Flat(row, "BACKGROUND", 1, 1, 1, LIST_OVER)
+    over:SetAllPoints(row)
+    over:Hide()
+    row.layoutLight, row.layoutWash = light, over
+    if panel.layoutRows[1] then
+        local line = Flat(panel, "ARTWORK", 1, 1, 1, LIST_LINE)
+        line:SetHeight(Layout.Pixels(panel, 1))
+        line:SetPoint("BOTTOMLEFT", row, "TOPLEFT", LIST_PAD, 0)
+        line:SetPoint("BOTTOMRIGHT", row, "TOPRIGHT", -LIST_PAD, 0)
+        table.insert(panel.lines, line)
+    end
+    function row:Look()
+        local off = self.layoutFaceOff
+        local live = self.layoutFaceOn and not off
+        local pointed = self.layoutOver and not off
+        if live then light:Show() else light:Hide() end
+        if pointed then over:Show() else over:Hide() end
+        self:SetAlpha((live and 1) or (off and DIM_OFF) or (pointed and DIM_OVER) or DIM)
+    end
+    Hover(row)
+    Tooltip(row, item.title, item.tooltip)
+    table.insert(panel.layoutRows, row)
+    return row
+end
+
+-- A row's name over its line, between `picture` and `edge`, the two centred on the row whatever
+-- the line wraps to.
+local function ListWords(row, item, picture, edge)
+    local words = CreateFrame("Frame", nil, row)
+    words:SetPoint("LEFT", picture, "RIGHT", LIST_GAP, 0)
+    words:SetPoint("RIGHT", edge, "LEFT", -LIST_GAP, 0)
+    local title, text = Words(row, item)
+    title:SetPoint("TOPLEFT", words, "TOPLEFT", 0, 0)
+    title:SetPoint("RIGHT", words, "RIGHT", 0, 0)
+    text:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -LIST_NAME_GAP)
+    row.words, row.name, row.text = words, title, text
+end
+
+-- Add `panel` as one row of the page. Every list row is as tall as the tallest needs, its words
+-- given what `Right()` leaves them: Right hands back how wide the controls on the right are,
+-- with their gaps, and `size(row)` to set each row's controls to it.
+local function AddList(layout, panel, pictureWidth, pictureHeight, Right, padY)
+    local rows = panel.layoutRows
+    local function Measure()
+        local left, right = layout:BoxSpan()
+        local width = right - left
+        local right, size = Right()
+        local words = width - LIST_INSET * 2 - (LIST_PAD + pictureWidth + LIST_GAP) - right
+        local tallest = pictureHeight
+        for _, row in ipairs(rows) do
+            row.text:SetWidth(words)
+            local height = TextHeight(row.name, 16) + LIST_NAME_GAP + TextHeight(row.text, 12)
+            row.words:SetHeight(height)
+            -- The voice packs' figure as tall as the words, so the two line up beside them.
+            if row.status then row.status:SetHeight(height) end
+            if height > tallest then tallest = height end
+        end
+        local rowHeight = math.floor(tallest + (padY or LIST_PAD_Y) * 2 + 0.5)
+        return LIST_INSET * 2 + Count(rows) * rowHeight, width, rowHeight, words, size
+    end
+    local function Place(top)
+        local height, width, rowHeight, words, size = Measure()
+        panel:SetWidth(width)
+        panel:SetHeight(height)
+        Put(panel, layout.parent, (layout:BoxSpan()), top)
+        for index, row in ipairs(rows) do
+            row:SetWidth(width - LIST_INSET * 2)
+            row:SetHeight(rowHeight)
+            Put(row, panel, LIST_INSET, -(LIST_INSET + (index - 1) * rowHeight))
+            row.text:SetWidth(words)
+            if size then size(row) end
+            -- Search lands on the row's own place, not the whole panel's.
+            row.layoutY = top - LIST_INSET - (index - 1) * rowHeight
+            row.layoutHeight = rowHeight
+        end
+    end
+    local row = layout:AddRow(Measure(), panel, { panel }, Place)
+    row.measure = function() return (Measure()) end
+    for _, each in ipairs(rows) do each.layoutRow = row end
+    return rows
+end
+
+-- A row's or card's name in gold while it is on or chosen, else in the grey `rest`.
+local function NameColor(title, lit, rest)
+    if lit then
+        title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+    else
+        title:SetTextColor(rest, rest, rest)
+    end
+end
+
+--- The modules, a row each in a list. An item is { icon, title, text, tooltip, read(), write(on),
+--- apply(), disabled() -> reason or nil, status() -> kind, text, value, hint(on) -> text, button,
+--- onButton(), buttonEnabled() }. Left to right: its icon in the input field's frame, its name
+--- over a line about it, its voice packs (the number level with its name, what it counts level
+--- with its line), the button to its page, and its checkbox.
+function Layout:List(items)
     self:Columns(nil)
-    local parent = self.parent
-    local cards = {}
-    local hasStatus, hasButton = false, false
+    local iconSize = self.compactList and LIST_ICON_COMPACT or LIST_ICON
+    local panel = ListPanel(self.parent)
+    local hasStatus = false
     for _, item in ipairs(items) do
-        local card = Card(parent)
-        card.layoutCard = item
-        local frame = InputFrame(card)
-        frame:SetWidth(ICON_FRAME)
-        frame:SetHeight(ICON_FRAME)
-        frame:SetPoint("TOPLEFT", card, "TOPLEFT", CARD_PAD, -CARD_PAD)
+        if item.status then hasStatus = true end
+    end
+    for _, item in ipairs(items) do
+        local row = ListRow(panel, item)
+        row.layoutCard = item
+
+        local frame = InputFrame(row)
+        frame:SetWidth(iconSize)
+        frame:SetHeight(iconSize)
+        frame:SetPoint("LEFT", row, "LEFT", LIST_PAD, 0)
         local icon = frame:CreateTexture(nil, "ARTWORK")
-        icon:SetWidth(CARD_ICON)
-        icon:SetHeight(CARD_ICON)
+        icon:SetWidth(iconSize - 6)
+        icon:SetHeight(iconSize - 6)
         icon:SetPoint("CENTER", frame, "CENTER", 0, 0)
         icon:SetTexture(item.icon)
         icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
-        -- Its name under its icon, as a style's is under its sketch: the full width to fit in.
-        local title, text = Words(card, item, 14)
-        title:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, -10)
-        title:SetPoint("RIGHT", card, "RIGHT", -CARD_PAD, 0)
-        text:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -TITLE_GAP)
-        card.frame, card.icon, card.name, card.text = frame, icon, title, text
-
-        -- The page's own checkbox, inside the card: its top level with the icon's frame, its
-        -- right edge where the words end.
-        local check = NewCheck(card, 26)
-        check:SetPoint("TOPRIGHT", card, "TOPRIGHT", -CARD_PAD, -CARD_PAD)
+        -- From the right edge in: the checkbox, the button, the count.
+        local check = NewCheck(row, 26)
+        check:SetPoint("RIGHT", row, "RIGHT", -LIST_PAD, 0)
         Script(check, "OnClick", function(box)
             Sound(box:GetChecked() and ON or OFF)
             item.write(box:GetChecked() and true or false)
@@ -1700,90 +1758,190 @@ function Layout:Cards(items)
             self:Refresh()
         end)
         Tooltip(check, item.title, item.tooltip)
-        card.check = check
-
-        local status
-        if item.status then
-            hasStatus = true
-            -- A faint line between what the module is and what it has installed, with room either
-            -- side, across the card's padded width.
-            local rule = card:CreateTexture(nil, "ARTWORK")
-            if rule.SetColorTexture then rule:SetColorTexture(1, 1, 1, 0.12) end
-            rule:SetHeight(1)
-            rule:SetPoint("TOPLEFT", text, "BOTTOMLEFT", 0, -CARD_RULE_GAP)
-            rule:SetPoint("RIGHT", card, "RIGHT", -CARD_PAD, 0)
-            card.rule = rule
-            status = NewCount(card)
-            status:SetPoint("TOPLEFT", rule, "BOTTOMLEFT", 0, -CARD_RULE_GAP)
-            status:SetPoint("RIGHT", card, "RIGHT", -CARD_PAD, 0)
-            card.status = status
-        end
+        local edge = check
 
         local button
         if item.button then
-            hasButton = true
-            button = NewButton(card, item.button)
-            -- The red button's art stops 2 short of its frame on each side: drawn 2 wider, its
-            -- edges line up with the icon, the words and the bar above it.
-            button:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", CARD_PAD - 2, CARD_PAD)
-            button:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -(CARD_PAD - 2), CARD_PAD)
+            button = NewButton(row, item.button)
+            button:SetPoint("RIGHT", check, "LEFT", -LIST_GAP, 0)
             Script(button, "OnClick", function() if item.onButton then item.onButton() end end)
-            card.button = button
+            edge = button
         end
 
-        Script(card, "OnClick", function()
+        local status
+        if hasStatus then
+            status = CreateFrame("Frame", nil, row)
+            status:SetPoint("RIGHT", edge, "LEFT", -LIST_GAP, 0)
+            local value = status:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
+            value:SetPoint("TOPLEFT", status, "TOPLEFT", 0, 0)
+            value:SetPoint("TOPRIGHT", status, "TOPRIGHT", 0, 0)
+            value:SetJustifyH("CENTER")
+            local caption = status:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+            caption:SetPoint("TOPLEFT", value, "BOTTOMLEFT", 0, -LIST_NAME_GAP)
+            caption:SetPoint("TOPRIGHT", value, "BOTTOMRIGHT", 0, -LIST_NAME_GAP)
+            caption:SetJustifyH("CENTER")
+            if caption.SetWordWrap then caption:SetWordWrap(false) end
+            function status:Set(kind, message, count)
+                kind = TAG_ALIASES[kind] or kind
+                self.state, self.message, self.value = kind, message, count
+                if not kind then
+                    self:SetAlpha(0)
+                    return
+                end
+                self:SetAlpha(1)
+                local grey = kind == "muted" and 0.5 or 1
+                value:SetTextColor(grey, grey, grey)
+                value:SetText(count or "")
+                caption:SetTextColor(0.6, 0.6, 0.6)
+                caption:SetText(message or "")
+            end
+            status.count, status.caption = value, caption
+            -- Read by the tests and the preview.
+            status.layoutStatusLine = status
+            edge = status
+        end
+
+        ListWords(row, item, frame, edge)
+        row.frame, row.icon = frame, icon
+        row.check, row.button, row.status = check, button, status
+
+        Script(row, "OnClick", function()
             if item.disabled and item.disabled() then return end
             Sound(item.read() and OFF or ON)
             item.write(not item.read())
             if item.apply then item.apply() end
             self:Refresh()
         end)
-        Tooltip(card, item.title, item.tooltip)
 
-        function card:Update()
+        local title = row.name
+        function row:Update()
             local reason = item.disabled and item.disabled()
             local on = item.read() and true or false
             local live = on and not reason
-            card.layoutReason, check.layoutReason = reason, reason
-            card.layoutFaceOn, card.layoutFaceOff = live, reason ~= nil
-            card.layoutHint = (not reason) and item.hint and item.hint(on) or nil
+            row.layoutReason, check.layoutReason = reason, reason
+            row.layoutFaceOn, row.layoutFaceOff = live, reason ~= nil
+            row.layoutHint = (not reason) and item.hint and item.hint(on) or nil
             check:SetChecked(live)
             if reason then check:Disable() else check:Enable() end
             if icon.SetDesaturated then icon:SetDesaturated(not live) end
-            if live then
-                title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-            else
-                title:SetTextColor(0.7, 0.7, 0.7)
-            end
+            NameColor(title, live, 0.7)
             if status then
-                status:Set(item.status())
-                status:SetGreyed(not live)
+                if item.status then status:Set(item.status()) else status:Set(nil) end
             end
             if button then
                 local usable = not item.buttonEnabled or item.buttonEnabled()
                 if usable then button:Enable() else button:Disable() end
             end
-            card.layoutChecked = live
-            card:Look()
+            row.layoutChecked = live
+            row:Look()
         end
-        self:Index(card, item.title, item.tooltip)
-        table.insert(cards, card)
+        self:Index(row, item.title, item.tooltip)
     end
-    Updater(self, function() for _, card in ipairs(cards) do card:Update() end end)
-    -- Under the words: the line, the voice packs' value, then the button.
-    local foot = (hasStatus and (CARD_RULE_GAP * 2 + 1 + COUNT_HEIGHT) or 0) + (hasButton and (10 + BUTTON_HEIGHT) or 0)
-    local row = self:AddRow(PlaceCards(self, cards, nil, MODULE_HEAD, foot, 42), cards[1], cards, function(top)
-        PlaceCards(self, cards, top, MODULE_HEAD, foot, 42)
-    end)
-    row.measure = function() return PlaceCards(self, cards, nil, MODULE_HEAD, foot, 42) end
-    row.members = cards
-    for _, card in ipairs(cards) do card.layoutRow = row end
-    return cards
+    local rows = panel.layoutRows
+    Updater(self, function() for _, row in ipairs(rows) do row:Update() end end)
+
+    -- The count's and the buttons' columns as wide as their widest, so they line up down the list.
+    local function Right()
+        local countWidth, buttonWidth = LIST_COUNT, LIST_BUTTON
+        for _, row in ipairs(rows) do
+            if row.status then
+                local caption = row.status.caption
+                local w = caption.GetStringWidth and caption:GetStringWidth() or 0
+                if w + 8 > countWidth then countWidth = w + 8 end
+            end
+            if row.button then
+                local w = (row.button.GetTextWidth and row.button:GetTextWidth() or 0) + LABEL_PADDING
+                if w > buttonWidth then buttonWidth = w end
+            end
+        end
+        countWidth, buttonWidth = math.ceil(countWidth), math.ceil(buttonWidth)
+        local first = rows[1]
+        local right = LIST_PAD + first.check:GetWidth() + LIST_GAP
+            + (first.button and (buttonWidth + LIST_GAP) or 0) + (first.status and (countWidth + LIST_GAP) or 0)
+        return right, function(row)
+            if row.status then row.status:SetWidth(countWidth) end
+            if row.button then row.button:SetWidth(buttonWidth) end
+        end
+    end
+    return AddList(self, panel, iconSize, iconSize, Right, self.compactList and LIST_PAD_Y_COMPACT or nil)
 end
 
---- The narrator's styles, a card each, side by side: a sketch of the style in a small dark screen
---- across the top -- the input field's frame, as a module's icon has -- then its name and a line
---- about it. An item is { value, title, text, tooltip, art(frame) }; `art` draws the sketch,
+-- A style's sketch, drawn by `item.art`, centred in its dark `screen`.
+local function Sketch(screen, item)
+    local sketch = CreateFrame("Frame", nil, screen)
+    sketch:SetWidth(SKETCH_WIDTH)
+    sketch:SetHeight(SKETCH_HEIGHT)
+    sketch:SetPoint("CENTER", screen, "CENTER", 0, 0)
+    sketch.width = SKETCH_WIDTH
+    if item.art then item.art(sketch) end
+    return sketch
+end
+
+-- What a click on a style does: choose it.
+local function Chooser(layout, item, write, apply)
+    return function()
+        Sound(CLICK)
+        write(item.value)
+        if apply then apply() end
+        layout:Refresh()
+    end
+end
+
+--- The narrator's styles, a row each in a list, as the modules are: a sketch of the style in a
+--- small dark screen at its left, its name over a line about it, and the page's checkbox at its
+--- right, ticked on the chosen style only: one is always chosen, so an empty box on the others
+--- offers nothing. A click on a row chooses it. An item is { value, title, text, tooltip,
+--- art(frame) }; `art` draws the sketch, scaled to its screen. `labels.choose` adds a line to an
+--- unchosen style's tooltip saying a click picks it.
+function Layout:Choices(items, read, write, apply, labels)
+    self:Columns(nil)
+    labels = labels or {}
+    local panel = ListPanel(self.parent)
+    local scale = math.min(1, (LIST_SCREEN_WIDTH - 8) / SKETCH_WIDTH, (LIST_SCREEN_HEIGHT - 8) / SKETCH_HEIGHT)
+    for _, item in ipairs(items) do
+        local row = ListRow(panel, item)
+        row.layoutTile = item
+        local screen = InputFrame(row)
+        screen:SetWidth(LIST_SCREEN_WIDTH)
+        screen:SetHeight(LIST_SCREEN_HEIGHT)
+        screen:SetPoint("LEFT", row, "LEFT", LIST_PAD, 0)
+        local sketch = Sketch(screen, item)
+        if sketch.SetScale then sketch:SetScale(scale) end
+
+        local check = NewCheck(row, 26)
+        check:SetPoint("RIGHT", row, "RIGHT", -LIST_PAD, 0)
+        Tooltip(check, item.title, item.tooltip)
+        ListWords(row, item, screen, check)
+        row.screen, row.sketch, row.check = screen, sketch, check
+
+        Script(row, "OnClick", Chooser(self, item, write, apply))
+        Script(check, "OnClick", function() check:SetChecked(true) end)
+
+        local title = row.name
+        function row:Update()
+            local chosen = read() == item.value
+            row.layoutFaceOn = chosen
+            row.layoutHint = (not chosen) and labels.choose or nil
+            check:SetChecked(chosen)
+            if chosen then check:Show() else check:Hide() end
+            Layout.Grey(sketch, not chosen)
+            NameColor(title, chosen, 0.7)
+            row.layoutSelected = chosen
+            row:Look()
+        end
+        self:Index(row, item.title, item.tooltip)
+    end
+    local rows = panel.layoutRows
+    Updater(self, function() for _, row in ipairs(rows) do row:Update() end end)
+    local function Right()
+        return LIST_PAD + rows[1].check:GetWidth() + LIST_GAP, nil
+    end
+    return AddList(self, panel, LIST_SCREEN_WIDTH, LIST_SCREEN_HEIGHT, Right)
+end
+
+--- The narrator's styles, a card each, side by side, where a list is too tall (the welcome
+--- window): a sketch of the style in a small dark screen across the top (the input field's frame,
+--- as a module's icon has), then its name and a line about it. An item is { value, title, text, tooltip, art(frame) }; `art` draws the sketch,
 --- scaled to its screen where that is narrow. `labels.choose` adds a line to an unchosen
 --- style's tooltip saying a click picks it.
 local STYLE_HEAD = SCREEN_HEIGHT + 10 + 16 + TITLE_GAP
@@ -1800,25 +1958,14 @@ function Layout:Tiles(items, read, write, apply, labels)
         screen:SetPoint("TOPLEFT", tile, "TOPLEFT", CARD_PAD, -CARD_PAD)
         screen:SetPoint("TOPRIGHT", tile, "TOPRIGHT", -CARD_PAD, -CARD_PAD)
         screen:SetHeight(SCREEN_HEIGHT)
-        local sketch = CreateFrame("Frame", nil, screen)
-        sketch:SetWidth(SKETCH_WIDTH)
-        sketch:SetHeight(SKETCH_HEIGHT)
-        sketch:SetPoint("CENTER", screen, "CENTER", 0, 0)
-        sketch.width = SKETCH_WIDTH
-        if item.art then item.art(sketch) end
-        local title, text = Words(tile, item, 14)
+        local sketch = Sketch(screen, item)
+        local title, text = Words(tile, item)
         title:SetPoint("TOPLEFT", screen, "BOTTOMLEFT", 0, -10)
         title:SetPoint("RIGHT", tile, "RIGHT", -CARD_PAD, 0)
         text:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -TITLE_GAP)
         tile.screen, tile.sketch, tile.name, tile.text = screen, sketch, title, text
 
-        local function Choose()
-            Sound(CLICK)
-            write(item.value)
-            if apply then apply() end
-            self:Refresh()
-        end
-        Script(tile, "OnClick", Choose)
+        Script(tile, "OnClick", Chooser(self, item, write, apply))
         -- The page's checkbox on the sketch's screen, in its top right corner inside its rim,
         -- over the picture. Only on the chosen style: one is always chosen, so an empty box on
         -- the others offers nothing.
@@ -1836,11 +1983,7 @@ function Layout:Tiles(items, read, write, apply, labels)
             check:SetChecked(chosen)
             if chosen then check:Show() else check:Hide() end
             Layout.Grey(sketch, not chosen)
-            if chosen then
-                title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-            else
-                title:SetTextColor(1, 1, 1)
-            end
+            NameColor(title, chosen, 1)
             tile.layoutSelected = chosen
             tile:Look()
         end
@@ -1848,7 +1991,7 @@ function Layout:Tiles(items, read, write, apply, labels)
         table.insert(tiles, tile)
     end
     Updater(self, function() for _, tile in ipairs(tiles) do tile:Update() end end)
-    local foot = WORDS_ROOM
+    local foot = 8          -- under a style's words
     local row = self:AddRow(PlaceCards(self, tiles, nil, STYLE_HEAD, foot, 26), tiles[1], tiles, function(top)
         local _, width = PlaceCards(self, tiles, top, STYLE_HEAD, foot, 26)
         local scale = math.min(1, (width - CARD_PAD * 2 - 8) / SKETCH_WIDTH, (SCREEN_HEIGHT - 8) / SKETCH_HEIGHT)
@@ -2102,7 +2245,7 @@ function Layout:Intro(icon, title, text)
     local scroller = self.parent.layoutScroller
     local parent = scroller and scroller.outer or self.parent
     if scroller then scroller:SetTop(HEADER_HEIGHT + 2) end
-    local name = parent:CreateFontString(nil, "ARTWORK", Font("GameFontHighlightHuge", "GameFontHighlightLarge"))
+    local name = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlightHuge")
     name:SetJustifyH("LEFT")
     name:SetText(title)
     local rule = Rule(parent)
@@ -2367,6 +2510,10 @@ local function BuildScrollBar(view, parent)
     -- Brighter under the pointer and while held, as the game's thumb is.
     local function Look()
         local alpha = (view.dragging or over) and 1 or 0.8
+        if view.flatThumb then
+            view.flatThumb:SetColorTexture(1, 1, 1, (view.dragging or over) and 0.5 or 0.3)
+            return
+        end
         if pieces then
             for _, piece in ipairs(pieces) do piece:SetAlpha(alpha) end
         else
@@ -2374,6 +2521,10 @@ local function BuildScrollBar(view, parent)
         end
     end
     Look()
+    -- A UI look draws the bar its own way; `repaint` takes the strip it draws for the thumb.
+    if Layout.dressScrollBar then
+        Layout.dressScrollBar(bar, thumb, function(strip) view.flatThumb = strip; Look() end)
+    end
 
     Script(thumb, "OnEnter", function() over = true; Look() end)
     Script(thumb, "OnLeave", function() over = false; Look() end)
@@ -2392,23 +2543,13 @@ local function BuildScrollBar(view, parent)
     local function Release()
         if not view.dragging then return end
         view.dragging = false
+        Script(bar, "OnUpdate", nil)
         Look()
         Sound(TICK)
     end
-    Script(thumb, "OnMouseDown", function(_, button)
-        if button and button ~= "LeftButton" then return end
-        view.grab = (thumb:GetTop() or 0) - CursorY()
-        view.dragging = true
-        Look()
-    end)
-    Script(thumb, "OnMouseUp", Release)
-    Script(thumb, "OnHide", Release)
 
-    -- Map the cursor's Y position onto the scroll range while dragging.
-    Script(bar, "OnUpdate", function()
-        if not view.dragging then
-            return
-        end
+    -- Map the cursor's Y position onto the scroll range, every frame only while the thumb is held.
+    local function Follow()
         -- Let go outside the client's window, the thumb never hears it.
         if IsMouseButtonDown and not IsMouseButtonDown("LeftButton") then
             Release()
@@ -2424,7 +2565,17 @@ local function BuildScrollBar(view, parent)
 
         local offset = (bar:GetTop() or 0) - (CursorY() + (view.grab or thumbHeight / 2))
         view:ScrollTo((Clamp(offset, 0, travel) / travel) * (view.range or 0))
+    end
+
+    Script(thumb, "OnMouseDown", function(_, button)
+        if button and button ~= "LeftButton" then return end
+        view.grab = (thumb:GetTop() or 0) - CursorY()
+        view.dragging = true
+        Script(bar, "OnUpdate", Follow)
+        Look()
     end)
+    Script(thumb, "OnMouseUp", Release)
+    Script(thumb, "OnHide", Release)
 
     view.bar = bar
     view.thumb = thumb

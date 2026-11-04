@@ -13,16 +13,18 @@
 import { recordActivity } from "@/lib/activity/store";
 import { db } from "@/lib/db";
 import { isLang } from "@/lib/lang";
-import type { NpcKind } from "@/lib/npc/npc";
+import type { NpcKind, NpcRowKind } from "@/lib/npc/npc";
 
 import type { ContributionStatus, Submission } from "./contributions";
 import type { EnvelopeSource } from "./envelope";
+import { pageNotes } from "./notes";
 import { DEFAULT_SORT, type ContributionSort, type SortColumn } from "./query";
 
 /** Exported for accept.ts, whose row lock reads the same shape inside its own transaction. */
 export const CONTRIBUTION_COLUMNS = `"id", "source", "key", "locale", "build", "text", "meta", "raw", "count",
                  "status", "body", "name", "email", "userId", "createdAt"::text,
-                 "updatedAt"::text, "resolvedBy", "npcKind", "npcId", "npcName", "pageId"`;
+                 "updatedAt"::text, "resolvedBy", "npcKind", "npcId", "npcName", "pageId",
+                 "matchLineId", "matchBookId", "matchPageNumber", "matchNewBook"`;
 const COLUMNS = CONTRIBUTION_COLUMNS;
 
 export type Contribution = {
@@ -43,13 +45,18 @@ export type Contribution = {
   createdAt: string;
   updatedAt: string;
   resolvedBy: string | null;
-  /** The kind a moderator chose for a kind-less envelope's NPC (migration 0033); null otherwise. */
-  npcKind: NpcKind | null;
+  /** The kind a moderator chose for a kind-less envelope's NPC (migrations 0033, 0073); null otherwise. */
+  npcKind: NpcRowKind | null;
   /** The NPC a moderator named for an envelope that named none (migration 0048); null otherwise. */
   npcId: number | null;
   npcName: string | null;
-  /** The English page a moderator matched a books contribution to (migration 0059); null until then. */
+  /** The English page a moderator matched a readables contribution to (migration 0059); null until then. */
   pageId: number | null;
+  /** A moderator's answer to "which page is this?" (migration 0074): a page, a place in a book, or a new book. */
+  matchLineId: string | null;
+  matchBookId: string | null;
+  matchPageNumber: number | null;
+  matchNewBook: boolean;
 };
 
 /**
@@ -70,13 +77,13 @@ export function observationMeta(
 /**
  * Record which NPC speaks a quest contribution whose envelope named none. A no-op, returning
  * null, for a row whose envelope already named one -- the client's own observation stands -- and
- * for a zones or books row, which never has an NPC to name. Returns the updated row.
+ * for a places or readables row, which never has an NPC to name. Returns the updated row.
  *
  * `by` is who answered, for the activity log: the row keeps the answer but not whose it was.
  */
 export async function setContributionNpc(
   id: number,
-  npc: { npcKind: NpcKind; npcId: number; npcName: string },
+  npc: { npcKind: NpcRowKind; npcId: number; npcName: string },
   by: string | null,
 ): Promise<Contribution | null> {
   const { rows } = await db().query<Contribution>(
@@ -101,28 +108,28 @@ export async function setContributionNpc(
   return row;
 }
 
+export type BookAnswer = { lineId: string } | { bookId: string; pageNumber: number } | { newBook: true } | null;
+
 /**
- * Record which English page a books contribution's text is, or clear it with null. A no-op,
- * returning null, for a row that is not books or whose page accept has already written: the
- * written page is one-way (accept.ts), and moving the match under it would leave the two
- * disagreeing. The page is the caller's to check exists. Returns the updated row.
+ * Record which page a readables contribution is, or clear the answer with null. A no-op, returning
+ * null, for a row that is not readables or whose page accept has already written -- that is one-way
+ * (accept.ts). The page or book is the caller's to check exists. Returns the updated row.
  *
  * `by` is who answered, for the activity log, as for setContributionNpc.
  */
-export async function setContributionPage(
-  id: number,
-  pageId: number | null,
-  by: string | null,
-): Promise<Contribution | null> {
+export async function setContributionMatch(id: number, answer: BookAnswer, by: string | null): Promise<Contribution | null> {
+  const lineId = answer && "lineId" in answer ? answer.lineId : null;
+  const bookId = answer && "bookId" in answer ? answer.bookId : null;
+  const pageNumber = answer && "pageNumber" in answer ? answer.pageNumber : null;
+  const newBook = answer !== null && "newBook" in answer;
   const { rows } = await db().query<Contribution>(
     `update "contribution"
-        set "pageId" = $2, "updatedAt" = now()
-      where "id" = $1 and "source" = 'books'
-        and not exists (select 1 from "book_line" b
-                         where b."origin" = 'contributed'
-                           and b."note" = 'contribution #' || "contribution"."id")
+        set "matchLineId" = $2, "matchBookId" = $3, "matchPageNumber" = $4, "matchNewBook" = $5,
+            "updatedAt" = now()
+      where "id" = $1 and "source" = 'readables'
+        and not exists (select 1 from "book_line" b where b."note" = any($6::text[]))
       returning ${COLUMNS}`,
-    [id, pageId],
+    [id, lineId, bookId, pageNumber, newBook, pageNotes(id)],
   );
   const row = rows[0];
   if (!row) return null;
@@ -132,7 +139,7 @@ export async function setContributionPage(
     source: row.source,
     subject: String(id),
     actorId: by,
-    detail: { field: "pageId", value: pageId },
+    detail: { field: "match", value: answer },
   });
   return row;
 }
@@ -222,15 +229,22 @@ export async function createContribution(
   },
 ): Promise<void> {
   // Returns nothing, as createReport does: the sender cannot read their submission back.
+  // A copy from somebody signed in or named is recorded beside the count (migration 0065).
   await db().query(
-    `insert into "contribution"
-       ("source", "key", "locale", "build", "text", "meta", "raw", "dedup",
-        "body", "name", "email", "userId", "ip")
-     values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13)
-     on conflict ("dedup") do update
-       set "count" = "contribution"."count" + 1,
-           ${FILL_NPC_SET},
-           "updatedAt" = now()`,
+    `with "stored" as (
+       insert into "contribution"
+         ("source", "key", "locale", "build", "text", "meta", "raw", "dedup",
+          "body", "name", "email", "userId", "ip")
+       values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13)
+       on conflict ("dedup") do update
+         set "count" = "contribution"."count" + 1,
+             ${FILL_NPC_SET},
+             "updatedAt" = now()
+       returning "id"
+     )
+     insert into "contribution_sender" ("contributionId", "userId", "name")
+     select "id", $12::text, $10::text from "stored"
+      where $12::text is not null or $10::text is not null`,
     [
       input.source,
       input.key,
@@ -249,19 +263,51 @@ export async function createContribution(
   );
 }
 
-export async function recordContributionHit(ip: string | null): Promise<void> {
-  await db().query(`insert into "contribution_hit" ("ip") values ($1)`, [ip]);
+/** Signed-in senders appear under their account's name. Never an email. */
+export async function contributionSenders(
+  id: number,
+): Promise<{ senders: { name: string; count: number }[]; anonymous: number } | null> {
+  const { rows: found } = await db().query<{ count: number }>(
+    `select "count" from "contribution" where "id" = $1`,
+    [id],
+  );
+  if (found.length === 0) return null;
+  const { rows } = await db().query<{ name: string; count: number }>(
+    `select coalesce(u."name", s."name", 'deleted account') as "name", count(*)::int as "count"
+       from "contribution_sender" s
+       left join "user" u on u."id" = s."userId"
+      where s."contributionId" = $1
+      group by s."userId", coalesce(u."name", s."name", 'deleted account')
+      order by count(*) desc, min(s."createdAt")`,
+    [id],
+  );
+  const named = rows.reduce((sum, row) => sum + row.count, 0);
+  return { senders: rows, anonymous: Math.max(0, found[0].count - named) };
+}
+
+export async function recordContributionHit(ip: string | null, installId: string | null = null): Promise<void> {
+  await db().query(`insert into "contribution_hit" ("ip", "installId") values ($1, $2)`, [ip, installId]);
+}
+
+/** The manager's uploads from one install, counted as countRecentContributions counts an IP's. */
+export async function countRecentInstallUploads(installId: string, withinMs: number): Promise<number> {
+  return countRecentHits(`"installId"`, installId, withinMs);
 }
 
 export async function countRecentContributions(ip: string, withinMs: number): Promise<number> {
   // Counts hits, not rows: the upsert above collapses identical text, and a person who pasted
   // the same envelope ten times has still pasted ten times.
+  return countRecentHits(`"ip"`, ip, withinMs);
+}
+
+/** The column is one of two literals, never the caller's string. */
+async function countRecentHits(column: `"ip"` | `"installId"`, value: string, withinMs: number): Promise<number> {
   const { rows } = await db().query<{ count: string }>(
     `select count(*)::text as count
        from "contribution_hit"
-      where "ip" = $1
+      where ${column} = $1
         and "createdAt" > now() - ($2::bigint * interval '1 millisecond')`,
-    [ip, withinMs],
+    [value, withinMs],
   );
   return Number(rows[0]?.count ?? 0);
 }
@@ -269,9 +315,7 @@ export async function countRecentContributions(ip: string, withinMs: number): Pr
 /** Each sortable column's own name, spelled out rather than interpolated from the caller's string. */
 const SORT_EXPRESSIONS: Record<SortColumn, string> = {
   filed: `"createdAt"`,
-  source: `"source"`,
   count: `"count"`,
-  status: `"status"`,
 };
 
 /** Ties fall back to most sent, then newest, then id -- the default order, made total so a page cut is stable. */
@@ -288,12 +332,14 @@ export async function listContributions(
   status: ContributionStatus | "all",
   locale?: string,
   sort: ContributionSort = DEFAULT_SORT,
+  source?: EnvelopeSource,
 ): Promise<Contribution[]> {
   const { rows } = await db().query<Contribution>(
     `select ${COLUMNS} from "contribution"
       where ($1 = 'all' or "status" = $1) and ($2::text is null or "locale" = $2)
+        and ($3::text is null or "source" = $3)
       order by ${orderBy(sort)}`,
-    [status, locale ?? null],
+    [status, locale ?? null, source ?? null],
   );
   return rows;
 }
@@ -322,11 +368,29 @@ export async function acceptedContributions(): Promise<Contribution[]> {
   return rows;
 }
 
+/** The readables rows among `ids`, whole. */
+export async function readablesContributions(ids: readonly number[]): Promise<Contribution[]> {
+  const { rows } = await db().query<Contribution>(
+    `select ${COLUMNS} from "contribution" where "id" = any($1::int[]) and "source" = 'readables'`,
+    [ids],
+  );
+  return rows;
+}
+
 /**
  * The language a contribution was sent in -- the pack the player was using -- or null for
  * one that does not exist. Asked before resolving it, since who may resolve it is whoever
  * may edit that language.
  */
+/** The row a submission was stored as (createContribution's upsert), or null before it is. */
+export async function contributionByDedup(dedup: string): Promise<{ id: number; status: ContributionStatus } | null> {
+  const { rows } = await db().query<{ id: number; status: ContributionStatus }>(
+    `select "id", "status" from "contribution" where "dedup" = $1`,
+    [dedup],
+  );
+  return rows[0] ?? null;
+}
+
 export async function contributionLocale(id: number): Promise<string | null> {
   const { rows } = await db().query<{ locale: string }>(
     `select "locale" from "contribution" where "id" = $1`,

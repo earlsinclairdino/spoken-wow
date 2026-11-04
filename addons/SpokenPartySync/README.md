@@ -4,8 +4,8 @@ Plays Spoken's lines together for players who quest together. Whoever talks to t
 line starts on every computer at once, skips on every computer at once, and in one room is
 heard from one speaker while every screen shows the captions.
 
-It needs Spoken 3.0 or later. It syncs whichever of Spoken Quests, Spoken Zones and Spoken
-Books are installed, as long as they can rebuild a line from another client's description
+It needs Spoken 3.0 or later. It syncs whichever of Spoken Quests, Spoken Places and Spoken
+Readables are installed, as long as they can rebuild a line from another client's description
 (the source's `rebuild`, added with this addon).
 
 ## Getting started
@@ -97,7 +97,7 @@ group, joining a raid, or questing apart.
   Sound Here, Remove from Party, Whisper, and Versions: what that computer runs, module by
   module, and whether its modules can play the party's lines; on your own row Leave Party
   instead of Remove and Whisper). Each hello is also a handshake: every computer, this one
-  included, is held against the leader's (Spoken Party Sync, Spoken, Quests, Zones, Books, and
+  included, is held against the leader's (Spoken Party Sync, Spoken, Quests, Places, Readables, and
   whether each can play the party's lines); one that differs gets an alert after its name, the
   differences in its tooltip and under Versions, and one chat line when it is found,
   and a row for each invitation still waiting ("invited 12 s"), whose menu has Invite Again,
@@ -168,7 +168,7 @@ tab-separated fields:
 | Kind | Fields | |
 |---|---|---|
 | `TO` | key, kind, fields | on the group channel: the message after it is for `key` alone, or for every member of the sender's party with `*`; others drop it. An older build ignores the kind, which is why it is only sent to members whose hello says `to` |
-| `HI` | version, reply, session, own, plays, modules, can | hello: at login, when the group changes, to the usual party each heartbeat, and when what it plays changes; names the party this client is in, whether it decides any channel itself, the channels it plays (`v m e a d`, `-` for none; missing before 0.5: the rules decide), and the Spoken modules it runs (`S=3.1.0;Q=3.1.0+;...`: Spoken, Quests, Zones, Books, Developer, DialogueUI, a `+` after a source that can rebuild the party's lines; the store's build and Party Sync's share a version number), and what it reads (`to`: addressed messages on the group channel) |
+| `HI` | version, reply, session, own, plays, modules, can | hello: at login, when the group changes, to the usual party each heartbeat, and when what it plays changes; names the party this client is in, whether it decides any channel itself, the channels it plays (`v m e a d`, `-` for none; missing before 0.5: the rules decide), and the Spoken modules it runs (`S=3.1.0;Q=3.1.0+;...`: Spoken, Quests, Places, Readables, Developer, DialogueUI, a `+` after a source that can rebuild the party's lines; the store's build and Party Sync's share a version number), and what it reads (`to`: addressed messages on the group channel) |
 | `IV` / `IA` / `ID` | session (`IV`: version, session, rejoin) | invite to the party, accepted, declined or left or removed (one naming another party is stale; from the inviter while its popup is up, the invitation withdrawn; answering an `IA` for an invitation withdrawn, leave); `rejoin` 1 asks back someone who was in a party with the inviter within ten minutes, who accepts without a popup |
 | `RO` | session, leader, members | the roster, from the leader, whenever it changes; a member not in it is out |
 | `PS` | controls, room, sync, share, audio | the rules, from the leader: whose controls, who plays the voice, four flags for the kinds played together, whose accepted quests are shared (missing from a 0.4.0 leader: anyone), and who plays each game channel (`music=<owner>;effects=...;ambience=...;dialog=...`, missing before 0.5: every computer). An owner is `none` (every computer), a member's key, or `-<key>,<key>` (every computer but those); `room` may also be `trigger` (whoever triggers a line plays it; an older build takes it for an absent member and plays everything) |

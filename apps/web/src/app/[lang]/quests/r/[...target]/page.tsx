@@ -18,6 +18,7 @@ import type { Metadata } from "next";
 import Link from "@/components/LocaleLink";
 
 import ReportForm from "@/components/ReportForm";
+import ListenFirst from "@/components/reports/ListenFirst";
 import { audioRelPath } from "@/lib/audio";
 import { formatTarget, parseTarget, resolveTarget } from "@/lib/reports/target";
 import { liveVersion } from "@/lib/takes/store";
@@ -47,7 +48,7 @@ export default async function ReportPage({
           <p className="text-muted-foreground mt-1 mb-5 text-sm">
             That address is not one this site understands, but you can still tell us about it.
           </p>
-          <ReportForm source="quests" target={segments.join("/")} lineId={null} />
+          <ReportForm source="quests" target={segments.join("/")} lineId={null} fromGame />
         </Contained>
       </main>
     );
@@ -83,6 +84,8 @@ export default async function ReportPage({
           You came here from the game. Tell us what sounded wrong and someone will listen to it.
         </p>
 
+        {line && version !== null ? <ListenFirst className="mb-4" /> : null}
+
         {line ? (
           <section className="mb-6 rounded border p-4">
             <h2 className="font-medium">{line.questTitle ?? line.npcName}</h2>
@@ -90,14 +93,19 @@ export default async function ReportPage({
               {line.npcName} · {line.voice}
             </p>
             <p className="mt-2 text-sm whitespace-pre-wrap">{line.text}</p>
-            <audio
-              controls
-              className="mt-3 w-full"
-              src={withLang(
-                lang,
-                `/api/quests/audio/${audioRelPath(line)}${version === null ? "" : `?v=${version}`}`,
-              )}
-            />
+            {/* No live take is the line a player heard in the fallback language and reported as
+                missing in this one: the audio route has nothing to serve, so say so. */}
+            {version === null ? (
+              <p className="text-muted-foreground mt-3 text-sm">
+                This line has no recording in this language yet.
+              </p>
+            ) : (
+              <audio
+                controls
+                className="mt-3 w-full"
+                src={withLang(lang, `/api/quests/audio/${audioRelPath(line)}?v=${version}`)}
+              />
+            )}
           </section>
         ) : null}
 
@@ -130,7 +138,7 @@ export default async function ReportPage({
           </p>
         ) : null}
 
-        <ReportForm source="quests" target={formatTarget(target)} lineId={line?.lineId ?? null} />
+        <ReportForm source="quests" target={formatTarget(target)} lineId={line?.lineId ?? null} fromGame />
       </Contained>
     </main>
   );

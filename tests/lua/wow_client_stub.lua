@@ -14,6 +14,7 @@ local world = {
     rewardText = "",
     npcName = "Innkeeper Test",
     npcGUID = "Creature-0-0-0-0-1234-0",
+    npcFriendly = false,  -- UnitCanAttack: false for townsfolk the player cannot fight
     modelFileID = nil,    -- what a loaded PlayerModel answers for the unit on screen
     -- True between SetUnit and the model actually finishing loading: makes GetModelFileID
     -- answer nil even though the probe is shown, the way a real model does for however long
@@ -34,7 +35,7 @@ local world = {
     -- the older quest tests read it unchanged; the channel of the nth play is beside it.
     playedChannels = {},
     stopped = {},      -- handles StopSound was asked to stop, in order
-    music = {},        -- paths PlayMusic was given, in order (the 2.4.3/3.3.5 path)
+    kitSounds = {},    -- every PlaySound, as {kit, channel}: UI clicks and the item cue
     missing = {},      -- paths PlaySoundFile refuses, as a set
     cvars = {},        -- overrides; anything unset reads as "1"
     cvarLog = {},      -- every SetCVar, as {key, value}, so a toggle can be asserted
@@ -88,6 +89,34 @@ end
 function M.HidePanels()
     M.ShowPanel(nil)
     world.gossipText = nil
+    world.gossipOptions = nil
+end
+
+--- The game's secret values: in an instance or in combat the Forever client hands addons some
+--- values that their code cannot index, compare or join (#357). M.Secrets(a, b, ...) marks those
+--- values secret, issecretvalue answers for them, and indexing a marked string throws, as the
+--- client's does. M.Secrets() with nothing ends it: no issecretvalue, as outside Forever.
+--- Returns its first value, so a test can mark one where it hands it over.
+local secret = {}
+local stringIndex = getmetatable("").__index
+function M.Secrets(...)
+    secret = {}
+    local count = select("#", ...)
+    if count == 0 then
+        _G.issecretvalue = nil
+        getmetatable("").__index = stringIndex
+        return nil
+    end
+    for i = 1, count do
+        local value = select(i, ...)
+        if value ~= nil then secret[value] = true end
+    end
+    _G.issecretvalue = function(value) return value ~= nil and secret[value] == true end
+    getmetatable("").__index = function(s, key)
+        if secret[s] then error("attempt to index a secret string value", 2) end
+        return stringIndex[key]
+    end
+    return (...)
 end
 
 --- Deliver a client event to every frame registered for it.
@@ -115,6 +144,8 @@ local function Widget(kind, name)
     function w:UnregisterAllEvents() self.events = {} end
     function w:SetScript(script, fn) self.scripts[script] = fn end
     function w:GetScript(script) return self.scripts[script] end
+    function w:LockHighlight() self.highlightLocked = true end
+    function w:UnlockHighlight() self.highlightLocked = false end
     -- A secure button's attributes (Spoken Developer's /reload macro), kept to be read back.
     function w:SetAttribute(key, value) self.attributes = self.attributes or {}; self.attributes[key] = value end
     function w:GetAttribute(key) return self.attributes and self.attributes[key] end
@@ -162,6 +193,9 @@ local function Widget(kind, name)
         local x, y, relativeTo, relativePoint
         if type(a) == "number" then
             x, y = a, b
+        elseif type(b) == "number" then
+            -- (point, relativeTo, x, y): the relative point is the point itself.
+            relativeTo, relativePoint, x, y = a, point, b, c
         else
             -- What it was anchored TO, not just where: a button placed against one of the
             -- client's own widgets is making a claim about that widget, and the claim is
@@ -181,9 +215,13 @@ local function Widget(kind, name)
     end
     -- Seven pixels a byte by default, which the caption and subtitle suites are measured in.
     -- A suite that measures translated text sets M.TextWidth to something closer to a font.
+    -- U+0378, which no font has, is the box a missing glyph draws: as wide as a Han or Hangul
+    -- character, so no font here draws them unless a suite says so.
     function w:GetStringWidth()
         if M.TextWidth then return M.TextWidth(self) end
-        return #tostring(self.text or "") * 7
+        local text = tostring(self.text or "")
+        local _, boxes = text:gsub("\205\184", "")
+        return (#text + boxes) * 7
     end
     function w:SetWordWrap(on) self.wordWrap = on and true or false end
     function w:SetFontObject(font) self.font = type(font) == "table" and (font.name or font) or font end
@@ -193,6 +231,11 @@ local function Widget(kind, name)
     function w:GetRight() return self.width end
     function w:SetAlpha(v) self.alpha = v end
     function w:GetAlpha() return self.alpha end
+    -- Drawn as one image, and parts that take no alpha from their parent.
+    function w:SetIsFrameBuffer(v) self.frameBuffer = v and true or false end
+    function w:IsFrameBuffer() return self.frameBuffer or false end
+    function w:SetIgnoreParentAlpha(v) self.ignoreParentAlpha = v and true or false end
+    function w:IsIgnoringParentAlpha() return self.ignoreParentAlpha or false end
     function w:SetID(v) self.id = v end
     function w:GetID() return self.id end
     function w:SetParent(p) self.parent = p end
@@ -207,9 +250,18 @@ local function Widget(kind, name)
     function w:GetObjectType() return self.frameType or self.kind end
     function w:GetChildren() return unpack(self.children) end
     function w:GetFrameLevel() return 1 end
-    function w:SetTexture(t) self.texture = t; return true end
+    -- A texture shows a file or an atlas, whichever was set last.
+    function w:SetTexture(t) self.texture = t; self.atlas = nil; return true end
     function w:GetTexture() return self.texture end
+    function w:SetAtlas(name) self.atlas = name; self.texture = nil end
+    -- A gradient stays on a texture until another replaces it, as the client keeps it.
+    function w:SetGradient(orientation, from, to) self.gradient = { orientation = orientation, from = from, to = to } end
+    function w:GetAtlas() return self.atlas end
     function w:SetTexCoord(...) self.texCoord = { ... } end
+    -- Recorded: a greyed badge or toggle is all that says nothing is found or opens.
+    function w:SetDesaturated(v) self.desaturated = v and true or false end
+    function w:IsDesaturated() return self.desaturated or false end
+    function w:SetVertexColor(r, g, b, a) self.vertexColor = { r, g, b, a } end
     function w:CreateTexture(n, layer) local t = Widget("Texture", n); t.parent = self; t.layer = layer; return t end
     -- A mask, as the client hands one back: the small window rounds a portrait with it.
     function w:CreateMaskTexture(n) local t = Widget("MaskTexture", n); t.parent = self; return t end
@@ -251,27 +303,15 @@ local function Widget(kind, name)
     end
     function w:SetCreature(idv) self.creature = idv; self.model = "creature/" .. tostring(idv) end
     function w:ClearModel() self.creature = nil; self.model = nil end
-    -- Only the one this client has. Model:GetModel returned a path and was removed; the
-    -- current clients answer GetModelFileID instead, and asking the wrong one is an error
-    -- rather than a nil -- which is what the catch-all below would otherwise hide.
-    if not M.absentAPI.GetModel then
-        function w:GetModel() return self.model end
-    end
-    if not M.absentAPI.GetModelFileID then
-        function w:GetModelFileID() return self.creature and 119940 or nil end
-    end
+    -- Model:GetModel returned a path and was removed; asking for it is an error rather than a
+    -- nil, which is what absentAPI keeps the catch-all below from hiding.
+    function w:GetModelFileID() return self.creature and 119940 or nil end
     function w:GetOwner() return self.owner end
     function w:SetOwner(o) self.owner = o end
     function w:Click()
-        -- 1.12 hands a script no arguments and sets the globals `this` and `arg1` instead,
-        -- which is what Compat.lua's SetScript wrapper reads. Both are set here so a click
-        -- reaches the same handler on every client.
-        local previousThis, previousArg = _G.this, _G.arg1
-        _G.this, _G.arg1 = self, "LeftButton"
         local fn = self.enabled ~= false and self.scripts.OnClick
         if fn then fn(self, "LeftButton") end
         for _, h in ipairs(self.hooks.OnClick or {}) do h(self, "LeftButton") end
-        _G.this, _G.arg1 = previousThis, previousArg
     end
     setmetatable(w, { __index = function(_, k)
         -- A method this client does not have stays missing. Everything else a real widget
@@ -284,6 +324,27 @@ local function Widget(kind, name)
     return w
 end
 M.Widget = Widget
+
+-- The atlases the Compendium's list draws, at Forever's sizes, as C_Texture.GetAtlasInfo gives
+-- them: each the whole of a file named after it, so a test reads which piece of which was drawn
+-- from a texture's file and tex coords.
+local LIST_ATLASES = {
+    ["Objective-Header-CampaignHorde"] = { 274, 42 }, ["Objective-Header-CampaignAlliance"] = { 274, 42 },
+    ["glues-characterselect-card-singles-c60"] = { 321, 100 },
+    ["glues-characterselect-card-singles-hover-c60"] = { 321, 100 },
+    ["glues-characterselect-card-selected-c60"] = { 342, 122 },
+    ["collections-itemborder-collected"] = { 56, 56 }, ["questlog-storylineicon"] = { 22, 22 },
+    ["ui-frame-bar-fill-yellow"] = { 256, 17 }, ["PetJournal-ExpBar-Left"] = { 11, 11 },
+    ["PetJournal-ExpBar-Mid"] = { 11, 11 }, ["PetJournal-ExpBar-Right"] = { 11, 11 },
+    ["questlog-icon-expand"] = { 18, 18 }, ["questlog-icon-shrink"] = { 18, 18 },
+    ["questlog-icon-checkmark-yellow"] = { 17, 14 }, ["LFG-lock"] = { 17, 21 },
+}
+function M.ListAtlas(name)
+    local size = LIST_ATLASES[name]
+    if not size then return nil end
+    return { width = size[1], height = size[2], file = "file:" .. name,
+        leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 }
+end
 
 local function MakeFrame(name)
     return Widget("Frame", name)
@@ -319,35 +380,25 @@ end
 
 local _G = _G
 
--- A current Blizzard client by default, which is where the 10 Hz watcher runs at all.
--- SetClient() swaps in a legacy client: those have no WOW_PROJECT_ID, and 1.12
--- reports no interface version at all, which is exactly what Version.lua keys on.
+-- The Forever client by default, the one Spoken is made on. SetClient() swaps in another.
 local CLIENTS = {
     ["20506"] = { "2.5.6", "60000", 20506, 5 },
-    -- The Forever client: a mainline-flavoured client carrying vanilla content, and the one
-    -- whose quest log is the modern map-attached one rather than the named QuestLogFrame.
-    ["16001"] = { "1.60.1", "69913", 16001, 1 },
+    -- Forever: vanilla content on the modern engine, with a project id of its own, and the
+    -- client whose quest log is the modern map-attached one rather than the named QuestLogFrame.
+    ["16001"] = { "1.60.1", "70338", 16001, 18 },
     ["11509"] = { "1.15.9", "69109", 11509, 2 },
-    ["1.12"]  = { "1.12.1", "5875", nil, nil },
-    ["2.4.3"] = { "2.4.3", "8606", 20400, nil },
-    ["3.3.5"] = { "3.3.5", "12340", 30300, nil },
 }
 function M.SetClient(label)
     local c = assert(CLIENTS[label], "unknown client " .. tostring(label))
     _G.GetBuildInfo = function() return c[1], c[2], "Jan 1 2026", c[3] end
     _G.WOW_PROJECT_ID = c[4]
-    if c[4] == nil then _G.Settings = nil else _G.Settings = M.modernSettings end
-    _G.C_GossipInfo = c[4] ~= nil and M.gossipAPI or nil
-    -- The legacy clients have no context-menu API worth using either, which is
-    -- what makes the player draw its own menu there.
-    -- Model frames answered GetModel on the legacy clients and answer
-    -- GetModelFileID on the current ones. Neither client has both.
-    M.absentAPI.GetModel = c[4] ~= nil or nil
-    M.absentAPI.GetModelFileID = c[4] == nil or nil
-    -- Guarded: SetClient runs once as this file loads, before the menu API below exists.
-    if M.SetMenuAPI then
-        M.SetMenuAPI(c[4] ~= nil)
-    end
+    _G.Settings = M.modernSettings
+    _G.C_GossipInfo = M.gossipAPI
+    -- Model frames answer GetModelFileID; GetModel was removed.
+    M.absentAPI.GetModel = true
+    -- Back, after a test that took it away. Guarded: SetClient runs once as this file loads,
+    -- before the menu API below exists.
+    if M.SetMenuAPI then M.SetMenuAPI(true) end
 end
 _G.UIParent = MakeFrame("UIParent")
 _G.WOW_PROJECT_CLASSIC = 2
@@ -364,18 +415,22 @@ function _G.GetRewardText() return world.rewardText end
 function _G.UnitName(unit) return unit == "player" and (world.playerName or "Tester") or world.npcName end
 -- Nil unless a test sets them: a class or race the stub made up would be swapped out of every
 -- text a test captures, and only the tests about that swap should see it happen.
-function _G.UnitClass() return world.playerClass, world.playerClassFile end
+function _G.UnitClass() return world.playerClass, world.playerClassFile, world.playerClassID end
 function _G.UnitRace() return world.playerRace, world.playerRaceFile end
 function _G.GetRealmName() return "Realm" end
 function _G.UnitGUID() return world.npcGUID end
 function _G.UnitExists() return true end
 function _G.UnitIsPlayer() return false end
+function _G.UnitCanAttack() return not world.npcFriendly end
 function _G.UnitSex() return world.unitSex end
+function _G.UnitIsDead() return false end
+function _G.UnitIsUnit(a, b) return a == b end
 function _G.UnitCreatureType() return world.creatureType end
 -- The mouse UI unless a test turns the gamepad's on: read as "1", every popup an addon raises
 -- unasked would go to chat instead.
 local CVAR_DEFAULTS = { InputDeviceInterfaceStyle = "0" }
 function _G.GetCVar(key) return world.cvars[key] or CVAR_DEFAULTS[key] or "1" end
+function _G.GetCVarBool(key) return _G.GetCVar(key) == "1" end
 function _G.SetCVar(key, value)
     world.cvars[key] = tostring(value)
     table.insert(world.cvarLog, { key, tostring(value) })
@@ -387,8 +442,6 @@ function _G.PlaySoundFile(path, channel)
     return true, #world.played
 end
 function _G.StopSound(handle, fadeMs) table.insert(world.stopped, handle); world.lastStopFade = fadeMs end
-function _G.PlayMusic(path) table.insert(world.music, path) end
-function _G.StopMusic() table.insert(world.music, false) end
 -- How many frames CreateFrame has built, across every name and kind: a model probe built
 -- once and reused shows up here as one, however many times the code that reuses it runs.
 local frameCount = 0
@@ -461,14 +514,29 @@ function _G.CreateFrame(kind, name, parent)
     -- Kept apart from the PlayerModel above on purpose: that one is the addon's model probe,
     -- tracked as M.playerModel, and the appearance roller must never replace it.
     if kind == "DressUpModel" then
+        -- A model with nothing loaded, or a creature the client has not cached (world.unloaded),
+        -- answers with the player's own appearance (world.ownDisplay).
+        function f:SetUnit() self.display, self.touched = world.ownDisplay, true end
         function f:SetCreature(id)
-            self.creature = id
+            self.creature, self.touched = id, true
             setCreatureCount = setCreatureCount + 1
             local displays = world.creatureDisplays[id]
-            self.display = displays and displays[(setCreatureCount - 1) % #displays + 1] or nil
+            local display = displays and displays[(setCreatureCount - 1) % #displays + 1] or nil
+            -- A real model keeps answering with the creature it held until the new one loads.
+            if world.modelLags then
+                self.pending, self.pendingAt = display, world.time
+            else
+                self.display = display
+            end
         end
+        function f:ClearModel() self.creature = nil end
         function f:GetDisplayInfo()
             if world.displaysUncached then return 0 end
+            if not self.touched then return world.blankDisplay or 0 end
+            if self.creature and world.unloaded and world.unloaded[self.creature] then return world.blankDisplay or 0 end
+            if self.pending and world.time > self.pendingAt then
+                self.display, self.pending = self.pending, nil
+            end
             return self.display or 0
         end
     end
@@ -507,17 +575,20 @@ function M.LabelsUnder(frame, found)
 end
 function _G.CreateFont(name) return Widget("Font", name) end
 _G.GameFontNormal = Widget("Font", "GameFontNormal")
+_G.CreateColor = _G.CreateColor or function(r, g, b, a) return { r = r, g = g, b = b, a = a } end
 _G.GameTooltip = Widget("Frame", "GameTooltip")
 function _G.GameTooltip_Hide() end
 function _G.MouseIsOver() return false end
 function _G.SetCursor() end
-function _G.PlaySound() end
-_G.SOUNDKIT = { U_CHAT_SCROLL_BUTTON = 1115 }
+function _G.PlaySound(kit, channel)
+    table.insert(world.kitSounds, { kit = kit, channel = channel })
+end
+_G.SOUNDKIT = { U_CHAT_SCROLL_BUTTON = 1115, IG_QUEST_LOG_CLOSE = 845 }
 _G.HIGHLIGHT_FONT_COLOR = { r = 1, g = 1, b = 1 }
 _G.NORMAL_FONT_COLOR = { r = 1, g = 0.82, b = 0 }
 _G.GRAY_FONT_COLOR = { r = 0.5, g = 0.5, b = 0.5 }
 _G.UIDropDownMenu_Initialize = nil
--- The Settings API as 11509 exposes it; SetClient("1.12") removes it.
+-- The Settings API as 11509 exposes it.
 M.settingsCategories = {}
 M.modernSettings = {
     RegisterCanvasLayoutCategory = function(frame, name) local c = { frame = frame, name = name, GetID = function() return name end }; table.insert(M.settingsCategories, c); return c end,
@@ -526,9 +597,9 @@ M.modernSettings = {
     OpenToCategory = function() return true end,
 }
 _G.Settings = M.modernSettings
-M.SetClient("20506")
+M.SetClient("16001")
 
--- What the zones addon's playback and autoplay files reach for.
+-- What the Places addon's playback and autoplay files reach for.
 M.chat = {}
 _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, text) table.insert(M.chat, text) end }
 world.inCombat = false
@@ -554,7 +625,7 @@ _G.C_Map = {
 _G.C_Timer = {
     After = function(delay, fn) table.insert(timers, { at = world.time + delay, fn = fn }) end,
 }
---- Where the player is standing, for the zones addon's map/position reads: GetPlayerMapID,
+--- Where the player is standing, for the Places addon's map/position reads: GetPlayerMapID,
 --- GetRealZoneText, GetSubZoneText and C_Map.GetPlayerMapPosition. `x`/`y` are optional --
 --- omitting them leaves world.posX nil, which GetPlayerMapPosition reads as off any map.
 function M.SetZone(t)
@@ -568,17 +639,64 @@ _G.ERR_ZONE_EXPLORED = "Discovered %s."
 function _G.GetGossipText() return world.gossipText or "" end
 --- Put words on screen from an NPC with nothing to offer but talk: gossip text with no quest
 --- panel behind it.
-function M.ShowGossip(text)
+--- `options` are the labels the page offers, each leading to another page of gossip; see
+--- PickGossipOption.
+function M.ShowGossip(text, options)
     world.gossipText = text
+    world.gossipOptions = options
     world.panels.GossipFrame = true
 end
+local function GossipOptionID(i) return 1000 + i end
 --- The namespaced gossip API. SetClient hands it to the clients that have one.
 M.gossipAPI = {
     GetText = function() return world.gossipText or "" end,
     GetNumActiveQuests = function() return 0 end,
     GetNumAvailableQuests = function() return 0 end,
-    GetOptions = function() return {} end,
+    GetOptions = function()
+        local infos = {}
+        for i, name in ipairs(world.gossipOptions or {}) do
+            infos[i] = { name = name, gossipOptionID = GossipOptionID(i), orderIndex = i }
+        end
+        return infos
+    end,
+    SelectOption = function() end,
+    SelectOptionByIndex = function() end,
 }
+--- The pre-namespace pair: options come back flattened as name, type, name, type...
+function _G.GetGossipOptions()
+    local flat = {}
+    for _, name in ipairs(world.gossipOptions or {}) do
+        table.insert(flat, name)
+        table.insert(flat, "gossip")
+    end
+    return unpack(flat)
+end
+function _G.SelectGossipOption() end
+
+--- The player clicking one of the page's options, through whichever API the client has. DialogueUI
+--- picks by index (`byIndex`), the game's own window by id.
+function M.SelectGossipOption(name, byIndex)
+    for i, option in ipairs(world.gossipOptions or {}) do
+        if option == name then
+            if _G.C_GossipInfo and byIndex then
+                _G.C_GossipInfo.SelectOptionByIndex(i)
+            elseif _G.C_GossipInfo then
+                _G.C_GossipInfo.SelectOption(GossipOptionID(i))
+            else
+                _G.SelectGossipOption(i)
+            end
+            return
+        end
+    end
+    error("no gossip option " .. tostring(name))
+end
+
+--- ...and the NPC answering with `nextText` on a fresh GOSSIP_SHOW.
+function M.PickGossipOption(name, nextText, byIndex)
+    M.SelectGossipOption(name, byIndex)
+    M.ShowGossip(nextText)
+    M.FireEvent("GOSSIP_SHOW")
+end
 
 -- The book UI, which is the same API on all three targets: Era, Anniversary and Forever.
 -- ItemTextFrame serves mail as well as books, which is why a test can set a creator.
@@ -632,7 +750,6 @@ end
 function _G.GetGreetingText() return world.greetingText or "" end
 function _G.GetNumGossipActiveQuests() return 0 end
 function _G.GetNumGossipAvailableQuests() return 0 end
-function _G.GetGossipOptions() return end
 _G.ERR_ZONE_EXPLORED_XP = "Discovered %s: %d experience gained."
 --- The real semantics: the original runs, then the hook, with the same arguments. A no-op
 --- stood here, so nothing an addon installed through it ever ran - and the quest log play
@@ -674,6 +791,11 @@ function _G.strsplit(sep, str, limit)
     end
     return unpack(out)
 end
+-- The client's own string helpers, which stock Lua lacks.
+function string.trim(str) return (str:gsub("^%s+", ""):gsub("%s+$", "")) end
+function _G.wipe(t) for k in pairs(t) do t[k] = nil end return t end
+table.wipe = _G.wipe
+
 -- The client's string.format takes positional arguments (%1$s), which translations use to
 -- put words in their own order; stock Lua's does not. Reordered here, then formatted plainly.
 -- Replaced on the string table itself, so ("..."):format and the format global get it too.
@@ -740,7 +862,7 @@ _G.DropDownList1 = Frame("DropDownList1")
 _G.DropDownList1:Hide()
 local menuAPI = {}
 
---- Present the context-menu API, or take it away as a legacy client does.
+--- Present the context-menu API, or take it away as a client without it does.
 function M.SetMenuAPI(present)
     for name, fn in pairs(menuAPI) do
         _G[name] = present and fn or nil
@@ -813,7 +935,7 @@ end
 -- The gossip frame's Goodbye button, reachable the way current Blizzard clients (Classic Era,
 -- Anniversary, and Mainline) expose it: nested under a parentKey rather than a separate
 -- global. See UI/ContributeButton.lua's GossipGoodbyeButton for why a plain global is also
--- tried and why neither is assumed to exist on the three original legacy clients.
+-- tried.
 _G.GossipFrame.GreetingPanel = Frame("GossipFrameGreetingPanel")
 _G.GossipFrame.GreetingPanel.GoodbyeButton = Frame("GossipFrameGreetingPanelGoodbyeButton")
 
@@ -876,7 +998,10 @@ function _G.GetAddOnMetadata(addon, key)
     -- that is not a pack carries no metadata at all.
     return entry and entry.meta and entry.meta[key] or ""
 end
-function _G.IsAddOnLoadOnDemand() return false end
+function _G.IsAddOnLoadOnDemand(addon)
+    local entry = AddOnAt(addon)
+    return entry and entry.loadOnDemand or false
+end
 -- Character first, the pre-11.0 order. Given a name, the client answers for all characters, so
 -- an entry switched off only for this one (reason "DISABLED") is still on for some (1).
 function _G.GetAddOnEnableState(character, addon)
@@ -884,7 +1009,12 @@ function _G.GetAddOnEnableState(character, addon)
     return (entry and entry.reason == "DISABLED") and 1 or 2
 end
 function _G.DisableAddOn(addon) table.insert(M.disabledAddOns, addon) end
-function _G.LoadAddOn() return true end
+-- An entry's onLoad stands in for the pack's own code running, which is where it registers.
+function _G.LoadAddOn(addon)
+    local entry = AddOnAt(addon)
+    if entry and entry.onLoad then return entry.onLoad() end
+    return true
+end
 
 local libs = {}
 M.ldbObjects = {}
@@ -960,9 +1090,6 @@ local function EmbedTimers(addon)
     function addon:CancelTimer(timer)
         if timer then timer.at = nil end
     end
-    function addon:TimeLeft(timer)
-        return timer and timer.at and math.max(0, timer.at - world.time) or 0
-    end
     return addon
 end
 libs["AceTimer-3.0"] = { Embed = function(_, target) return EmbedTimers(target) end }
@@ -997,6 +1124,7 @@ local function DeepCopy(value)
     for key, item in pairs(value) do copy[key] = DeepCopy(item) end
     return copy
 end
+M.DeepCopy = DeepCopy
 
 -- Enough of AceDB for migrations to be testable: an existing saved table named `name`
 -- is read the way AceDB reads it -- profiles.Default over the defaults, the first char
@@ -1029,11 +1157,15 @@ libs["AceDB-3.0"] = {
         _G[name] = sv
         sv.profiles = sv.profiles or {}
         sv.profiles.Default = Merge(defaults.profile, sv.profiles.Default)
+        -- The profile this character starts on: a test sets M.StartProfile to be another character.
+        local startName = M.StartProfile or "Default"
+        sv.profiles[startName] = Merge(defaults.profile, sv.profiles[startName])
         sv.char = sv.char or {}
         local charKey = next(sv.char) or "Tester - Realm"
         sv.char[charKey] = Merge(defaults.char, sv.char[charKey])
         sv.global = sv.global or {}
-        local db = { profile = sv.profiles.Default, char = sv.char[charKey], global = sv.global, sv = sv }
+        local db = { profile = sv.profiles[startName], char = sv.char[charKey], global = sv.global, sv = sv,
+            keys = { char = charKey } }
         db.RegisterCallback = function() end
         function db:Shutdown()
             StripDefaults(self.profile, defaults.profile)
@@ -1041,7 +1173,7 @@ libs["AceDB-3.0"] = {
         end
         table.insert(databases, db)
         -- The profile half of AceDB, which the settings panels offer inline.
-        local current = "Default"
+        local current = startName
         function db:GetCurrentProfile() return current end
         function db:GetProfiles()
             local names = {}
@@ -1074,14 +1206,18 @@ end
 --- .toc's order), then initialises the saved variables the way ADDON_LOADED would.
 function M.LoadSpoken(addonDirectory)
     for _, file in ipairs({ "Environment", "Version", "Core", "SoundUtils", "Callbacks", "SoundQueue", "Sources", "Developer", "OtherSounds",
-        "Strings", "Locale/deDE", "Locale/esES", "Locale/frFR", "Locale/ptBR", "Locale/ruRU", "Locale/koKR", "Locale/zhCN",
-        "Locale/zhTW", "UI/Layout", "UI/DialogueUITheme", "UI/Transcript", "UI/Subtitle", "UI/Search", "UI/Portrait", "UI/StaticPortrait", "UI/Actions", "UI/PlayerFrame",
-        "UI/MinimalPlayer", "UI/DialogueUIPlayer", "UI/MinimapButton",
+        "BackgroundSound", "Strings", "Locale/deDE", "Locale/esES", "Locale/frFR", "Locale/ptBR", "Locale/ruRU", "Locale/koKR", "Locale/zhCN",
+        "Locale/zhTW", "UI/Layout", "UI/DialogueUITheme", "UI/Transcript", "UI/Subtitle", "UI/WordMarks", "UI/Search", "UI/Portrait", "UI/StaticPortrait", "UI/Actions", "UI/Snap", "UI/Face", "UI/PlayerFrame",
+        "UI/MinimalPlayer", "UI/Ellesmere", "UI/DialogueUIPlayer", "UI/DialogueUITransitions", "UI/MinimapButton",
         -- Real LibDeflate, not a hand-faked stub library: Contribute:Encode's round trip through
         -- actual compression is the point of testing it at all.
         "UI/Options", "UI/DialogueUIOptions", "UI/Welcome", "API", "Libs/LibDeflate/LibDeflate", "Compat", "UI/ContributeBox", "Contribute", "Gather" }) do
         dofile(addonDirectory .. file .. ".lua")
     end
+    -- Azeroth's Compendium, its dungeons and its text view (Compendium.xml).
+    dofile(addonDirectory .. "Data/Dungeons.lua")
+    dofile(addonDirectory .. "UI/TextView.lua")
+    dofile(addonDirectory .. "UI/Compendium.lua")
     local env = _G.SpokenEnv
     env.Addon:InitDB()
     -- The suites time the queue by each module's own gap; the player's pause between lines has
@@ -1091,6 +1227,9 @@ function M.LoadSpoken(addonDirectory)
     -- (defaults_test pins those). The Minimal Classic layout, including switching back to
     -- this one, has its own UI/timer fixture.
     env.Addon.db.profile.Frame.Style = "classic"
+    -- The world is entered at once in these suites: pages register as they are asked for.
+    -- parts_test sets holdPages to see them held until then.
+    if not M.holdPages then env.Options:ReleasePages() end
     return env
 end
 
@@ -1117,34 +1256,50 @@ function M.ResetTimers()
     for i = #timers, 1, -1 do timers[i] = nil end
 end
 
---- Load the zones addon's playback files the way the client would -- each chunk receives
---- the addon name and the shared table as varargs -- against a hand-built SpokenZones table
+--- Load the Places addon's playback files the way the client would -- each chunk receives
+--- the addon name and the shared table as varargs -- against a hand-built SpokenPlaces table
 --- carrying the few Core.lua facts Audio.lua and Autoplay.lua read. Returns that table.
-function M.LoadZones(addonDirectory, SpokenZones)
-    for _, file in ipairs({ "Audio", "UI/ReportButton", "Autoplay" }) do
+--- Spoken's UI/Compendium.lua too where Spoken has not loaded it: a clip's header is the place
+--- above, from its tree.
+function M.LoadPlaces(addonDirectory, SpokenPlaces)
+    if not _G.SpokenCompendium then dofile(addonDirectory .. "../Spoken/UI/Compendium.lua") end
+    for _, file in ipairs({ "Audio", "Autoplay" }) do
         local chunk = assert(loadfile(addonDirectory .. file .. ".lua"))
-        chunk("Spoken_Zones", SpokenZones)
+        chunk("Spoken_Places", SpokenPlaces)
     end
-    return SpokenZones
+    return SpokenPlaces
 end
 
 --- Reset every piece of sound state a test can observe.
 function M.ResetSound()
-    for _, key in ipairs({ "played", "playedChannels", "stopped", "music", "missing", "cvars", "cvarLog" }) do
+    for _, key in ipairs({ "played", "playedChannels", "stopped", "kitSounds", "missing", "cvars", "cvarLog" }) do
         world[key] = {}
     end
 end
 
 --- The quest log of a client that draws the modern map-attached one: no QuestLogFrame, no
 --- QuestLog_Update and no GetQuestLogTitle, rows out of an unnamed frame pool, and one
---- global function that redraws the list. `quests` is a list of { questID, title, level }.
+--- global function that redraws the list. `quests` is a list of { questID, title, level, tag,
+--- storyline, typeIcon, titleY, shortAnchor }: `tag` is the type in words ("(Elite)"), the next
+--- two the icons; the title is anchored `titleY` pixels off its end, in the form of SetPoint
+--- that leaves the relative point out when `shortAnchor` is set.
 function M.SetModernQuestLog(quests)
     local scroll = _G.CreateFrame("ScrollFrame", "QuestScrollFrame")
     scroll.Contents = _G.CreateFrame("Frame", nil, scroll)
 
-    local active = {}
+    -- Every row the pool has made, and the ones a redraw has handed out, in order.
+    local rows, active = {}, {}
     scroll.titleFramePool = {
         active = active,
+        GetNumActive = function(self) return getn(self.active) end,
+        Acquire = function(self)
+            local row = rows[getn(self.active) + 1]
+            table.insert(self.active, row)
+            return row
+        end,
+        ReleaseAll = function(self)
+            for index = getn(self.active), 1, -1 do self.active[index] = nil end
+        end,
         EnumerateActive = function(self)
             local index = 0
             return function()
@@ -1158,15 +1313,18 @@ function M.SetModernQuestLog(quests)
     local descriptions = {}
     for _, quest in ipairs(quests) do
         local row = _G.CreateFrame("Button", nil, scroll.Contents)
+        row.quest = quest
         row.questID = quest.questID
         row.Text = row:CreateFontString()
-        -- The row's own text carries the level prefix the quest log draws with it.
-        row.Text:SetText(format("[%d] %s", quest.level or 1, quest.title))
         row.Checkbox = _G.CreateFrame("Frame", nil, row)
-        table.insert(active, row)
+        row.TagText = row:CreateFontString()
+        row.StorylineTexture = row:CreateTexture()
+        row.TagTexture = row:CreateTexture()
+        table.insert(rows, row)
         titles[quest.questID] = quest.title
-        descriptions[getn(active)] = quest.description
+        descriptions[getn(rows)] = quest.description
     end
+    world.cvars.questPOI = "0"
 
     -- The details view the list opens a quest into, and the one function that opens it.
     local map = _G.CreateFrame("Frame", "QuestMapFrame")
@@ -1182,10 +1340,10 @@ function M.SetModernQuestLog(quests)
 
     _G.C_QuestLog = {
         GetTitleForQuestID = function(questID) return titles[questID] end,
-        GetNumQuestLogEntries = function() return getn(active) end,
+        GetNumQuestLogEntries = function() return getn(rows) end,
         GetLogIndexForQuestID = function(questID)
-            for index, row in ipairs(active) do
-                if row.questID == questID then return index end
+            for index, row in ipairs(rows) do
+                if row.quest.questID == questID then return index end
             end
         end,
     }
@@ -1193,10 +1351,44 @@ function M.SetModernQuestLog(quests)
     _G.GetQuestLogQuestText = function(index)
         return descriptions[index], ""
     end
-    -- What the client redraws the list through, and what the overlay hooks.
-    _G.QuestLogQuests_Update = function() end
+    -- What the client redraws the list through, and what the overlay hooks. Each row is laid out
+    -- as Forever's QuestLogQuests_AddQuestButton does: handed out with its quest, the title
+    -- ended against the type in words or else the storyline icon, which is placed left of the
+    -- type icon or at the checkbox, and hidden at the left of the icons when the quest has none.
+    _G.QuestLogQuests_Update = function()
+        scroll.titleFramePool:ReleaseAll()
+        for _ = 1, getn(rows) do
+            local row = scroll.titleFramePool:Acquire()
+            local quest = row.quest
+            row.questID = quest.questID
+            -- The row's own text carries the level prefix the quest log draws with it.
+            row.Text:SetText(format("[%d] %s", quest.level or 1, quest.title))
+            row.TagText:SetShown(quest.tag ~= nil)
+            local end_ = quest.tag and row.TagText or row.StorylineTexture
+            if quest.tag then
+                row.TagText:SetText(quest.tag)
+            end
+            if quest.shortAnchor then
+                row.Text:SetPoint("RIGHT", end_, -4, quest.titleY or 0)
+            else
+                row.Text:SetPoint("RIGHT", end_, "LEFT", -4, quest.titleY or 0)
+            end
+            row.TagTexture:SetShown(quest.typeIcon and true or false)
+            row.StorylineTexture:SetShown(quest.storyline and true or false)
+            row.StorylineTexture:ClearAllPoints()
+            if quest.storyline and quest.typeIcon then
+                row.StorylineTexture:SetPoint("RIGHT", row.TagTexture, "LEFT", -2, 0)
+            elseif quest.storyline then
+                row.StorylineTexture:SetPoint("RIGHT", row.Checkbox, "LEFT", -4, 0)
+            elseif quest.typeIcon then
+                row.StorylineTexture:SetPoint("LEFT", row.TagTexture, "LEFT", 0, 0)
+            else
+                row.StorylineTexture:SetPoint("LEFT", row.Checkbox, "LEFT", 0, 0)
+            end
+        end
+    end
 
-    M.questLogRows = active
+    M.questLogRows = rows
     M.questLogPOIButtons = {}
     return scroll
 end
@@ -1208,6 +1400,8 @@ function M.SetQuestLogPOIIcons(shown)
         poiButton:Hide()
     end
     M.questLogPOIButtons = {}
+    -- The setting the client asks before it hands a row its icon.
+    world.cvars.questPOI = shown and "1" or "0"
     if not shown then
         return
     end
@@ -1232,7 +1426,7 @@ function M.LoadQuests(addonDirectory, spokenDirectory)
     for _, module in ipairs({ "QuestOverlayUI", "Options" }) do
         VO[module] = setmetatable({}, { __index = function() return function() end end })
     end
-    for _, file in ipairs({ "Version", "Enums", "Utils", "Language", "Debug", "Strings", "Locale/deDE", "Locale/esES",
+    for _, file in ipairs({ "Version", "Enums", "Utils", "NPCModel", "Language", "Debug", "Strings", "Locale/deDE", "Locale/esES",
         "Locale/frFR", "Locale/ptBR", "Locale/ruRU", "Locale/koKR", "Locale/zhCN", "Locale/zhTW", "FuzzySearch",
         "EasterEggs", "DataModules", "ReportButton", "Player", "GreetingFirst", "VoiceOver", "Contribute" }) do
         dofile(addonDirectory .. file .. ".lua")
@@ -1258,21 +1452,23 @@ function M.LoadQuestsAlone(addonDirectory)
     for _, module in ipairs({ "QuestOverlayUI", "Options" }) do
         VO[module] = setmetatable({}, { __index = function() return function() end end })
     end
-    for _, file in ipairs({ "Version", "Enums", "Utils", "Language", "Debug", "Strings", "FuzzySearch", "EasterEggs",
+    for _, file in ipairs({ "Version", "Enums", "Utils", "NPCModel", "Language", "Debug", "Strings", "FuzzySearch", "EasterEggs",
         "DataModules", "ReportButton", "Player", "GreetingFirst", "VoiceOver", "Contribute" }) do
         dofile(addonDirectory .. file .. ".lua")
     end
     return VO
 end
 
---- The quests addon's settings panel, which the dispatch tests have no use for: its two
---- files, on top of an addon already loaded by LoadQuests or LoadQuestsAlone.
+--- The quests addon's settings pages, quests', gossip's and NPC chat's (VO.GossipSettingsPanel), which the
+--- dispatch tests have no use for: their files, on top of an addon already loaded by
+--- LoadQuests or LoadQuestsAlone. Returns the quests page.
 function M.LoadQuestsPanel(addonDirectory, VO)
-    dofile(addonDirectory .. "UI/Layout.lua")
     -- SettingsPanel builds its DialogueUI section only with the bridge loaded; a bridge test
     -- has loaded and hooked its own already.
     if not VO.DialogueUIBridge then dofile(addonDirectory .. "UI/DialogueUIBridge.lua") end
     dofile(addonDirectory .. "UI/SettingsPanel.lua")
+    dofile(addonDirectory .. "UI/GossipSettingsPanel.lua")
+    dofile(addonDirectory .. "UI/ChatterSettingsPanel.lua")
     return VO.SettingsPanel
 end
 

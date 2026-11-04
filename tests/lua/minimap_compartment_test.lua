@@ -11,7 +11,7 @@ local SPOKEN = here .. "/../../addons/Spoken/"
 local Expect, Failures = H.Expecter(print)
 
 local function Clean()
-    stub.SetClient("11509"); stub.ResetSound(); stub.ResetTimers()
+    stub.SetClient("16001"); stub.ResetSound(); stub.ResetTimers()
     _G.SpokenSettings = nil
     _G.AddonCompartmentFrame = nil
     stub.dbIcons = {}

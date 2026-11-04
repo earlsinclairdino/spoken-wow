@@ -3,11 +3,14 @@
 import { useMemo, useState } from "react";
 
 import GrantCell, { GrantPicker } from "@/components/GrantCell";
+import Cell from "@/components/Cell";
 import Pagination from "@/components/Pagination";
+import SortHeader from "@/components/SortHeader";
 import { usePendingPush } from "@/components/usePendingPush";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -18,6 +21,7 @@ import {
 import { authClient } from "@/lib/auth-client";
 import type { GrantRow } from "@/lib/grants/store";
 import type { Lang } from "@/lib/lang";
+import { nextUserSort, usersQuery, type UserSort } from "@/lib/users/sort";
 import { cn } from "@/lib/utils";
 import {
   CAPABILITIES,
@@ -34,7 +38,7 @@ export type UserRow = {
   name: string | null;
   email: string;
   /** Present for a global admin's listing only, as are the joined date and the key. */
-  role?: string | undefined;
+  role?: string | null | undefined;
   createdAt?: string;
 };
 
@@ -53,9 +57,47 @@ type Props = {
    * back.
    */
   keyedUserIds: string[] | null;
+  /**
+   * The search. A global admin's `users` are already its matches; a language admin's list is
+   * filtered here.
+   */
+  q: string;
+  /** Likewise: a global admin's `users` come in this order, a language admin's are put in it here. */
+  sort: UserSort;
   /** Where a global admin's list is; null for a language admin's, which is not paged. */
   page: { page: number; pageCount: number } | null;
 };
+
+function matches(user: UserRow, q: string): boolean {
+  const needle = q.toLowerCase();
+  return user.email.toLowerCase().includes(needle) || (user.name?.toLowerCase().includes(needle) ?? false);
+}
+
+/**
+ * A language admin's order, the server's for a global admin's (lib/users/store): languages is
+ * the languages held, alphabetically joined, admins first; empty values last either way.
+ */
+function compareUsers(sort: UserSort, langsOf: (user: UserRow) => string | null) {
+  const key = (user: UserRow): string | null => {
+    switch (sort.column) {
+      case "name":
+        return user.name || null;
+      case "email":
+        return user.email;
+      case "joined":
+        return user.createdAt ?? null;
+      case "languages":
+        return isAdmin(user.role) ? "" : langsOf(user);
+    }
+  };
+  const sign = sort.direction === "asc" ? 1 : -1;
+  return (a: UserRow, b: UserRow) => {
+    const x = key(a);
+    const y = key(b);
+    if (x === null || y === null) return Number(x === null) - Number(y === null);
+    return sign * x.localeCompare(y);
+  };
+}
 
 /** `users`, plus whoever in `grants` is not among them yet, in the order they turned up. */
 function withGrantees(users: UserRow[], grants: readonly GrantRow[]): UserRow[] {
@@ -74,6 +116,8 @@ export default function UserTable({
   viewer,
   currentUserId,
   keyedUserIds,
+  q,
+  sort,
   page,
 }: Props) {
   const { pending, push } = usePendingPush();
@@ -102,6 +146,18 @@ export default function UserTable({
     return byUser;
   }, [grants]);
 
+  const shown = global
+    ? users
+    : users
+        .filter((user) => !q || matches(user, q))
+        .sort(
+          compareUsers(sort, (user) => {
+            const langs = [...new Set((grantsOf.get(user.id) ?? NONE).map((grant) => grant.lang))];
+            return langs.length ? langs.sort().join(",") : null;
+          }),
+        );
+  const onSort = (column: UserSort["column"]) => push(usersQuery({ q, sort: nextUserSort(sort, column) }));
+
   async function sendGrant(busyKey: string, method: "PUT" | "DELETE", target: string, body?: unknown) {
     setPendingId(busyKey);
     setError(null);
@@ -123,8 +179,8 @@ export default function UserTable({
     return true;
   }
 
-  const grant = (busyKey: string, email: string, lang: Lang, capability: Capability) =>
-    sendGrant(busyKey, "PUT", "/api/grants", { email, lang, capability });
+  const grant = (busyKey: string, email: string, lang: Lang, capabilities: Capability[]) =>
+    sendGrant(busyKey, "PUT", "/api/grants", { email, lang, capabilities });
 
   const revoke = (userId: string, lang: Lang, capability: Capability) =>
     void sendGrant(userId, "DELETE", `/api/grants?${new URLSearchParams({ userId, lang, capability })}`);
@@ -139,6 +195,25 @@ export default function UserTable({
       setError(error.message ?? "Could not change that role.");
     } else {
       setUsers((current) => current.map((user) => (user.id === userId ? { ...user, role } : user)));
+    }
+    setPendingId(null);
+  }
+
+  /**
+   * The account and what is only theirs: sessions, keys, grants and preferences go with it
+   * (cascades); what they made, from takes to contributions, stays and loses its author.
+   */
+  async function removeUser(userId: string) {
+    setPendingId(userId);
+    setError(null);
+
+    const { error } = await authClient.admin.removeUser({ userId });
+
+    if (error) {
+      setError(error.message ?? "Could not delete that user.");
+    } else {
+      setUsers((current) => current.filter((user) => user.id !== userId));
+      setGrants((current) => current.filter((grant) => grant.userId !== userId));
     }
     setPendingId(null);
   }
@@ -184,42 +259,52 @@ export default function UserTable({
       >
         <thead>
           <tr className="text-muted-foreground border-b text-left text-xs">
-            <th className="py-2 pr-3 font-normal">Name</th>
-            <th className="py-2 pr-3 font-normal">Email</th>
-            {global && <th className="py-2 pr-3 font-normal">Joined</th>}
+            <SortHeader column="name" sort={sort} onSort={onSort}>
+              Name
+            </SortHeader>
+            <SortHeader column="email" sort={sort} onSort={onSort}>
+              Email
+            </SortHeader>
             {global && <th className="py-2 pr-3 font-normal">Role</th>}
-            <th className="py-2 pr-3 font-normal">Languages</th>
-            {global && <th className="py-2 font-normal">Key</th>}
+            <SortHeader column="languages" sort={sort} onSort={onSort}>
+              Languages
+            </SortHeader>
+            {global && <th className="py-2 pr-3 font-normal">Key</th>}
+            {global && (
+              <SortHeader column="joined" sort={sort} onSort={onSort}>
+                Joined
+              </SortHeader>
+            )}
+            {global && (
+              <th className="py-2 font-normal">
+                <span className="sr-only">Delete</span>
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
-          {users.length === 0 && (
+          {shown.length === 0 && (
             <tr>
-              <td colSpan={3} className="text-muted-foreground py-2">
-                Nobody works in your languages yet.
-              </td>
+              <Cell colSpan={3} className="text-muted-foreground">
+                {q ? "Nobody matches that." : "Nobody works in your languages yet."}
+              </Cell>
             </tr>
           )}
-          {users.map((user) => (
-            <tr key={user.id} className="border-b align-top last:border-0">
-              <td className="py-2 pr-3">{user.name}</td>
-              <td className="text-muted-foreground py-2 pr-3">{user.email}</td>
+          {shown.map((user) => (
+            <tr key={user.id} className="border-b last:border-0">
+              <Cell>{user.name}</Cell>
+              <Cell className="text-muted-foreground">{user.email}</Cell>
               {global && (
-                <td className="text-muted-foreground py-2 pr-3 whitespace-nowrap">
-                  {user.createdAt?.slice(0, 10)}
-                </td>
-              )}
-              {global && (
-                <td className="py-2 pr-3">
+                <Cell fit="control">
                   <RoleCell
                     user={user}
                     self={user.id === currentUserId}
                     busy={pendingId === user.id}
                     onChange={(role) => changeRole(user.id, role)}
                   />
-                </td>
+                </Cell>
               )}
-              <td className="py-2 pr-3">
+              <Cell fit="control">
                 {isAdmin(user.role) ? (
                   <span className="text-muted-foreground text-xs">every language, as admin</span>
                 ) : (
@@ -227,13 +312,13 @@ export default function UserTable({
                     grants={grantsOf.get(user.id) ?? NONE}
                     viewer={viewer}
                     busy={pendingId === user.id}
-                    onGrant={(lang, capability) => grant(user.id, user.email, lang, capability)}
+                    onGrant={(lang, capabilities) => grant(user.id, user.email, lang, capabilities)}
                     onRevoke={(lang, capability) => revoke(user.id, lang, capability)}
                   />
                 )}
-              </td>
+              </Cell>
               {global && (
-                <td className="py-2 whitespace-nowrap">
+                <Cell fit="control" className="whitespace-nowrap">
                   {keyed.has(user.id) ? (
                     <span className="flex items-center gap-2">
                       <span aria-label="key set">✓</span>
@@ -250,7 +335,23 @@ export default function UserTable({
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}
-                </td>
+                </Cell>
+              )}
+              {global && (
+                <Cell className="text-muted-foreground whitespace-nowrap">
+                  {user.createdAt?.slice(0, 10)}
+                </Cell>
+              )}
+              {global && (
+                <Cell fit="control" className="whitespace-nowrap">
+                  {user.id === currentUserId ? null : (
+                    <DeleteUser
+                      user={user}
+                      busy={pendingId === user.id}
+                      onDelete={() => removeUser(user.id)}
+                    />
+                  )}
+                </Cell>
               )}
             </tr>
           ))}
@@ -261,7 +362,7 @@ export default function UserTable({
         <Pagination
           page={page.page}
           pageCount={page.pageCount}
-          onPage={(next) => push(`?page=${next}`)}
+          onPage={(next) => push(usersQuery({ q, sort, page: next }))}
         />
       )}
 
@@ -269,10 +370,57 @@ export default function UserTable({
         <AddByEmail
           viewer={viewer}
           busy={pendingId === "new"}
-          onGrant={(email, lang, capability) => grant("new", email, lang, capability)}
+          onGrant={(email, lang, capabilities) => grant("new", email, lang, capabilities)}
         />
       )}
     </>
+  );
+}
+
+/**
+ * Asks first, in a popover: deleting an account cannot be undone. Not offered on your own
+ * row, for the same reason RoleCell has no select there.
+ */
+function DeleteUser({ user, busy, onDelete }: { user: UserRow; busy: boolean; onDelete: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={busy}
+          aria-label={`Delete ${user.email}`}
+          className="text-destructive hover:text-destructive"
+        >
+          Delete
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 text-sm">
+        <p>
+          Delete <span className="font-medium">{user.name || user.email}</span> for good? Their
+          grants and keys go with the account; what they made stays, without their name.
+        </p>
+        <div className="mt-3 flex justify-end gap-2">
+          <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+            Keep
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            disabled={busy}
+            onClick={() => {
+              setOpen(false);
+              onDelete();
+            }}
+          >
+            Delete
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -328,7 +476,7 @@ function AddByEmail({
 }: {
   viewer: Viewer;
   busy: boolean;
-  onGrant: (email: string, lang: Lang, capability: Capability) => Promise<boolean>;
+  onGrant: (email: string, lang: Lang, capabilities: Capability[]) => Promise<boolean>;
 }) {
   const [email, setEmail] = useState("");
   return (
@@ -336,8 +484,8 @@ function AddByEmail({
       <GrantPicker
         offer={(lang) => CAPABILITIES.filter((cap) => canGrant(viewer, cap, lang))}
         busy={busy}
-        onPick={(lang, capability) =>
-          void onGrant(email, lang, capability).then((ok) => {
+        onPick={(lang, capabilities) =>
+          void onGrant(email, lang, capabilities).then((ok) => {
             if (ok) setEmail("");
           })
         }

@@ -72,7 +72,7 @@ local function Rules()
 		-- Whose accepted quests are shared with the party: "anyone", "leader" or "nobody".
 		share = "anyone",
 		-- Which kinds of line are played together. Each one off still plays here, alone.
-		sync = { quests = true, gossip = true, zones = true, books = true },
+		sync = { quests = true, gossip = true, places = true, readables = true },
 	}
 end
 PartySync.Rules = Rules

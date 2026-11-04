@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 
 import FishReference, { type ReferenceView } from "./FishReference";
 import VoiceSamples from "./VoiceSamples";
+import AccountVoicePicker from "./voices/AccountVoicePicker";
 import { cloneVoice } from "./voices/PopulateDialog";
 import { Badge } from "@/components/ui/badge";
 import type { Provider } from "@/lib/generation/providers";
@@ -90,9 +91,12 @@ type Props = {
   setReferences: Dispatch<SetStateAction<Record<string, ReferenceView>>>;
   /** The directions per race and per voice, as the settings currently in force hold them. */
   raceTags: Record<string, string>;
-  /** May change the sources and the accent tags. */
-  manager: boolean;
-  /** The sources' editors are showing: a manager asked for them. */
+  /**
+   * May change this language's directions: a `configure` grant in it, not only a global admin,
+   * since the directions are the language's own.
+   */
+  directs: boolean;
+  /** The sources' editors are showing: an admin asked for them. */
   editing: boolean;
   /** Whether the viewer has an ElevenLabs key to clone into. */
   canClone: boolean;
@@ -109,7 +113,7 @@ export default function VoiceSlotList({
   references,
   setReferences,
   raceTags,
-  manager,
+  directs,
   editing,
   canClone,
 }: Props) {
@@ -228,13 +232,14 @@ export default function VoiceSlotList({
   }
 
   /**
-   * The direction box for a race or one voice: editable for a manager, read-only otherwise.
+   * The direction box for a race or one voice: editable for whoever configures the language,
+   * read-only otherwise.
    *
    * On both tabs: the language holds one set, and speakers/shape.ts puts it in front of the
    * NPC's words whichever provider speaks them.
    */
   function direction(key: string, placeholder: string) {
-    if (!manager) {
+    if (!directs) {
       return tags[key] ? (
         <span
           title="Direction"
@@ -398,14 +403,15 @@ export default function VoiceSlotList({
                               ) : (
                                 <span className="text-muted-foreground text-xs">no reference</span>
                               )
+                            ) : present?.has(slot.name) ? (
+                              // Before the clips: a voice adopted from the account has none.
+                              <Badge variant="outline" className="text-emerald-400">
+                                in your account
+                              </Badge>
                             ) : clips.length === 0 ? (
                               <span className="text-muted-foreground text-xs">no clips</span>
                             ) : present === null ? (
                               <span className="text-muted-foreground text-xs">unknown</span>
-                            ) : present.has(slot.name) ? (
-                              <Badge variant="outline" className="text-emerald-400">
-                                in your account
-                              </Badge>
                             ) : (
                               <span className="text-muted-foreground text-xs">not in your account</span>
                             )}
@@ -504,9 +510,16 @@ function ClonePanel({
 
   if (samples.length === 0) {
     return (
-      <p className="text-muted-foreground border-t py-3 pr-3 pl-9 text-xs">
-        No clips for this voice in {langName(lang)} yet, so there is nothing to clone.
-      </p>
+      <div className="border-t py-3 pr-3 pl-9 text-xs">
+        <p className="text-muted-foreground">
+          No clips for this voice in {langName(lang)} yet, so there is nothing to clone.
+        </p>
+        {canClone && (
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <AccountVoicePicker voice={voice} exists={exists} onAdopted={onCloned} />
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -539,6 +552,9 @@ function ClonePanel({
             {busy ? <Loader2 className="animate-spin" /> : <Sparkles />}
             {confirming ? "Confirm replace" : exists ? "Replace in my account" : "Add to my account"}
           </Button>
+          {!confirming && (
+            <AccountVoicePicker voice={voice} exists={exists} disabled={busy} onAdopted={onCloned} />
+          )}
           {confirming ? (
             <>
               <span className="text-xs text-amber-400">
@@ -585,6 +601,11 @@ function ReferencePlayer({ voice, reference }: { voice: string; reference: Refer
         src={withLang(lang, `/api/voices/${voice}/reference/audio?v=${reference.clipHash}`)}
         className="h-8 w-full max-w-md"
       />
+      {reference.pinned && (
+        <p className="text-muted-foreground mt-2 text-xs">
+          Pinned: every line of this voice is spoken by fish.audio, whichever generator is active.
+        </p>
+      )}
     </div>
   );
 }

@@ -1,35 +1,32 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_SORT, MISSING, NEEDS_DECISION, contributionsHref, nextSort, sortOf, matchesSpeaker, matchesStage, nextContributionFilters, pageOf } from "./query";
+import { Roster } from "../voices/roster";
+import { DEFAULT_SORT, bucketOf, contributionsHref, nextSort, sortOf, matchesSearch, matchesStage, nextContributionFilters, pageOf, stagesOf } from "./query";
 
 describe("nextContributionFilters", () => {
-  const current = { status: "new", provenance: "all", client: "all", source: "all", stage: "all", sort: DEFAULT_SORT } as const;
+  const current = { status: "new", bucket: "ready", client: "all", source: "quests", stage: [], sort: DEFAULT_SORT } as const;
 
   it("changes the dimension named in `next` and keeps the other", () => {
-    expect(nextContributionFilters(current, { provenance: "corpus" })).toEqual({
+    expect(nextContributionFilters(current, { bucket: "blocked" })).toEqual({
       status: "new",
-      provenance: "corpus",
+      bucket: "blocked",
       client: "all",
-      source: "all",
-      stage: "all",
+      source: "quests",
+      stage: [],
       sort: DEFAULT_SORT,
     });
   });
 
-  it("resets a dimension to 'all' when `next` names it with no value", () => {
+  it("resets a dimension to its default when `next` names it with no value", () => {
     // FilterChip's reset button calls onChange(undefined) -- the key is present, the value
     // isn't, and that must read as "clear this filter", not "leave it alone".
-    expect(nextContributionFilters({ status: "accepted", provenance: "moderator", client: "forever", source: "books", stage: "all", sort: DEFAULT_SORT }, { provenance: undefined })).toEqual(
-      { status: "accepted", provenance: "all", client: "forever", source: "books", stage: "all", sort: DEFAULT_SORT },
+    expect(nextContributionFilters({ status: "accepted", bucket: "blocked", client: "forever", source: "readables", stage: [], sort: DEFAULT_SORT }, { bucket: undefined })).toEqual(
+      { status: "accepted", bucket: "ready", client: "forever", source: "readables", stage: [], sort: DEFAULT_SORT },
     );
   });
 
   it("changes the client dimension alone", () => {
     expect(nextContributionFilters(current, { client: "legacy" })).toEqual({ ...current, client: "legacy" });
-  });
-
-  it("changes the source dimension alone", () => {
-    expect(nextContributionFilters(current, { source: "zones" })).toEqual({ ...current, source: "zones" });
   });
 
   it("leaves every dimension alone when `next` names none", () => {
@@ -39,26 +36,31 @@ describe("nextContributionFilters", () => {
 
 describe("contributionsHref", () => {
   it("builds a query string carrying every dimension", () => {
-    expect(contributionsHref({ status: "new", provenance: "all", client: "era", source: "all", stage: "all", sort: DEFAULT_SORT }, { status: "rejected" })).toBe(
-      "/contributions?status=rejected&provenance=all&client=era&source=all&stage=all",
+    expect(contributionsHref({ status: "new", bucket: "ready", client: "era", source: "quests", stage: [], sort: DEFAULT_SORT }, { status: "rejected" })).toBe(
+      "/contributions/quests?status=rejected&client=era",
     );
   });
 
-  // The sentinel round-trips through the URL like any other provenance value -- no special
-  // encoding, just the same string page.tsx's own parsing compares rawProvenance against.
-  it("round-trips the NEEDS_DECISION sentinel through the href", () => {
+  it("puts the section in the path and the stage in the query only when one is picked", () => {
+    const readables = { status: "new", bucket: "ready", client: "all", source: "readables", stage: [], sort: DEFAULT_SORT } as const;
+    expect(contributionsHref(readables, {})).toBe("/contributions/readables?status=new&client=all");
+    expect(contributionsHref({ ...readables, source: "quests" }, { stage: ["complete", "gossip"] })).toBe(
+      "/contributions/quests?status=new&client=all&stage=complete%2Cgossip",
+    );
+  });
+
+  it("writes the bucket only when it is not the ready rows", () => {
     expect(
-      contributionsHref({ status: "all", provenance: "all", client: "all", source: "all", stage: "all", sort: DEFAULT_SORT }, { provenance: NEEDS_DECISION }),
-    ).toBe(`/contributions?status=all&provenance=${NEEDS_DECISION}&client=all&source=all&stage=all`);
+      contributionsHref({ status: "new", bucket: "ready", client: "all", source: "quests", stage: [], sort: DEFAULT_SORT }, { bucket: "blocked" }),
+    ).toBe("/contributions/quests?status=new&client=all&bucket=blocked");
   });
 });
 
 describe("sort", () => {
-  const filters = { status: "new", provenance: "all", client: "all", source: "all", stage: "all", sort: DEFAULT_SORT } as const;
+  const filters = { status: "new", bucket: "ready", client: "all", source: "quests", stage: [], sort: DEFAULT_SORT } as const;
 
   it("starts a newly clicked column in its own direction, and flips the one in force", () => {
     expect(nextSort(DEFAULT_SORT, "filed")).toEqual({ column: "filed", direction: "desc" });
-    expect(nextSort(DEFAULT_SORT, "source")).toEqual({ column: "source", direction: "asc" });
     expect(nextSort(DEFAULT_SORT, "count")).toEqual({ column: "count", direction: "asc" });
     expect(nextSort({ column: "count", direction: "asc" }, "count")).toEqual({ column: "count", direction: "desc" });
   });
@@ -72,26 +74,26 @@ describe("sort", () => {
 
   it("carries a sort in the href and leaves the default out", () => {
     expect(contributionsHref(filters, { sort: { column: "filed", direction: "asc" } })).toBe(
-      "/contributions?status=new&provenance=all&client=all&source=all&stage=all&sort=filed&dir=asc",
+      "/contributions/quests?status=new&client=all&sort=filed&dir=asc",
     );
     expect(contributionsHref({ ...filters, sort: { column: "filed", direction: "asc" } }, { sort: DEFAULT_SORT })).toBe(
-      "/contributions?status=new&provenance=all&client=all&source=all&stage=all",
+      "/contributions/quests?status=new&client=all",
     );
   });
 
   it("keeps the sort across a filter change", () => {
-    const sort = { column: "status", direction: "desc" } as const;
+    const sort = { column: "filed", direction: "asc" } as const;
     expect(nextContributionFilters({ ...filters, sort }, { status: "accepted" }).sort).toEqual(sort);
   });
 });
 
 describe("paging", () => {
   it("carries a page past the first, and leaves the first page bare", () => {
-    const filters = { status: "new", provenance: "all", client: "all", source: "all", stage: "all", sort: DEFAULT_SORT } as const;
-    expect(contributionsHref(filters, {}, 3)).toBe("/contributions?status=new&provenance=all&client=all&source=all&stage=all&page=3");
-    expect(contributionsHref(filters, {}, 1)).toBe("/contributions?status=new&provenance=all&client=all&source=all&stage=all");
+    const filters = { status: "new", bucket: "ready", client: "all", source: "quests", stage: [], sort: DEFAULT_SORT } as const;
+    expect(contributionsHref(filters, {}, 3)).toBe("/contributions/quests?status=new&client=all&page=3");
+    expect(contributionsHref(filters, {}, 1)).toBe("/contributions/quests?status=new&client=all");
     // A filter change starts again from the first page.
-    expect(contributionsHref(filters, { status: "accepted" })).toBe("/contributions?status=accepted&provenance=all&client=all&source=all&stage=all");
+    expect(contributionsHref(filters, { status: "accepted" })).toBe("/contributions/quests?status=accepted&client=all");
   });
 
   it("reads anything that is not a positive integer as the first page", () => {
@@ -100,36 +102,61 @@ describe("paging", () => {
   });
 });
 
-describe("matchesSpeaker", () => {
-  it("matches only 'client' and 'none' for the NEEDS_DECISION sentinel, and nothing else", () => {
-    // Bite-check: if the special case in matchesSpeaker were ever deleted or short-circuited to
-    // `provenance === filter` like the plain-provenance branch, "corpus" and "moderator" would
-    // start passing here too -- this pins that they must not.
-    expect(matchesSpeaker("client", NEEDS_DECISION, "quests")).toBe(true);
-    expect(matchesSpeaker("none", NEEDS_DECISION, "quests")).toBe(true);
-    expect(matchesSpeaker("corpus", NEEDS_DECISION, "quests")).toBe(false);
-    expect(matchesSpeaker("moderator", NEEDS_DECISION, "quests")).toBe(false);
+describe("bucketOf", () => {
+  const npc = { race: "tauren", gender: "male", flavor: "warrior" as string | null, conflict: [] };
+  const quest = { title: "A Threat Within", questId: 783, stage: "accept" as const };
+  const moment = { source: "quests" as const, locale: "enUS", quest, hasSpeaker: false };
+  const roster = new Roster({
+    races: [
+      { key: "tauren", genders: ["male"] },
+      { key: "gameobject", genders: [] },
+    ],
+    flavors: [{ race: "tauren", gender: "male", flavor: "warrior" }],
+    voices: [
+      { name: "tauren-male-warrior", race: "tauren", gender: "male" },
+      { name: "narrator-male", race: "narrator", gender: "male" },
+    ],
+    assignments: [
+      { race: "tauren", gender: "male", flavor: "warrior", voice: "tauren-male-warrior" },
+      { race: "gameobject", gender: null, flavor: null, voice: "narrator-male" },
+    ],
   });
 
-  it("still matches a single provenance exactly when the filter names one", () => {
-    expect(matchesSpeaker("corpus", "corpus", "quests")).toBe(true);
-    expect(matchesSpeaker("client", "corpus", "quests")).toBe(false);
+  it("is ready for a quest moment that already has a speaker, in any language, with no NPC answer", () => {
+    expect(bucketOf({ ...moment, hasSpeaker: true }, null, roster)).toBe("ready");
+    expect(bucketOf({ ...moment, locale: "deDE", hasSpeaker: true }, null, roster)).toBe("ready");
   });
 
-  it("matches everything when the filter is 'all', including a row with no npc", () => {
-    expect(matchesSpeaker(undefined, "all", "quests")).toBe(true);
+  it("checks the speaker of a moment with none yet, the same in every language", () => {
+    for (const locale of ["enUS", "deDE"]) {
+      expect(bucketOf({ ...moment, locale }, npc, roster)).toBe("ready");
+      expect(bucketOf({ ...moment, locale }, null, roster)).toBe("blocked");
+    }
   });
 
-  it("matches MISSING only for a quests row with no npc", () => {
-    expect(matchesSpeaker(undefined, MISSING, "quests")).toBe(true);
-    // Zones and books never name an NPC; they are not missing one.
-    expect(matchesSpeaker(undefined, MISSING, "zones")).toBe(false);
-    expect(matchesSpeaker("none", MISSING, "quests")).toBe(false);
+  it("blocks a speaker with no race or gender, a conflict, or a voice off the roster", () => {
+    expect(bucketOf(moment, { ...npc, gender: null }, roster)).toBe("blocked");
+    expect(bucketOf(moment, { ...npc, race: null }, roster)).toBe("blocked");
+    expect(bucketOf(moment, { ...npc, conflict: [{}] }, roster)).toBe("blocked");
+    expect(bucketOf(moment, { ...npc, race: "murloc" }, roster)).toBe("blocked");
+    // tauren-male has only flavored voices, so the bare pair is not one.
+    expect(bucketOf(moment, { ...npc, flavor: null }, roster)).toBe("blocked");
   });
 
-  it("never matches a row with no npc for a real filter, sentinel included", () => {
-    expect(matchesSpeaker(undefined, NEEDS_DECISION, "quests")).toBe(false);
-    expect(matchesSpeaker(undefined, "client", "quests")).toBe(false);
+  it("is ready for a genderless type a voice reads", () => {
+    expect(bucketOf(moment, { race: "gameobject", gender: null, flavor: null, conflict: [] }, roster)).toBe("ready");
+  });
+
+  it("checks a greeting's own speaker, in any language", () => {
+    expect(bucketOf({ ...moment, quest: "gossip", hasSpeaker: true }, null, roster)).toBe("blocked");
+    expect(bucketOf({ ...moment, quest: "gossip" }, npc, roster)).toBe("ready");
+    expect(bucketOf({ ...moment, quest: "gossip", locale: "deDE" }, npc, roster)).toBe("ready");
+    expect(bucketOf({ ...moment, quest: "gossip", locale: "deDE" }, { ...npc, race: null }, roster)).toBe("blocked");
+  });
+
+  it("is ready for places and readables, which name no NPC", () => {
+    expect(bucketOf({ ...moment, source: "places", quest: null }, null, roster)).toBe("ready");
+    expect(bucketOf({ ...moment, source: "readables", quest: null, locale: "deDE" }, null, roster)).toBe("ready");
   });
 });
 
@@ -137,22 +164,78 @@ describe("matchesStage", () => {
   const quest = (stage: "accept" | "progress" | "complete" | null) => ({ title: "Stalk With The Earthmother", questId: 76156, stage });
 
   it("lets everything through when no stage is picked", () => {
-    expect(matchesStage(null, "all")).toBe(true);
-    expect(matchesStage("gossip", "all")).toBe(true);
-    expect(matchesStage(quest(null), "all")).toBe(true);
+    expect(matchesStage(null, [])).toBe(true);
+    expect(matchesStage("gossip", [])).toBe(true);
+    expect(matchesStage(quest(null), [])).toBe(true);
   });
 
-  it("matches a quest row on its own stage only", () => {
-    expect(matchesStage(quest("progress"), "progress")).toBe(true);
-    expect(matchesStage(quest("progress"), "complete")).toBe(false);
-    expect(matchesStage(quest(null), "accept")).toBe(false);
-    expect(matchesStage(quest("accept"), "gossip")).toBe(false);
+  it("matches a quest row on its own stage, among any picked", () => {
+    expect(matchesStage(quest("progress"), ["progress"])).toBe(true);
+    expect(matchesStage(quest("progress"), ["accept", "progress"])).toBe(true);
+    expect(matchesStage(quest("progress"), ["complete"])).toBe(false);
+    expect(matchesStage(quest(null), ["accept"])).toBe(false);
   });
 
-  it("matches gossip only to gossip, and a row with no quest concept to nothing narrowed", () => {
-    expect(matchesStage("gossip", "gossip")).toBe(true);
-    expect(matchesStage("gossip", "accept")).toBe(false);
-    expect(matchesStage(null, "gossip")).toBe(false);
-    expect(matchesStage(null, "complete")).toBe(false);
+  it("matches gossip only when it is picked, and a row with no quest concept never", () => {
+    expect(matchesStage("gossip", ["gossip"])).toBe(true);
+    expect(matchesStage("gossip", ["accept", "gossip"])).toBe(true);
+    expect(matchesStage("gossip", ["accept"])).toBe(false);
+    expect(matchesStage(null, ["gossip"])).toBe(false);
   });
 });
+
+describe("matchesSearch", () => {
+  const row = {
+    text: "Bring me 240 gold, mortal.",
+    npc: { npcId: 240, npcName: "Marshal Dughan" },
+    quest: { title: "A Threat Within", questId: 783, stage: "accept" as const },
+  };
+
+  it("reads a bare number as an NPC or quest id, never as text", () => {
+    expect(matchesSearch(row, "240")).toBe(true);
+    expect(matchesSearch(row, "783")).toBe(true);
+    expect(matchesSearch(row, "240", "quest")).toBe(false);
+    expect(matchesSearch({ ...row, npc: undefined }, "240")).toBe(false);
+  });
+
+  it("matches words in the NPC's name, the quest's title or the text, without case", () => {
+    expect(matchesSearch(row, "dughan")).toBe(true);
+    expect(matchesSearch(row, "threat")).toBe(true);
+    expect(matchesSearch(row, "MORTAL")).toBe(true);
+    expect(matchesSearch(row, "murloc")).toBe(false);
+  });
+
+  it("keeps to the field asked for", () => {
+    expect(matchesSearch(row, "mortal", "npc")).toBe(false);
+    expect(matchesSearch(row, "dughan", "text")).toBe(false);
+    expect(matchesSearch(row, "240", "text")).toBe(true);
+    expect(matchesSearch(row, "threat", "quest")).toBe(true);
+  });
+
+  it("matches everything on a blank query, and a gossip row on no quest", () => {
+    expect(matchesSearch(row, "  ")).toBe(true);
+    expect(matchesSearch({ ...row, quest: "gossip" }, "783")).toBe(false);
+  });
+});
+
+describe("contributionsHref search", () => {
+  const filters = { status: "new", bucket: "ready", client: "all", source: "quests", stage: [], sort: DEFAULT_SORT } as const;
+
+  it("writes the query and where it is searched only when set, and keeps them across a filter change", () => {
+    expect(contributionsHref(filters, { q: " dughan ", searchIn: "npc" })).toBe(
+      "/contributions/quests?status=new&client=all&q=dughan&filter=npc",
+    );
+    expect(contributionsHref({ ...filters, q: "dughan", searchIn: "any" }, { status: "accepted" })).toBe(
+      "/contributions/quests?status=accepted&client=all&q=dughan",
+    );
+  });
+});
+
+describe("stagesOf", () => {
+  it("reads a comma-separated list in the dropdown's order, dropping what is not a stage", () => {
+    expect(stagesOf("gossip,accept")).toEqual(["accept", "gossip"]);
+    expect(stagesOf("complete,places")).toEqual(["complete"]);
+    expect(stagesOf(undefined)).toEqual([]);
+  });
+});
+

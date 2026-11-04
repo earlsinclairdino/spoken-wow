@@ -5,25 +5,26 @@ setfenv(1, SpokenEnv)
 --
 -- Left-click opens settings. Right-click opens a menu: the player's entries, then each
 -- source's, grouped in source order. Middle-click stops or replays. All three are
--- rebindable (Minimap.Commands in the profile), which is what keeps VoiceOverRedux's three-configurable-clicks
--- behaviour for the players who use it.
+-- rebindable (Minimap.Commands in the profile).
 Minimap = { entries = {}, sections = {} }
 
 local ICON = [[Interface\AddOns\Spoken\Textures\MinimapButton]]
 local ldbObject, menuFrame, minimapButton
 
--- The player's own entries.
+-- The player's own entries: the same playback rows as the Small Window's menu, then the
+-- Compendium and the settings.
 local PLAYER_ENTRIES = {
     { id = "PlayPause", text = L.STOP_REPLAY,  order = 1, onClick = function() SoundQueue:TogglePauseQueue() end },
-    { id = "Stop",      text = L.MIN_STOP_ALL, order = 2, onClick = function() SoundQueue:RemoveAllSoundsFromQueue() end },
+    { id = "Skip",      text = L.MIN_SKIP,     order = 2, onClick = function() SoundQueue:Skip() end },
+    { id = "Stop",      text = L.MIN_STOP_ALL, order = 3, onClick = function() SoundQueue:RemoveAllSoundsFromQueue() end },
     -- Azeroth's Compendium, whichever parts have a tab in it (UI/Compendium.lua in each).
-    { id = "Compendium", text = L.OPT_COMPENDIUM_OPEN, order = 3,
+    { id = "Compendium", text = L.OPT_COMPENDIUM_OPEN, order = 4,
         visible = function()
             local compendium = _G.SpokenCompendium
             return compendium ~= nil and compendium.Available ~= nil and compendium:Available()
         end,
         onClick = function() _G.SpokenCompendium:Toggle() end },
-    { id = "Settings",  text = L.SETTINGS,     order = 4, onClick = function() Options:Open() end },
+    { id = "Settings",  text = L.SETTINGS,     order = 5, onClick = function() Options:Open() end },
 }
 
 --- entry = { id, text, icon, order, onClick(button), tooltip(GameTooltip), visible() }
@@ -93,10 +94,8 @@ end
 -- addon uses, and it brings its own background, its highlight under the cursor, its
 -- closing on a click elsewhere and its toggling, none of which is worth reimplementing.
 --
--- The three legacy clients do not have it in a shape worth using -- EasyMenu does
--- not exist on 1.12 at all, and the initializer differs on the other two -- so there the
--- player draws its own list of buttons and supplies those four behaviours by hand. That
--- code exists for those clients only, and is below.
+-- Where it is missing, the player draws its own list of buttons and supplies those four
+-- behaviours by hand.
 local dropDown
 local menuCatcher
 local iconTooltip
@@ -202,8 +201,7 @@ local function ShowMenu(anchor)
 
         -- A menu is closed by clicking anywhere else, which nothing tells the frame about.
         -- A transparent button over the whole screen, shown only while the menu is, is how
-        -- that is heard on every client: GLOBAL_MOUSE_DOWN exists on none of the three
-        -- legacy ones.
+        -- that is heard.
         menuCatcher = CreateFrame("Button", "SpokenMinimapMenuCatcher", UIParent)
         menuCatcher:SetAllPoints(UIParent)
         menuCatcher:SetFrameStrata("DIALOG")
@@ -312,13 +310,10 @@ function Minimap:Setup()
             -- the next compartment open). From the compartment, wait for the close to
             -- finish and open on our own button, which neither moves nor closes.
             if minimapButton and button ~= minimapButton then
-                if C_Timer and C_Timer.After then
-                    C_Timer.After(0.05, function()
-                        Minimap:HandleClick(minimapButton, mouseButton)
-                    end)
-                    return
-                end
-                button = minimapButton
+                C_Timer.After(0.05, function()
+                    Minimap:HandleClick(minimapButton, mouseButton)
+                end)
+                return
             end
             Minimap:HandleClick(button, mouseButton)
         end,
@@ -341,10 +336,11 @@ function Minimap:Setup()
             tooltip:SetText("Spoken")
             local head = SoundQueue:GetCurrentSound()
             if head and head.present then
-                tooltip:AddLine(head.present.header or "", 1, 0.82, 0)
+                -- Nothing is over the world's own story, and an empty line would show.
+                if head.present.header then tooltip:AddLine(head.present.header, 1, 0.82, 0) end
                 tooltip:AddLine(head.present.label or "", 0.8, 0.8, 0.8)
             end
-            tooltip:AddLine(" ")
+            tooltip:AddLine("v" .. AddonVersion, 0.7, 0.7, 0.7)
             tooltip:AddLine(L.MENU_LEFT, 0.7, 0.7, 0.7)
             tooltip:AddLine(L.MENU_MIDDLE, 0.7, 0.7, 0.7)
             tooltip:AddLine(L.MENU_RIGHT, 0.7, 0.7, 0.7)

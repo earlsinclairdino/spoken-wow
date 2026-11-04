@@ -3,15 +3,27 @@
  * can be unit tested without spinning up the page's own database calls -- the same reason
  * lib/npc/resolve.ts's observedFrom is a free function rather than inlined where it's used.
  *
- * npcSummaryFrom pulls in the quests catalogue (flavorsFor), so this file is not node-free the way
+ * npcSummaryFrom reads the roster store (roster-store.ts), so this file is not node-free the way
  * envelope.ts/contributions.ts are -- ContributionTable.tsx only ever takes NpcSummary/
  * QuestSummary as `import type`, which TypeScript erases entirely, so the client bundle never
  * sees this module's own imports.
  */
-import { BASE_LANG } from "@/lib/lang";
-import { flavorsFor } from "@/lib/quests/catalogue";
-import type { NpcKind, NpcResolution, Provenance } from "@/lib/npc/store";
+import { flavorOptionsFor } from "@/lib/contributions/speaker";
+import { BASE_LANG, type Lang } from "@/lib/lang";
+import { loadRoster } from "@/lib/voices/roster-store";
+import type { NpcResolution, NpcRowKind, Provenance } from "@/lib/npc/store";
+import type { BookMatchResult } from "./book-match";
 import { isQuestStage, type QuestStage } from "./query";
+
+/**
+ * The language of the voice packs the player was hearing, from the envelope's `pack`, when it
+ * is not the client's own. A German client listening to English packs is missing the line in
+ * both, and triage needs to see that. Null when the two agree or the envelope carries none.
+ */
+export function packHeard(row: { locale: string; meta: Record<string, string> }): string | null {
+  const pack = row.meta.pack?.trim();
+  return pack && pack !== row.locale ? pack : null;
+}
 
 /** `stage` is null only for stored meta whose `event` is not one the addon sends. */
 export type QuestSummary = { title: string; questId: number; stage: QuestStage | null } | "gossip";
@@ -19,8 +31,8 @@ export type QuestSummary = { title: string; questId: number; stage: QuestStage |
 /**
  * The Quest column's content for one contribution.
  *
- * Null for a source with no quest concept at all -- zones and books never carry `quest`/`title`,
- * and there is no ambiguity to flag there the way there is for a quests-source row.
+ * Null for a source with no quest concept at all -- places and readables never carry
+ * `quest`/`title`, and there is no ambiguity to flag there the way there is for a quests-source row.
  *
  * "gossip" for a quests-source envelope missing either field: checkEnvelope's other shape for
  * that source is an `npc:<id>` key with neither, and an empty cell would read as "we lost the
@@ -36,27 +48,45 @@ export function questFor(row: { source: string; meta: Record<string, string> }):
   return "gossip";
 }
 
-/** The English page a books contribution is matched to, as the triage table shows it. */
-export type BookMatch = { pageId: number; bookId: number; title: string; pageNumber: number; pageCount: number };
-
 /**
- * The Book column's content for one contribution: what the client showed, and the English page
- * a moderator matched it to (migration 0059). Null for any source but books, and for an English
- * row, which has no translation to place -- accept writes nothing for it.
+ * The Match column's content for one readables contribution: what the client showed, what the
+ * matcher (or a moderator) decided it is, that decision in words, and the page it names.
  */
-export type BookSummary = { title: string | null; number: number | null; match: BookMatch | null };
+export type BookSummary = {
+  title: string | null;
+  number: number | null;
+  match: BookMatchResult;
+  label: string;
+  /** The explorer page the match names, where it names one. */
+  href: string | null;
+};
 
 export function bookFor(
-  row: { source: string; locale: string; meta: Record<string, string> },
-  match: BookMatch | null,
+  row: { source: string; meta: Record<string, string> },
+  match: BookMatchResult,
+  describe: (lineId: string) => string,
+  hrefOf?: (lineId: string) => string,
 ): BookSummary | null {
-  if (row.source !== "books" || row.locale === BASE_LANG) return null;
+  if (row.source !== "readables") return null;
   const number = Number(row.meta.number);
   return {
     title: row.meta.book?.trim() || null,
     number: Number.isInteger(number) && number > 0 ? number : null,
     match,
+    label: labelOf(match, describe),
+    href: hrefOf && "lineId" in match ? hrefOf(match.lineId) : null,
   };
+}
+
+export function labelOf(match: BookMatchResult, describe: (lineId: string) => string): string {
+  switch (match.kind) {
+    case "known": return `Already there · ${describe(match.lineId)}`;
+    case "correction": return `Correction · ${describe(match.lineId)}`;
+    case "translation": return `Translation · ${describe(match.lineId)}`;
+    case "new-page": return `New page · ${describe(`book:${match.bookId}`)} p.${match.pageNumber}`;
+    case "new-book": return `New book · ${match.title || "untitled"} p.${match.pageNumber}`;
+    case "ambiguous": return `Ambiguous · ${match.candidates.length} candidates`;
+  }
 }
 
 /** Who a row's NPC is, in exactly the shape the triage table renders. */
@@ -71,7 +101,7 @@ export type NpcSummary = {
    * kind by hand is a reviewed human decision, not the silent auto-guess resolve.ts declines to
    * make at intake.
    */
-  npcKind: NpcKind | null;
+  npcKind: NpcRowKind | null;
   npcId: number;
   npcName: string | null;
   race: string | null;
@@ -109,7 +139,7 @@ export type IdOnlyLookup = {
 const RANK: Record<Provenance, number> = { moderator: 4, corpus: 3, display: 2, client: 1, none: 0 };
 
 /**
- * Who a kind-less contribution's NPC is, from every npc_resolution row sharing its id.
+ * Who a kind-less contribution's NPC is, from every npc row sharing its id.
  *
  * A kind-less envelope names an id that may exist as both a creature and a gameobject. When the
  * rows that say anything (every provenance but `none`) agree on race, gender and flavor, that
@@ -142,7 +172,7 @@ export function idOnlyResolution(rows: NpcResolution[] | undefined): IdOnlyLooku
 
 /**
  * One row's NPC/Speaker column content, from what the envelope itself observed and whatever
- * npc_resolution row (if any) already answers for that (kind, id).
+ * npc row (if any) already answers for that (kind, id).
  *
  * The resolution's own `npcKind` wins over the observation's: a resolution can only exist when
  * some envelope -- this one or an earlier one for the same NPC -- carried a kind, which makes it
@@ -154,9 +184,11 @@ export function idOnlyResolution(rows: NpcResolution[] | undefined): IdOnlyLooku
  * name is only the fallback for an envelope that named none.
  */
 export async function npcSummaryFrom(
-  observed: { npcKind: NpcKind | null; npcId: number; npcName: string | null },
+  observed: { npcKind: NpcRowKind | null; npcId: number; npcName: string | null },
   resolution: NpcResolution | undefined,
   conflict: NpcResolution[] = [],
+  // The row's language, whose team's roster offers the flavors.
+  lang: Lang = BASE_LANG,
 ): Promise<NpcSummary> {
   return {
     npcKind: resolution?.npcKind ?? observed.npcKind,
@@ -169,7 +201,7 @@ export async function npcSummaryFrom(
     confirmed: resolution?.confirmed ?? false,
     doubtful: resolution?.doubtful ?? false,
     flavorOptions:
-      resolution?.race && resolution?.gender ? await flavorsFor(resolution.race, resolution.gender) : [],
+      flavorOptionsFor(resolution?.race ?? null, resolution?.gender ?? null, await loadRoster(lang)),
     conflict: conflict.map(({ npcKind, race, gender, flavor, provenance, doubtful }) => ({
       npcKind,
       race,

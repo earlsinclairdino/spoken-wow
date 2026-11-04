@@ -8,7 +8,7 @@
  * the one page that was supposed to stay up.
  *
  * THAT PROMISE IS WEAKENING, DELIBERATELY. The corpus itself is moving into Postgres, where
- * the zones and books corpora already live, and a section whose words come from a table
+ * the places and readables corpora already live, and a section whose words come from a table
  * cannot browse without it - those two answer an outage with a "corpus empty" page rather
  * than with stale prose. The fail-soft below is kept while the corpus is still a file, and
  * the day it is not, this function becomes the place to decide deliberately what an outage
@@ -24,7 +24,7 @@ import { dirtyQuestFiles } from "./dirtiness";
 import { staleFiles } from "./staleness";
 import type { SearchContext } from "../search";
 import { NO_CONTEXT } from "../search";
-import { query } from "../db";
+import { readAs } from "../teams/store";
 import { readIgnores } from "./ignores";
 import { readOverrides } from "./overrides";
 import { BASE_LANG, type Lang } from "../lang";
@@ -33,12 +33,13 @@ import { BASE_LANG, type Lang } from "../lang";
  * lineId -> how many reports about it are still open.
  *
  * Grouped in the database rather than counted here, and `lineId is not null` excludes a
- * report about the project, which belongs to no line. The same query the zones and books
+ * report about the project, which belongs to no line. The same query the places and readables
  * catalogues run; the count is public while the bodies are not, so a row can say "somebody
  * has already reported this one" without showing what they said.
  */
 async function openReports(lang: Lang): Promise<Map<string, number>> {
-  const rows = await query<{ lineId: string; open: number }>(
+  const rows = await readAs<{ lineId: string; open: number }>(
+    lang,
     `select "lineId", count(*)::int as "open"
        from "report"
       where "source" = 'quests' and "status" = 'open' and "lineId" is not null
@@ -80,8 +81,7 @@ export async function searchContext(
   const madeBy = seesMadeBy ? new Map(live.map((row) => [row.file, madeByOf(row)])) : undefined;
 
   try {
-    // Overrides are English's alone -- they rewrite the English corpus. Staleness and dirt
-    // are per language: a take is compared with its own language's text and lexicon.
+    // All per language: a take is compared with its own language's text and lexicon.
     const [overrides, ignores, reports, stale, dirt] = await Promise.all([
       readOverrides(lang),
       readIgnores(lang),

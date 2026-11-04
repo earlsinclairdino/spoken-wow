@@ -5,81 +5,111 @@ local function FrameConfig()
     return Addon:Profile("Frame")
 end
 
--- The player: who is speaking, what is waiting, and the controls for both.
---
--- ZoneLore's SoundQueueUI.lua is the base -- itself VoiceOverRedux's with the domain
--- taken out and an actions row added -- with the things Redux had that the fork dropped
--- put back: the hide-portrait mode with its vertical line and mini pause button, and
--- the 1.12 layout quirks. Everything domain-shaped now comes from the clip's
--- presentation: the header, the row label, the bullet, the portrait, the actions.
+-- The large window, the "classic" narrator style: the game's Talking Head frame as
+-- TalkingHeadUI.xml lays it out, with Spoken's round controls where it has its close button.
+-- Clients without its atlases draw Spoken's own art in the same places.
 --
 -- Refreshed through the player's AUDIO_CHANGED callback rather than by the queue
 -- calling this file, which is what keeps SoundQueue.lua free of any dependency on it.
 PlayerFrame = {}
 
-local PORTRAIT_SIZE = 120
+-- TalkingHeadUI.xml: the frame and its box are 570 by 155; the portrait's frame is 143 across, 5
+-- in and 6 down; the model 115 across, 21 in and 21 down; the name 2 right of the portrait's frame
+-- and 19 down from its top; the words 3 under the name, ending 42 from the right.
+local FRAME_WIDTH, FRAME_HEIGHT = 570, 155
+local RING_X, RING_Y, RING_SIZE = 5, -6, 143
+local PORTRAIT_X, PORTRAIT_Y, PORTRAIT_SIZE = 21, -21, 115
+local NAME_X, NAME_Y = RING_X + RING_SIZE + 2, RING_Y - 19
+local WORDS_UNDER, RIGHT = 3, 42
+-- The box art's shadow is full dark 15 under the frame's top, 12 in from its right and 13 over its
+-- foot (measured in game); its edges fade out past that. The round controls and the progress line
+-- sit PAD inside it.
+local SHADE_TOP, SHADE_RIGHT, SHADE_FOOT, PAD = 15, 12, 13, 10
+local CORNER_X, CORNER_Y, FOOT = SHADE_RIGHT + PAD, SHADE_TOP + PAD, SHADE_FOOT + PAD
+-- At most this many lines of words, fewer where Text Size leaves no room for them over the
+-- progress line, BAR_GAP above it.
+local MOST_LINES, BAR_GAP = 3, 6
+-- Where the name starts with the portrait hidden: as far in as the words end on the right.
+local BARE_LEFT = RIGHT
+-- The atlases, the first of each the client has. Forever's portrait frame for the dark box is the
+-- Alliance one; Classic Era names the same art without the faction.
+local RING = { "TalkingHeads-Alliance-PortraitFrame", "TalkingHeads-PortraitFrame" }
+local BOX = { "TalkingHeads-TextBackground" }
+local FACE = { "TalkingHeads-PortraitBg" }
+-- Spoken's own portrait art: the border's cell in PortraitFrameAtlas, and the opening in it.
 local PORTRAIT_ATLAS_SIZE = 512
 local PORTRAIT_ATLAS_BORDER_SIZE = 416
 local PORTRAIT_ATLAS_VIEWPORT_SIZE = 348
-local PORTRAIT_BORDER_SCALE = PORTRAIT_SIZE / PORTRAIT_ATLAS_VIEWPORT_SIZE
-local PORTRAIT_BORDER_SIZE = PORTRAIT_ATLAS_BORDER_SIZE * PORTRAIT_BORDER_SCALE
-local PORTRAIT_BORDER_OUTSET = 34 * PORTRAIT_BORDER_SCALE
-local PORTRAIT_LINE_WIDTH = 56 * PORTRAIT_BORDER_SCALE
-local FRAME_WIDTH_WITHOUT_PORTRAIT = 300
-local MAX_ROWS = 4
+local PORTRAIT_BORDER_OUTSET = 34 * PORTRAIT_SIZE / PORTRAIT_ATLAS_VIEWPORT_SIZE
+-- The name's height, for the words under it, and the gap left before the round controls.
+local NAME_SIZE, NAME_GAP = 22, 8
+local ROUND_GAP = Actions.ROUND_GAP
 local TEXTURES = [[Interface\AddOns\Spoken\Textures\]]
+-- TalkingHeadUI.lua's colours for its dark box: a gold name, white words, black shadows.
+local NAME_COLOR = { 1, .82, .02 }
+local WORDS_COLOR = { 1, 1, 1 }
+local TAIL_COLOR = { .6, .6, .6 }
+local LABEL_GAP = 6
+local LABEL_LEAST = "• ..."
 
 do
     local font = CreateFont("SpokenNameFont")
-    font:SetFont(GameFontNormal:GetFont(), 19, "")
+    font:SetFont(GameFontNormal:GetFont(), NAME_SIZE - 2, "")
     font:SetShadowColor(0, 0, 0)
     font:SetShadowOffset(1, -1)
     font:SetJustifyH("LEFT")
     font:SetJustifyV("TOP")
 end
 do
-    local font = CreateFont("SpokenRowFont")
-    font:SetFont(GameFontNormal:GetFont(), 16, "")
+    local font = CreateFont("SpokenLabelFont")
+    font:SetFont(GameFontNormal:GetFont(), 14, "")
     font:SetShadowColor(0, 0, 0)
     font:SetShadowOffset(1, -1)
     font:SetJustifyH("LEFT")
     font:SetJustifyV("MIDDLE")
 end
 
--- 1.12 reports no width for a frame that has not been laid out; the edges are reliable.
-local function WidthOf(frame)
-    if Version.IsLegacyVanilla then
-        return (frame:GetRight() or 0) - (frame:GetLeft() or 0)
+local Label, Speaker, Waiting = Actions.Label, Actions.Speaker, Actions.Waiting
+
+local function FirstAtlas(names)
+    for _, name in ipairs(names) do
+        if Actions.HasAtlas(name) then return name end
     end
-    return frame:GetWidth()
+    return nil
 end
 
 function PlayerFrame:Initialize()
     if self.frame then return end
     self:InitDisplay()
-    self:InitPortraitLine()
     self:InitPortrait()
+    self:InitHeader()
     self:InitMover()
     Actions:Build(self.frame)
+    self.fader = Actions.Fader(self.frame, function() return { self.frame.portrait.model } end, function()
+        -- Faded out to turn to the next line: now it comes in.
+        if self.turning then self.turning = nil; self:Update() end
+    end)
+    -- A window turning to the next line fades out with the words it shows: the captions wait for
+    -- it rather than taking the next line's first.
+    Transcript.holdFor = function(clip)
+        local window = self:Skin() or self
+        return window.WillTurn ~= nil and window:WillTurn(clip)
+    end
     self:RefreshConfig()
     Callbacks:Register("AUDIO_CHANGED", function() PlayerFrame:Update() end)
+    Actions.WatchDialogs(function() PlayerFrame:Update(); Subtitle:Update() end)
 end
 
 function PlayerFrame:InitDisplay()
     self.frame = CreateFrame("Frame", "SpokenPlayerFrame", UIParent, "BackdropTemplate")
     function self.frame:Reset()
-        self:SetWidth(PORTRAIT_SIZE + FRAME_WIDTH_WITHOUT_PORTRAIT)
-        self:SetHeight(PORTRAIT_SIZE)
         self:ClearAllPoints()
         self:SetPoint("BOTTOM", 0, 200)
     end
+    self.frame:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
     self.frame:Reset()
-    if Addon:RestoreLayout("Player", self.frame) then
-        -- Saved as the width with the portrait, which RefreshConfig takes off when hidden.
-        self.frame:SetWidth(Addon:Layout().Player.width or self.frame:GetWidth())
-    end
+    Addon:RestoreLayout("Player", self.frame)
     self.frame:SetMovable(true)
-    self.frame:SetResizable(true)
     self.frame:SetClampedToScreen(true)
     -- Placed from the saved layout instead; the client's cache would only fight it.
     self.frame:SetUserPlaced(false)
@@ -87,190 +117,109 @@ function PlayerFrame:InitDisplay()
     self.frame:Hide()
 
     self.frame.background = self.frame:CreateTexture(nil, "BACKGROUND")
-    self.frame.background:SetPoint("RIGHT")
-    self.frame.background:SetTexture(TEXTURES .. "BackgroundGradient")
-
-    self.frame.resizer = CreateFrame("Button", nil, self.frame)
-    self.frame.resizer:SetPoint("BOTTOMRIGHT")
-    self.frame.resizer:SetSize(16, 16)
-    self.frame.resizer:SetNormalTexture(TEXTURES .. "SizeGrabber-Up")
-    self.frame.resizer:SetPushedTexture(TEXTURES .. "SizeGrabber-Down")
-    self.frame.resizer:SetHighlightTexture(TEXTURES .. "SizeGrabber-Highlight")
-    self.frame.resizer:HookScript("OnEnter", function() SetCursor([[Interface\Cursor\UI-Cursor-SizeRight]]) end)
-    self.frame.resizer:HookScript("OnLeave", function() SetCursor(nil) end)
-    self.frame.resizer:HookScript("OnMouseDown", function()
-        self.frame.resizer:GetHighlightTexture():Hide()
-        self.frame:StartSizing("BOTTOMRIGHT")
-    end)
-    self.frame.resizer:HookScript("OnMouseUp", function()
-        self.frame.resizer:GetHighlightTexture():Show()
-        self.frame:StopMovingOrSizing()
-        self:SaveLayout()
-    end)
+    self.frame.background:SetAllPoints()
 
     self.frame.container = CreateFrame("Frame", nil, self.frame)
-    self.frame.container:SetPoint("RIGHT")
-    self.frame.container.buttons = {}
-    function self.frame.container.buttons:Update()
-        for _, button in ipairs(self) do button:Update() end
-    end
 
-    self.frame.container.name = self.frame.container:CreateFontString(nil, "ARTWORK", "SpokenNameFont")
-    self.frame.container.name:SetPoint("TOPLEFT")
-    self.frame.container.name:SetWordWrap(false)
-    self.frame.container.name:SetTextColor(214 / 255, 214 / 255, 214 / 255)
-    function self.frame.container.name:Update()
-        local containerWidth = WidthOf(self:GetParent())
-        self:SetWidth(0)
-        self:SetText(self:GetText())
-        self:SetWidth(math.min(containerWidth, self:GetStringWidth() + 1))
-    end
-
-    self.frame:SetScript("OnSizeChanged", function()
-        self.frame.container.name:Update()
-        self.frame.container.buttons:Update()
-        self:LayoutCaptions()
-    end)
-end
-
--- The vertical line and the small pause button that stand in for the portrait when the
--- player has turned it off. Redux's; the zones fork dropped them, and that was an
--- omission rather than a decision.
-function PlayerFrame:InitPortraitLine()
-    self.frame.portraitLine = self.frame:CreateTexture(nil, "BORDER")
-    self.frame.portraitLine:SetPoint("TOPLEFT", -PORTRAIT_LINE_WIDTH / 2 + 2, PORTRAIT_BORDER_OUTSET)
-    self.frame.portraitLine:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMLEFT", PORTRAIT_LINE_WIDTH / 2 + 2, -PORTRAIT_BORDER_OUTSET)
-    self.frame.portraitLine:SetTexture(TEXTURES .. "PortraitFrameAtlas")
-    self.frame.portraitLine:SetTexCoord(456 / PORTRAIT_ATLAS_SIZE, 512 / PORTRAIT_ATLAS_SIZE, 0, PORTRAIT_ATLAS_BORDER_SIZE / PORTRAIT_ATLAS_SIZE)
-
-    self.frame.miniPause = CreateFrame("Button", nil, self.frame)
-    self.frame.miniPause:SetSize(26, 26)
-    self.frame.miniPause:SetPoint("CENTER", self.frame.container, "LEFT", -20 + 2, 0)
-    self.frame.miniPause:SetNormalTexture(TEXTURES .. "PortraitFrameAtlas")
-    self.frame.miniPause:GetNormalTexture():ClearAllPoints()
-    self.frame.miniPause:GetNormalTexture():SetPoint("CENTER")
-    self.frame.miniPause:GetNormalTexture():SetSize(14, 14)
-    self.frame.miniPause:SetPushedTexture(TEXTURES .. "PortraitFrameAtlas")
-    self.frame.miniPause:GetPushedTexture():ClearAllPoints()
-    self.frame.miniPause:GetPushedTexture():SetPoint("CENTER")
-    self.frame.miniPause:GetPushedTexture():SetSize(12, 12)
-    self.frame.miniPause.background = self.frame.miniPause:CreateTexture(nil, "BACKGROUND")
-    self.frame.miniPause.background:SetTexture(TEXTURES .. "SettingsButton")
-    self.frame.miniPause.background:SetPoint("CENTER")
-    self.frame.miniPause.background:SetSize(32, 32)
-    function self.frame.miniPause:Update()
-        local state = Actions.HeadState()
-        Actions.Glyph(self:GetNormalTexture(), state)
-        Actions.Glyph(self:GetPushedTexture(), state)
-        Actions.GateGlyph(self:GetNormalTexture(), MouseIsOver(self) and 1 or 0.75)
-    end
-    self.frame.miniPause:Update()
-    self.frame.miniPause:HookScript("OnEnter", function(button) Actions.GateGlyph(button:GetNormalTexture(), 1) end)
-    self.frame.miniPause:HookScript("OnLeave", function(button) Actions.GateGlyph(button:GetNormalTexture(), 0.75) end)
-    self.frame.miniPause:HookScript("OnClick", function()
-        PlaySound(SOUNDKIT.U_CHAT_SCROLL_BUTTON)
-        SoundQueue:TogglePauseQueue()
-    end)
+    self.frame:SetScript("OnUpdate", function(_, elapsed) self:Tick(elapsed) end)
 end
 
 function PlayerFrame:InitPortrait()
     self.frame.portrait = CreateFrame("Frame", nil, self.frame)
-    self.frame.portrait:SetPoint("TOPLEFT")
     self.frame.portrait:SetSize(PORTRAIT_SIZE, PORTRAIT_SIZE)
+    self.frame.portrait:SetPoint("TOPLEFT", self.frame, "TOPLEFT", PORTRAIT_X, PORTRAIT_Y)
 
     self.frame.portrait.background = self.frame.portrait:CreateTexture(nil, "BACKGROUND")
     self.frame.portrait.background:SetAllPoints()
-    self.frame.portrait.background:SetTexture(TEXTURES .. "PortraitFrameBackground")
 
-    self.frame.portrait.pause = CreateFrame("Button", nil, self.frame.portrait)
-    self.frame.portrait.pause:SetFrameLevel(self.frame.portrait:GetFrameLevel() + 2)
-    self.frame.portrait.pause:SetAllPoints()
-    self.frame.portrait.pause.background = self.frame.portrait.pause:CreateTexture(nil, "BACKGROUND")
-    self.frame.portrait.pause.background:SetAllPoints()
-    self.frame.portrait.pause.background:SetTexture(TEXTURES .. "PortraitFrameBackground")
-    self.frame.portrait.pause.background:SetAlpha(0.75)
-    self.frame.portrait.pause:SetNormalTexture(TEXTURES .. "PortraitFrameAtlas")
-    self.frame.portrait.pause:GetNormalTexture():ClearAllPoints()
-    self.frame.portrait.pause:GetNormalTexture():SetPoint("CENTER")
-    self.frame.portrait.pause:GetNormalTexture():SetSize(32, 32)
-    self.frame.portrait.pause:SetPushedTexture(TEXTURES .. "PortraitFrameAtlas")
-    self.frame.portrait.pause:GetPushedTexture():ClearAllPoints()
-    self.frame.portrait.pause:GetPushedTexture():SetPoint("CENTER")
-    self.frame.portrait.pause:GetPushedTexture():SetSize(28, 28)
-    function self.frame.portrait.pause:Update()
-        local paused = SoundQueue:IsPaused()
-        if paused and not SoundQueue:IsPlaying() then self.background:Show() else self.background:Hide() end
-        local state = Actions.HeadState()
-        Actions.Glyph(self:GetNormalTexture(), state)
-        Actions.Glyph(self:GetPushedTexture(), state)
-        Actions.GateGlyph(self:GetNormalTexture(), MouseIsOver(self) and 1 or (paused and 0.75 or 0))
-    end
-    self.frame.portrait.pause:Update()
-    self.frame.portrait.pause:HookScript("OnEnter", function(button)
-        Actions.GateGlyph(button:GetNormalTexture(), 1)
-        GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
-        local stopped = SoundQueue:IsPaused()
-        GameTooltip:SetText(stopped and L.REPLAY or L.STOP)
-        GameTooltip:AddLine(stopped and L.REPLAY_TOOLTIP or L.STOP_TOOLTIP, 1, 1, 1, true)
-        local why = SoundQueue:WhyNoControl()
-        if why then GameTooltip:AddLine(why, 1, .5, .5, true) end
+    -- A separate frame so the border and the mover draw above the face.
+    self.frame.portrait.border = CreateFrame("Frame", nil, self.frame.portrait)
+    self.frame.portrait.border:SetFrameLevel(self.frame.portrait:GetFrameLevel() + 3)
+    self.frame.portrait.border:SetAllPoints()
+    self.frame.portrait.border.texture = self.frame.portrait.border:CreateTexture(nil, "OVERLAY")
+end
+
+function PlayerFrame:InitHeader()
+    local container = self.frame.container
+    container.name = container:CreateFontString(nil, "ARTWORK", "SpokenNameFont")
+    -- The Talking Head's own font where the client has it.
+    if Fancy22Font then container.name:SetFontObject(Fancy22Font) end
+    container.name:SetJustifyH("LEFT")
+    container.name:SetWordWrap(false)
+    container.name:SetTextColor(NAME_COLOR[1], NAME_COLOR[2], NAME_COLOR[3])
+    container.name:SetShadowColor(0, 0, 0, 1)
+    container.name:SetShadowOffset(1, -1)
+    container.name:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+    container.label = container:CreateFontString(nil, "ARTWORK", "SpokenLabelFont")
+    container.label:SetWordWrap(false)
+    container.label:SetTextColor(unpack(Actions.TITLE_COLOR))
+    container.label:Hide()
+    -- The whole of a line's name cut short.
+    container.labelHover = Actions.Hover(container.label, function(owner)
+        GameTooltip:SetOwner(owner, "ANCHOR_TOP")
+        GameTooltip:SetText(Label(self.shown))
         GameTooltip:Show()
     end)
-    self.frame.portrait.pause:HookScript("OnLeave", function(button)
-        Actions.GateGlyph(button:GetNormalTexture(), SoundQueue:IsPaused() and 0.75 or 0)
-        GameTooltip_Hide()
-    end)
-    self.frame.portrait.pause:HookScript("OnClick", function()
-        PlaySound(SOUNDKIT.U_CHAT_SCROLL_BUTTON)
-        SoundQueue:TogglePauseQueue()
-    end)
+    local function TailText()
+        local text = container:CreateFontString(nil, "ARTWORK", "SpokenLabelFont")
+        text:SetWordWrap(false)
+        text:SetTextColor(TAIL_COLOR[1], TAIL_COLOR[2], TAIL_COLOR[3])
+        text:Hide()
+        return text
+    end
+    self.stopped, self.count, self.held = TailText(), TailText(), TailText()
+    self.stopped:SetText(format("• (%s)", L.SUBTITLE_STOPPED))
+    self.tail = Actions.Tail(self.stopped, self.count, self.held)
+    for _, text in ipairs({ container.name, self.stopped, self.count, self.held }) do Ellesmere:Refont(text) end
 
-    -- A separate frame so the border and the mover draw above everything in the portrait.
-    self.frame.portrait.border = CreateFrame("Frame", nil, self.frame.portrait)
-    self.frame.portrait.border:SetFrameLevel(self.frame.portrait.pause:GetFrameLevel() + 1)
-    self.frame.portrait.border:SetAllPoints()
-    self.frame.portrait.border.texture = self.frame.portrait.border:CreateTexture(nil, "BORDER")
-    self.frame.portrait.border.texture:SetSize(PORTRAIT_BORDER_SIZE, PORTRAIT_BORDER_SIZE)
-    self.frame.portrait.border.texture:SetPoint("TOPLEFT", -PORTRAIT_BORDER_OUTSET, PORTRAIT_BORDER_OUTSET)
-    self.frame.portrait.border.texture:SetPoint("BOTTOMRIGHT", PORTRAIT_BORDER_OUTSET, -PORTRAIT_BORDER_OUTSET)
-    self.frame.portrait.border.texture:SetTexture(TEXTURES .. "PortraitFrameAtlas")
-    self.frame.portrait.border.texture:SetTexCoord(0, PORTRAIT_ATLAS_BORDER_SIZE / PORTRAIT_ATLAS_SIZE, 0, PORTRAIT_ATLAS_BORDER_SIZE / PORTRAIT_ATLAS_SIZE)
+    self.controls = CreateFrame("Frame", nil, container)
+    self.controls:SetHeight(1)
+    self.controls:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", -CORNER_X, -CORNER_Y)
+    self.play = Actions.StopButton(self.controls, function() return self:Current() ~= nil end,
+        function() self:UpdateControls() end)
+    self.skip = Actions.SkipButton(self.controls)
+    self.buttons = { self.play, self.skip }
+
+    self.progress = Actions.ProgressBar(container)
+    self.progress.track:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", 0, 0)
 end
 
 function PlayerFrame:InitMover()
-    self.frame.mover = CreateFrame("Button", nil, self.frame.portrait.border)
-    self.frame.mover:SetSize(26, 26)
-    self.frame.mover:SetPoint("CENTER", self.frame.portrait.border, "BOTTOMLEFT", 5, 6)
-    self.frame.mover:SetNormalTexture(TEXTURES .. "PortraitFrameAtlas")
-    self.frame.mover:GetNormalTexture():SetTexCoord(462 / PORTRAIT_ATLAS_SIZE, 512 / PORTRAIT_ATLAS_SIZE, 462 / PORTRAIT_ATLAS_SIZE, 512 / PORTRAIT_ATLAS_SIZE)
-    self.frame.mover:GetNormalTexture():ClearAllPoints()
-    self.frame.mover:GetNormalTexture():SetPoint("CENTER")
-    self.frame.mover:GetNormalTexture():SetSize(16, 16)
-    self.frame.mover:SetPushedTexture(TEXTURES .. "PortraitFrameAtlas")
-    self.frame.mover:GetPushedTexture():SetTexCoord(462 / PORTRAIT_ATLAS_SIZE, 512 / PORTRAIT_ATLAS_SIZE, 462 / PORTRAIT_ATLAS_SIZE, 512 / PORTRAIT_ATLAS_SIZE)
-    self.frame.mover:GetPushedTexture():ClearAllPoints()
-    self.frame.mover:GetPushedTexture():SetPoint("CENTER")
-    self.frame.mover:GetPushedTexture():SetSize(14, 14)
-    self.frame.mover.background = self.frame.mover:CreateTexture(nil, "BACKGROUND")
-    self.frame.mover.background:SetTexture(TEXTURES .. "SettingsButton")
-    self.frame.mover.background:SetPoint("CENTER")
-    self.frame.mover.background:SetSize(32, 32)
-    self.frame.mover:HookScript("OnEnter", function(button)
+    local mover = CreateFrame("Button", nil, self.frame.portrait.border)
+    self.frame.mover = mover
+    mover:SetSize(26, 26)
+    -- The move arrows' cell of the portrait atlas, centred, a little smaller pushed in.
+    local function Arrows(texture, size)
+        texture:SetTexCoord(462 / PORTRAIT_ATLAS_SIZE, 512 / PORTRAIT_ATLAS_SIZE, 462 / PORTRAIT_ATLAS_SIZE, 512 / PORTRAIT_ATLAS_SIZE)
+        texture:ClearAllPoints()
+        texture:SetPoint("CENTER")
+        texture:SetSize(size, size)
+    end
+    mover:SetNormalTexture(TEXTURES .. "PortraitFrameAtlas")
+    Arrows(mover:GetNormalTexture(), 16)
+    mover:SetPushedTexture(TEXTURES .. "PortraitFrameAtlas")
+    Arrows(mover:GetPushedTexture(), 14)
+    mover.background = mover:CreateTexture(nil, "BACKGROUND")
+    mover.background:SetTexture(TEXTURES .. "SettingsButton")
+    mover.background:SetPoint("CENTER")
+    mover.background:SetSize(32, 32)
+    Actions.TintWithRings(mover.background)
+    mover:HookScript("OnEnter", function(button)
         if Addon:IsFrameLocked() then return end
         SetCursor([[Interface\Cursor\UI-Cursor-Move]])
         GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
-        GameTooltip:SetText(L.QUEUE_TITLE)
+        GameTooltip:SetText(L.OPT_STYLE_CLASSIC)
         GameTooltip:AddLine(L.QUEUE_DRAG_HINT, 1, 1, 1, true)
         GameTooltip:Show()
     end)
-    self.frame.mover:HookScript("OnLeave", function() SetCursor(nil); GameTooltip_Hide() end)
-    self.frame.mover:HookScript("OnMouseDown", function()
+    mover:HookScript("OnLeave", function() SetCursor(nil); GameTooltip_Hide() end)
+    mover:HookScript("OnMouseDown", function()
         if Addon:IsFrameLocked() then return end
-        self.frame:StartMoving()
+        Snap.Start(self.frame, { locked = function() return Addon:IsFrameLocked() end })
     end)
-    self.frame.mover:HookScript("OnMouseUp", function()
+    mover:HookScript("OnMouseUp", function()
         if Addon:IsFrameLocked() then return end
-        self.frame:StopMovingOrSizing()
+        Snap.Stop()
         self:SaveLayout()
     end)
 end
@@ -282,173 +231,217 @@ function PlayerFrame:Skin()
     return nil
 end
 
+--- Whether this window shows the lines: the large window chosen, no skin in its place.
+function PlayerFrame:IsShowing()
+    return self:Skin() == nil and Addon:DisplayStyle() == "classic"
+end
+
+--- The Talking Head's atlases where the client has every one; nil for Spoken's own art.
+function PlayerFrame:Art()
+    local ring, box, face = FirstAtlas(RING), FirstAtlas(BOX), FirstAtlas(FACE)
+    if not (ring and box and face) then return nil end
+    return { ring = ring, box = box, face = face }
+end
+
+local function DrawArt(frame, art)
+    local portrait = frame.portrait
+    local border = portrait.border.texture
+    border:ClearAllPoints()
+    if art then
+        frame.background:SetAtlas(art.box)
+        portrait.background:SetAtlas(art.face)
+        border:SetAtlas(art.ring)
+        border:SetSize(RING_SIZE, RING_SIZE)
+        border:SetPoint("TOPLEFT", portrait, "TOPLEFT", RING_X - PORTRAIT_X, RING_Y - PORTRAIT_Y)
+        return
+    end
+    frame.background:SetTexture(TEXTURES .. "BackgroundGradient")
+    frame.background:SetTexCoord(0, 1, 0, 1)
+    portrait.background:SetTexture(TEXTURES .. "PortraitFrameBackground")
+    portrait.background:SetTexCoord(0, 1, 0, 1)
+    border:SetTexture(TEXTURES .. "PortraitFrameAtlas")
+    border:SetTexCoord(0, PORTRAIT_ATLAS_BORDER_SIZE / PORTRAIT_ATLAS_SIZE, 0, PORTRAIT_ATLAS_BORDER_SIZE / PORTRAIT_ATLAS_SIZE)
+    border:SetPoint("TOPLEFT", portrait, "TOPLEFT", -PORTRAIT_BORDER_OUTSET, PORTRAIT_BORDER_OUTSET)
+    border:SetPoint("BOTTOMRIGHT", portrait, "BOTTOMRIGHT", PORTRAIT_BORDER_OUTSET, -PORTRAIT_BORDER_OUTSET)
+end
+
+--- The box and the portrait's art. Art that fails to draw leaves Spoken's own, and its error goes
+--- to the error handler.
+function PlayerFrame:ApplyArt()
+    local art = self:Art()
+    if art then
+        local ok, err = pcall(DrawArt, self.frame, art)
+        if not ok then
+            art = nil
+            if geterrorhandler then geterrorhandler()(err) end
+        end
+    end
+    if not art then DrawArt(self.frame, nil) end
+    self.art = art
+end
+
 function PlayerFrame:RefreshConfig()
     -- Bronze Border tints every round button, whichever way lines are shown.
     Actions.RefreshRings()
     local skin = self:Skin()
-    -- Each skin dresses the captions its own way; the others' look must not stay on them.
-    if skin ~= DialogueUIPlayer then Transcript:SetStyle(nil) end
+    -- Each window dresses the captions its own way; the others' look must not stay on them.
+    if skin ~= DialogueUIPlayer and not self:IsShowing() then Transcript:SetStyle(nil) end
     for _, other in ipairs({ MinimalPlayer, DialogueUIPlayer }) do
         if other ~= skin then other:SetVisible(false, true) end
     end
     if skin then
-        self.frame:Hide()
+        self.fader:Set(false, true)
         skin:RefreshConfig(self)
         return
     end
     local cfg = FrameConfig()
+    self.frame.portrait:SetShown(not cfg.HidePortrait)
+    self.frame.mover:ClearAllPoints()
     if cfg.HidePortrait then
-        if self.frame.portrait:IsShown() then
-            self.frame:SetWidth(self.frame:GetWidth() - PORTRAIT_SIZE)
-        end
-        self:SetResizeBounds(100)
-        self.frame.portraitLine:Show()
-        self.frame.portrait:Hide()
-        self.frame.miniPause:Show()
-        self.frame.container:SetPoint("LEFT", 20, 0)
-        self.frame.background:SetPoint("TOPLEFT")
-        self.frame.background:SetPoint("BOTTOMLEFT")
         self.frame.mover:SetParent(self.frame)
-        self.frame.mover:SetPoint("CENTER", self.frame, "BOTTOMLEFT", 2, 6)
+        self.frame.mover:SetPoint("CENTER", self.frame, "BOTTOMLEFT", BARE_LEFT / 2, BARE_LEFT / 2)
     else
-        if not self.frame.portrait:IsShown() then
-            self.frame:SetWidth(self.frame:GetWidth() + PORTRAIT_SIZE)
-        end
-        self:SetResizeBounds(PORTRAIT_SIZE + 100)
-        self.frame.portraitLine:Hide()
-        self.frame.portrait:Show()
-        self.frame.miniPause:Hide()
-        self.frame.container:SetPoint("LEFT", self.frame.portrait, "RIGHT", 15, 0)
-        self.frame.background:SetPoint("TOPLEFT", self.frame.portrait, "TOPRIGHT")
-        self.frame.background:SetPoint("BOTTOMLEFT", self.frame.portrait, "BOTTOMRIGHT")
         self.frame.mover:SetParent(self.frame.portrait.border)
-        self.frame.mover:SetPoint("CENTER", self.frame.portrait.border, "BOTTOMLEFT", 5, 6)
+        self.frame.mover:SetPoint("CENTER", self.frame.portrait, "BOTTOMLEFT", 0, 0)
+    end
+    self:ApplyArt()
+    Ellesmere:Dress(self.frame)
+    -- Only once the shell is on, and a failure here said in chat: the window's scale, strata and
+    -- host below must still be set.
+    if self.frame.spokenEllesmere == true then
+        Ellesmere:When(function(skin)
+            -- White on EllesmereUI's shell, as its windows write their names.
+            self.frame.container.name:SetTextColor(1, 1, 1)
+            -- The shell's own dark behind the words: ApplyArt has just drawn Spoken's box again.
+            self.frame.background:SetAlpha(0)
+            local portrait = self.frame.portrait
+            portrait.border.texture:SetAlpha(0)
+            portrait.background:SetAlpha(0)
+            portrait.box = Ellesmere:Box(skin, portrait, portrait.border, true)
+            -- On the portrait, under what it shows, so Hide Portrait hides it too.
+            portrait.disc = Ellesmere:Disc(skin, portrait, portrait)
+            self:FitPortrait()
+            local level = self.frame:GetFrameLevel() + Ellesmere.OVER_SHELL
+            portrait:SetFrameLevel(level)
+            portrait.border:SetFrameLevel(level + 3)
+        end)
     end
 
     self.frame.mover:SetShown(not Addon:IsFrameLocked())
-    self.frame.resizer:SetShown(not Addon:IsFrameLocked())
     self.frame:SetScale(cfg.FrameScale)
     self.frame:SetFrameStrata(cfg.FrameStrata)
     Addon:ApplyHost(self.frame)
     self:Update()
 end
 
--- SetResizeBounds replaced SetMinResize/SetMaxResize; both exist across these clients.
-function PlayerFrame:SetResizeBounds(minWidth)
-    local height = Transcript:HeightForClip(SoundQueue:GetCurrentSound())
-    self.captionExtra = height > 0 and height + 16 or 0
-    Transcript:ResizePlayer(self.frame, PORTRAIT_SIZE + self.captionExtra, minWidth, 10000)
+--- Where the name and the words start: past the portrait, or BARE_LEFT with it hidden.
+local function Left() return FrameConfig().HidePortrait and BARE_LEFT or NAME_X end
+
+--- The lines of words that fit between the name and the progress line, up to MOST_LINES, and a
+--- line's height; no lines where the line has no words to show (Show Narrator off or none written).
+function PlayerFrame:WordLines(clip)
+    local lineHeight = (Addon:Profile("Transcript").FontSize or 16) + 4
+    if Transcript:HeightForClip(clip) <= 0 then return 0, lineHeight end
+    local room = FRAME_HEIGHT + NAME_Y - FOOT - (NAME_SIZE + WORDS_UNDER) - BAR_GAP - self.progress.height
+    return math.max(1, math.min(MOST_LINES, math.floor(room / lineHeight))), lineHeight
 end
 
-function PlayerFrame:LayoutCaptions()
-    if self:Skin() then return end
-    local hidePortrait = FrameConfig().HidePortrait
-    local left = hidePortrait and 20 or PORTRAIT_SIZE + 15
-    local height = Transcript:HeightForClip(SoundQueue:GetCurrentSound())
-    Transcript:Dock(self.frame, self.frame, "TOPLEFT", left, -PORTRAIT_SIZE - 4,
-        math.max(1, WidthOf(self.frame) - left - 10), height)
-    self.frame.background:ClearAllPoints()
-    self.frame.background:SetPoint("TOPLEFT", hidePortrait and 0 or PORTRAIT_SIZE, 0)
-    self.frame.background:SetPoint("BOTTOMRIGHT")
+--- The column's place and the words docked in it. The window keeps the Talking Head's size.
+function PlayerFrame:Layout()
+    if self.laying or not self:IsShowing() then return end
+    self.laying = true
+    local frame, container = self.frame, self.frame.container
+    local left = Left()
+    container:ClearAllPoints()
+    container:SetPoint("TOPLEFT", frame, "TOPLEFT", left, NAME_Y)
+    container:SetWidth(FRAME_WIDTH - left - RIGHT)
+    container:SetHeight(FRAME_HEIGHT + NAME_Y - FOOT)
+    local width = container:GetWidth()
+
+    -- A line's room over the words and under them, which a line gliding out or in fades through.
+    local lines, lineHeight = self:WordLines(self:Current())
+    local words = lines * lineHeight
+    local font = GameFontHighlightLarge and GameFontHighlightLarge:GetFont() or nil
+    self.styling = true
+    Transcript:SetStyle({ lines = math.max(1, lines), padTop = lineHeight, color = WORDS_COLOR, font = font })
+    self.styling = nil
+    Transcript:Dock(container, container, "TOPLEFT", 0, -(NAME_SIZE + WORDS_UNDER - lineHeight), width,
+        words > 0 and words + 2 * lineHeight or 0)
+
+    self.progress.track:SetWidth(width)
+    self.progress.track:SetShown(Addon:Profile("Transcript").SubtitleProgress ~= false)
+    self:LayoutHeader()
+    self.laying = nil
 end
 
-local function BulletFor(clip, isHead, hovered)
-    if hovered then
-        return TEXTURES .. "SoundQueueBulletDelete", 14
+--- The name in full where it fits, then the line's name and the tail, all short of the controls.
+--- The line's name is cut short first, then the speaker's.
+function PlayerFrame:LayoutHeader()
+    local container = self.frame.container
+    local name, label, tail = container.name, container.label, self.tail
+    local left = Left()
+    local room = math.max(1, FRAME_WIDTH - CORNER_X - self.controls:GetWidth() - NAME_GAP - left)
+    local tailRoom = tail:Room()
+    -- Unbounded first, so the width measured is the text's own.
+    name:SetWidth(0)
+    name:SetText(name:GetText())
+    local nameWidth = math.min((name:GetStringWidth() or 0) + 1, math.max(1, room - tailRoom))
+    name:SetWidth(nameWidth)
+    local x = nameWidth
+    local labelRoom = room - tailRoom - nameWidth - LABEL_GAP
+    local fits = label:IsShown() and labelRoom >= math.min(self.labelWidth, self.labelLeast)
+    if fits then
+        local labelWidth = math.min(self.labelWidth, labelRoom)
+        label:SetWidth(labelWidth)
+        label:ClearAllPoints()
+        label:SetPoint("LEFT", name, "LEFT", x + LABEL_GAP, 0)
+        x = x + LABEL_GAP + labelWidth
     end
-    if isHead then
-        local bullet = Bullets[clip.present and clip.present.bullet]
-        if bullet then return bullet.texture, bullet.size or 14 end
+    label:SetAlpha(fits and 1 or 0)
+    container.labelHover:SetShown(fits and labelRoom < self.labelWidth)
+    if tailRoom > 0 then
+        tail:Place(name, x)
+        tail:Paint()
     end
-    return TEXTURES .. "SoundQueueBulletQueue", 22
 end
 
-function PlayerFrame:CreateRow(i)
-    local button = CreateFrame("Button", nil, self.frame.container)
-    self.frame.container.buttons[i] = button
-    button:SetID(i)
-    button:SetHeight(20)
+function PlayerFrame:ConfigureActions(clip)
+    self.row = Actions:HeaderControls(self.frame, self.controls, self.buttons, clip)
+    Actions.LayOutRow(self.controls, self.row, ROUND_GAP)
+end
 
-    button.textWidget = button:CreateFontString(nil, "OVERLAY", "SpokenRowFont")
-    button.textWidget:SetWordWrap(false)
-    button.iconWidget = button:CreateTexture(nil, "ARTWORK")
-    button.iconWidget:SetSize(16, 16)
-    button.iconWidget:SetPoint("CENTER", button, "LEFT", 16 / 2, 0)
+function PlayerFrame:UpdateControls()
+    local head = self:Current()
+    if not head then return end
+    Actions.SetPlayGlyph(self.play, Actions.HeadState())
+    self.tail:SetHeld(SoundQueue:GetHeldReason(head))
+    self.tail:SetStopped(SoundQueue:IsPaused())
+    self.tail:SetCount(Waiting())
+    Actions.SetPausable(self.buttons)
+    self:LayoutHeader()
+end
 
-    function button:Configure(clip)
-        self.clip = clip
-        self:Update()
+function PlayerFrame:UpdateProgress()
+    local clip = self:Current()
+    if not clip then return end
+    if clip ~= self.timed then self.timed, self.seconds = clip, 0 end
+    self.seconds = Actions.Elapsed(clip, self.seconds)
+    Actions.SetProgress(self.progress, SoundQueue:Share(clip, self.seconds))
+end
+
+function PlayerFrame:Tick(elapsed)
+    if not self.frame:IsShown() then return end
+    self:UpdateProgress()
+    -- Stopped faded out: its room given back.
+    if self.tail:Step(elapsed) then
+        self.tail:SetCount(Waiting())
+        self:LayoutHeader()
     end
-    function button:Update(pushed, hovered)
-        if pushed == nil then pushed = self.pushed else self.pushed = pushed end
-        if hovered == nil then hovered = self.hovered else self.hovered = hovered end
-        local clip = self.clip
-        if not clip then self:Hide(); return end
-        self:Show()
-        local isHead = clip == SoundQueue:GetCurrentSound()
-        local index = self:GetID()
-
-        if isHead then
-            self:SetAlpha(1)
-            self.textWidget:SetShadowColor(0, 0, 0, 1)
-            self:SetPoint("TOPLEFT", PlayerFrame.frame.container.name, "BOTTOMLEFT", 0, -2)
-            self:EnableMouse(SoundQueue:CanBePaused())
-        else
-            local position = index - 1
-            local alpha = math.max(0.1, math.min(1, 1 - (position - 1) / 3))
-            self:SetAlpha(alpha)
-            self.textWidget:SetShadowColor(0, 0, 0, 0.5 + 0.5 * alpha)
-            self:SetPoint("TOPLEFT", PlayerFrame.frame.container.buttons[index - 1] or PlayerFrame.frame.container.name,
-                "BOTTOMLEFT", 0, position == 1 and -8 or -2)
-            self:EnableMouse(true)
-        end
-
-        -- A held clip says why; otherwise narration waiting out a pull looks exactly like
-        -- narration that failed.
-        local text = clip.present and clip.present.label or clip.key
-        local held = SoundQueue:GetHeldReason(clip)
-        if held then
-            text = format("%s |cff888888(%s)|r", text, held)
-        end
-        self.textWidget:ClearAllPoints()
-        self.textWidget:SetPoint("LEFT", 16 + 5, 0)
-        self.textWidget:SetText(text)
-        self:SetWidth(math.min(WidthOf(self:GetParent()), 16 + 5 + self.textWidget:GetWidth() + 1))
-        self.textWidget:SetPoint("RIGHT")
-
-        local texture, size = BulletFor(clip, isHead, hovered)
-        self.iconWidget:SetTexture(texture)
-        self.iconWidget:SetSize(size, size)
-        if hovered then
-            local r, g, b = unpack(RemoveColor)
-            if pushed then r, g, b = r * 0.75, g * 0.75, b * 0.75 end
-            self:SetAlpha(1)
-            self.textWidget:SetTextColor(r, g, b)
-            self.textWidget:SetShadowColor(0, 0, 0, 1)
-        elseif isHead then
-            local tint = clip.present and clip.present.tint
-            if tint then
-                self.textWidget:SetTextColor(tint[1] or tint.r, tint[2] or tint.g, tint[3] or tint.b)
-            else
-                self.textWidget:SetTextColor(245 / 255, 204 / 255, 24 / 255)
-            end
-        else
-            self.textWidget:SetTextColor(123 / 255, 147 / 255, 167 / 255)
-        end
+    self.poll = (self.poll or 0) + elapsed
+    if self.poll >= .2 then
+        self.poll = 0
+        self:UpdateControls()
     end
-
-    button:HookScript("OnClick", function(self) SoundQueue:RemoveSoundFromQueue(self.clip) end)
-    button:HookScript("OnMouseDown", function(self) self:Update(true) end)
-    button:HookScript("OnMouseUp", function(self) self:Update(false) end)
-    button:HookScript("OnEnter", function(self)
-        self:Update(nil, true)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(L.QUEUE_REMOVE_TOOLTIP)
-        GameTooltip:Show()
-    end)
-    button:HookScript("OnLeave", function(self) self:Update(nil, false); GameTooltip_Hide() end)
-    button:Update()
-    return button
 end
 
 --- A line to show while none is playing, so a window chosen as the narrator style in the welcome
@@ -459,8 +452,10 @@ function PlayerFrame:ShowSample(shown)
         key = "sample", length = 0,
         source = { key = "sample", gates = {}, interClipGap = 0 },
         present = { header = L.SAMPLE_SPEAKER, label = L.SAMPLE_LINE,
+            transcript = L.SAMPLE_WINDOW_TEXT,
             portrait = { kind = "texture", texture = [[Interface\AddOns\Spoken\icon.tga]] } },
     } or nil
+    Transcript:Sync()
     self:Update()
 end
 
@@ -468,68 +463,101 @@ function PlayerFrame:IsShowingSample()
     return self.sample ~= nil
 end
 
---- The line the window stands for: the one playing, or the sample while nothing is.
-function PlayerFrame:Current()
+--- Whether this window, showing a line, will fade out to turn to `clip`.
+function PlayerFrame:WillTurn(clip)
+    return self:IsShowing() and self.shown ~= nil and clip ~= self.shown and self.frame:IsShown()
+        and not self.fader:Leaving() and not Actions.DialogCovers()
+end
+
+--- The line playing, or the sample while nothing is.
+function PlayerFrame:Head()
     if not SoundQueue:IsEmpty() then self.sample = nil end
     return SoundQueue:GetCurrentSound() or self.sample
+end
+
+--- The line the window stands for: the head, unless its module has Show Narrator off.
+function PlayerFrame:Current()
+    local head = self:Head()
+    if head and not Addon:ShowsNarrator(head) then return nil end
+    return head
 end
 
 function PlayerFrame:Update()
     if not self.frame then return end
     local skin = self:Skin()
     if skin then skin:Update(); return end
+    -- The captions taking this window's look ask for an update: the layout under way has it.
+    if self.styling then return end
     -- Hidden, not torn down, while subtitles stand in for it: going back finds it as it was.
+    -- Faded out with nothing to say, or while a DialogueUI dialog hides the interface; put away at
+    -- once for another style.
     local head = self:Current()
-    self.frame:SetShown(Addon:DisplayStyle() == "classic" and head ~= nil)
-    if not self.frame:IsShown() then return end
-
-    self:SetResizeBounds(FrameConfig().HidePortrait and 100 or PORTRAIT_SIZE + 100)
-
-    self.frame.miniPause:Update()
-    self.frame.portrait.pause:Update()
-
-    Portrait:Configure(self.frame.portrait, head)
-    local actionCount = Actions:Configure(self.frame, head)
-    local strip = actionCount > 0 and Actions.STRIP_HEIGHT or 0
-    self.frame.container:SetPoint("RIGHT", self.frame, "RIGHT", 0, (strip + (self.captionExtra or 0)) / 2)
-
-    self.frame.container:SetHeight(self.frame:GetHeight())
-    self.frame.container:Hide() -- 1.12 quirk: forces a relayout before measuring
-    self.frame.container:Show()
-
-    local lastRow = 0
-    local lastContent = self.frame.container.name
-    for i, clip in ipairs(SoundQueue:IsEmpty() and { head } or SoundQueue.sounds) do
-        if i == 1 then
-            self.frame.container.name:SetText(clip.present and clip.present.header or "")
-        end
-        lastRow = lastRow + 1
-        local row = self.frame.container.buttons[lastRow] or self:CreateRow(lastRow)
-        row:Configure(clip)
-        lastContent = row
-        if lastRow == MAX_ROWS then break end
+    local classic = Addon:DisplayStyle() == "classic"
+    local want = classic and head ~= nil and not Actions.DialogCovers()
+    if not want then
+        self.turning = nil
+        self.fader:Set(false, not classic)
+        return
     end
-    for i = lastRow + 1, getn(self.frame.container.buttons) do
-        self.frame.container.buttons[i]:Configure(nil)
+    -- Fading out to turn to the next line: it comes in once faded.
+    if self.turning and self.frame:IsShown() then return end
+    -- Following another line on screen: this one fades out whole and the next fades in from
+    -- nothing once it has, so the change happens unseen.
+    if self.shown and head ~= self.shown and self.frame:IsShown() and not self.fader:Leaving() then
+        self.turning = true
+        self.fader:Set(false)
+        return
     end
-    self.frame.container.name:Update()
+    self.shown = head
+    self.fader:Set(true)
 
-    local contentTop = self.frame.container.name:GetTop() or 0
-    local contentBottom = lastContent:GetBottom() or 0
-    self.frame.container:SetHeight(contentTop - contentBottom)
-    self:LayoutCaptions()
+    -- The speaker, or the line's name where nobody speaks; then the line's name, said once.
+    local container = self.frame.container
+    local speaker = Speaker(head)
+    local named = speaker ~= ""
+    container.name:SetText(named and speaker or Label(head))
+    Addon:ClipFont(container.name, head)
+    container.label:SetShown(named)
+    if named then
+        local label = container.label
+        label:SetWidth(0)
+        Addon:ClipFont(label, head)
+        -- Measured once a line, unbounded, so the width is the text's own; the row is laid out often.
+        -- Less room than a dot and an ellipsis would draw only a stray fragment.
+        label:SetText(LABEL_LEAST)
+        self.labelLeast = (label:GetStringWidth() or 0) + 1
+        label:SetText("• " .. Label(head))
+        self.labelWidth = (label:GetStringWidth() or 0) + 1
+    end
 
-    -- Again once the layout has settled: truncation and hover state both depend on where
-    -- the rows ended up. Same frame on current clients, next frame on old ones.
-    Addon:ScheduleTimer(function()
-        self.frame.container.buttons:Update()
-        self.frame.container.name:Update()
-    end, 0)
+    -- In EllesmereUI's look the speaker's captured face where there is one: a face can be cut round,
+    -- a 3D model cannot. Without one, the 3D model as ever, not the book StaticPortrait stands in with.
+    local portrait = self.frame.portrait
+    local captured = Ellesmere:On() and StaticPortrait:Capture(head)
+    if not (captured and StaticPortrait:Configure(portrait, head, captured)) then
+        -- The face of the speaker before is let go: Portrait does not know it.
+        StaticPortrait:Release(portrait)
+        Portrait:Configure(portrait, head)
+    end
+    self:FitPortrait()
+    self:ConfigureActions(head)
+    self:Layout()
+    self:UpdateControls()
+    self:UpdateProgress()
 end
 
---- What the frame is actually doing, for a bug report. A row that is present but drawn
---- nowhere, or drawn under something, looks from the outside exactly like a row that was
---- never built; this tells the two apart without a client to poke at.
+--- In EllesmereUI's look the portrait round whatever it shows, but a 3D model, which no mask cuts.
+function PlayerFrame:FitPortrait()
+    local portrait = self.frame and self.frame.portrait
+    if not (portrait and portrait.box) then return end
+    local round = portrait.active ~= "model"
+    Ellesmere.Shape(portrait.box, portrait.disc, round)
+    if round and portrait.active == "texture" and portrait.texture then StaticPortrait:Mask(portrait, portrait.texture) end
+end
+
+--- What the frame is actually doing, for a bug report. A header that is set but drawn nowhere,
+--- or drawn under something, looks from the outside exactly like one that was never set; this
+--- tells the two apart without a client to poke at.
 function PlayerFrame:Describe()
     local lines = {}
     local function Say(text) table.insert(lines, text) end
@@ -540,25 +568,18 @@ function PlayerFrame:Describe()
         return lines
     end
     local container = self.frame.container
-    Say(format("frame shown=%s w=%.0f h=%.0f", tostring(self.frame:IsShown()),
-        self.frame:GetWidth() or 0, self.frame:GetHeight() or 0))
-    Say(format("container shown=%s w=%.0f h=%.0f header=%q", tostring(container:IsShown()),
-        container:GetWidth() or 0, container:GetHeight() or 0, container.name:GetText() or ""))
-    Say(format("portrait kind=%s actions=%d", tostring(self.frame.portrait.active),
-        self.frame.actions and self.frame.actions.shown or 0))
-    for index, button in ipairs(container.buttons) do
-        if button:IsShown() then
-            -- Whether a row takes a click matters: the head only does while the clip it
-            -- stands for can be stopped, and a row that ignores clicks cannot be cancelled.
-            Say(format("  row %d w=%.0f mouse=%s text=%q", index, button:GetWidth() or 0,
-                tostring(button:IsMouseEnabled()), button.textWidget:GetText() or ""))
-        end
-    end
-    for id, button in pairs(self.frame.actions.byId) do
-        if button:IsShown() then
-            Say(format("  action %s at %.0f,%.0f text=%q", id,
-                button:GetLeft() or 0, button:GetBottom() or 0, button:GetText() or ""))
-        end
+    Say(format("frame shown=%s w=%.0f h=%.0f art=%s", tostring(self.frame:IsShown()),
+        self.frame:GetWidth() or 0, self.frame:GetHeight() or 0, self.art and self.art.box or "own"))
+    Say(format("container shown=%s w=%.0f h=%.0f header=%q count=%q", tostring(container:IsShown()),
+        container:GetWidth() or 0, container:GetHeight() or 0, container.name:GetText() or "",
+        self.count:GetText() or ""))
+    local label = container.label
+    Say(format("label=%q shown=%s alpha=%.2f w=%.0f of %.0f", label:GetText() or "", tostring(label:IsShown()),
+        label:GetAlpha() or 0, label:GetWidth() or 0, self.labelWidth or 0))
+    Say(format("portrait kind=%s", tostring(self.frame.portrait.active)))
+    for _, button in ipairs(self.row or {}) do
+        Say(format("  control %s shown=%s", button.action and button.action.id or (button == self.play
+            and tostring(self.play.state) or "skip"), tostring(button:IsShown())))
     end
     Say(format("head can be stopped=%s", tostring(SoundQueue:CanBePaused())))
     Say(format("queue=%d", SoundQueue:GetQueueSize()))
@@ -566,19 +587,16 @@ function PlayerFrame:Describe()
 end
 
 function PlayerFrame:SaveLayout()
-    local width = self.frame:GetWidth() + (FrameConfig().HidePortrait and PORTRAIT_SIZE or 0)
-    Addon:SaveLayout("Player", self.frame, width)
+    Addon:SaveLayout("Player", self.frame)
 end
 
---- Back to the default spot and width, forgetting the saved ones, for a frame dragged
---- off-screen or sized past use.
+--- Every window back to its default spot, forgetting the place saved for each, whichever is in
+--- use: for a frame dragged off-screen or in the way. The subtitles have their own (Subtitle:Reset).
 function PlayerFrame:Reset()
-    local skin = self:Skin()
-    if skin then skin:Reset(); return end
     Addon:Layout().Player = nil
+    MinimalPlayer:Reset()
+    if DialogueUIPlayer.Reset then DialogueUIPlayer:Reset() end
     if not self.frame then return end
     self.frame:Reset()
-    -- Reset's width has the portrait in it, and RefreshConfig only takes it off on a change.
-    if FrameConfig().HidePortrait then self.frame:SetWidth(self.frame:GetWidth() - PORTRAIT_SIZE) end
     self:RefreshConfig()
 end

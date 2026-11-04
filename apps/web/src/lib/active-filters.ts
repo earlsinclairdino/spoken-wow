@@ -27,7 +27,7 @@ export function activeFilterCount(filters: LineFilters): number {
     filters.gender,
     filters.flavor,
     filters.voice,
-    filters.source,
+    filters.source?.length,
     filters.npcType,
     filters.narration || undefined,
     filters.line,
@@ -40,5 +40,6 @@ export function activeFilterCount(filters: LineFilters): number {
     filters.model,
     filters.author,
     filters.recorded,
+    filters.broadcast,
   ].filter(Boolean).length;
 }

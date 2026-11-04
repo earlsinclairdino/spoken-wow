@@ -183,7 +183,7 @@ ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 ns.Autoform:Add(LALA)
 ns.Autoform:Add(BOB)
 ns.Autoform:List().leader = ns:MyKey()
-ns.Autoform:List().rules = { controls = "anyone", room = "lala throwaway", sync = { quests = true, gossip = true, zones = true, books = true } }
+ns.Autoform:List().rules = { controls = "anyone", room = "lala throwaway", sync = { quests = true, gossip = true, places = true, readables = true } }
 P.Clear()
 P.Receive(stub, LALA, "HI", "0.4.0", 1, "", 0)
 ns.Autoform:Tick()

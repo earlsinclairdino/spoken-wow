@@ -10,7 +10,7 @@ import { isProvider } from "@/lib/generation/providers";
 import { readSettings } from "@/lib/generation/settings";
 import { generationRoster } from "@/lib/generation/status";
 import { viewerOf } from "@/lib/grants/store";
-import { canManageVoices, canViewVoices } from "@/lib/permissions";
+import { can, canManageVoices, canViewVoices } from "@/lib/permissions";
 import { currentSession } from "@/lib/session";
 import { FISH_MODELS } from "@/lib/voices/fish";
 import { seedClips } from "@/lib/voices/seedClips";
@@ -38,13 +38,14 @@ export default async function Page({
   // 404 rather than a redirect, matching /admin: a member has no business learning that
   // this page exists. Open to whoever spends in the language, because this is where they
   // choose what they spend with; what the voices are made from stays an admin's, inside.
-  if (!session || !canViewVoices(await viewerOf(session), lang)) notFound();
+  const viewer = session ? await viewerOf(session) : null;
+  if (!session || !canViewVoices(viewer, lang)) notFound();
   const userId = session.user.id;
 
   // The statuses, never the keys: sent to a client component as props.
   const [all, elevenStatus, fishStatus, preference, elevenKey, settings, references] =
     await Promise.all([
-      slots(),
+      slots(lang),
       apiKeyStatus(userId),
       apiKeyStatus(userId, "fish"),
       readPreference(userId, lang),
@@ -116,6 +117,7 @@ export default async function Page({
           existing={readable ? [...account.voiceIds.keys()] : null}
           accountError={account?.error ?? null}
           manager={canManageVoices(session.user.role)}
+          directs={can(viewer, "configure", lang)}
         />
       </Contained>
     </main>

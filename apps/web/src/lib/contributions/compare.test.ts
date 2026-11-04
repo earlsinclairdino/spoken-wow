@@ -29,6 +29,10 @@ describe("sameLine", () => {
     expect(sameLine(template, "Hello, sir! You are the one I want. bold!")).toBe(false);
   });
 
+  it("takes a side of $u as of $G", () => {
+    expect(sameLine("Seid gegrüßt, $uReisender:Reisende;.", "Seid gegrüßt, Reisende.")).toBe(true);
+  });
+
   it("matches a client that left $G unexpanded", () => {
     expect(sameLine("Go, $gUm caçador:Uma caçadora;.", "Go, $gUm caçador:Uma caçadora;.")).toBe(true);
   });

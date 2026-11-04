@@ -264,12 +264,13 @@ creature_data AS (
         ct.entry as id,
         ct.name,
         cgm.text_id,
-        cdie.DisplaySexID,
+        IFNULL(cdie.DisplaySexID, 0) as DisplaySexID,
         cdie.DisplayRaceID,
-        cs.npc_sound_name
+        IF(cdie.ID IS NULL, NULL, cs.npc_sound_name) as npc_sound_name,
+        IF(cdie.ID IS NULL, cdi.ModelID, NULL) as ModelID
     FROM creature_template ct
         JOIN db_CreatureDisplayInfo cdi ON ct.display_id1 = cdi.ID
-        JOIN db_CreatureDisplayInfoExtra cdie ON cdi.ExtendedDisplayInfoID = cdie.ID
+        LEFT JOIN db_CreatureDisplayInfoExtra cdie ON cdi.ExtendedDisplayInfoID = cdie.ID
         LEFT JOIN creature_sounds cs ON cs.entry = ct.entry
         LEFT JOIN collected_gossip_menus cgm ON cgm.base_menu_id = ct.gossip_menu_id
 ),
@@ -313,17 +314,18 @@ SELECT
     END as "text",
     0 as broadcast_text_id,
     cdie.DisplayRaceID,
-    cdie.DisplaySexID,
-    cs.npc_sound_name,
+    IFNULL(cdie.DisplaySexID, 0) as DisplaySexID,
+    IF(cdie.ID IS NULL, NULL, cs.npc_sound_name) as npc_sound_name,
     ct.name,
     'creature' as type,
-    qr.creature_id as id
+    qr.creature_id as id,
+    IF(cdie.ID IS NULL, cdi.ModelID, NULL) as ModelID
 FROM
     creature_quest_relations qr
 JOIN quest_template qt ON qr.quest = qt.entry
 JOIN creature_template ct ON qr.creature_id = ct.entry
 JOIN db_CreatureDisplayInfo cdi ON ct.display_id1 = cdi.ID
-JOIN db_CreatureDisplayInfoExtra cdie ON cdi.ExtendedDisplayInfoID = cdie.ID
+LEFT JOIN db_CreatureDisplayInfoExtra cdie ON cdi.ExtendedDisplayInfoID = cdie.ID
 LEFT JOIN creature_sounds cs ON cs.entry = ct.entry
 WHERE
     (
@@ -351,7 +353,8 @@ SELECT
     NULL as npc_sound_name,
     gt.name,
     'gameobject' as type,
-    qr.gameobject_id as id
+    qr.gameobject_id as id,
+    NULL as ModelID
 FROM
     gameobject_quest_relations qr
 JOIN quest_template qt ON qr.quest = qt.entry
@@ -378,7 +381,8 @@ SELECT
     NULL as npc_sound_name,
     it.name,
     'item' as type,
-    qr.item_id as id
+    qr.item_id as id,
+    NULL as ModelID
 FROM
     item_quest_relations qr
 JOIN quest_template qt ON qr.quest = qt.entry
@@ -403,7 +407,8 @@ SELECT
     creature_data.npc_sound_name,
     creature_data.name,
     'creature' as type,
-    creature_data.id
+    creature_data.id,
+    creature_data.ModelID
 FROM creature_data
     CROSS JOIN numbers
     JOIN npc_text nt ON nt.ID = creature_data.text_id
@@ -437,7 +442,8 @@ SELECT
     NULL as npc_sound_name,
     gameobject_data.name,
     'gameobject' as type,
-    gameobject_data.id
+    gameobject_data.id,
+    NULL as ModelID
 FROM gameobject_data
     CROSS JOIN numbers
     JOIN npc_text nt ON nt.ID = gameobject_data.text_id
@@ -471,7 +477,8 @@ SELECT
     creature_data.npc_sound_name,
     creature_data.name,
     'creature' as type,
-    creature_data.id
+    creature_data.id,
+    creature_data.ModelID
 FROM creature_data
     JOIN quest_greeting qg ON qg.entry=creature_data.id AND type=0
 
@@ -490,7 +497,8 @@ SELECT
     NULL AS npc_sound_name,
     gameobject_data.name,
     'gameobject' as type,
-    gameobject_data.id
+    gameobject_data.id,
+    NULL as ModelID
 FROM gameobject_data
     JOIN quest_greeting qg ON qg.entry=gameobject_data.id AND type=1
 
@@ -538,6 +546,7 @@ SELECT
     name,
     ALL_DATA.type,
     id,
+    ModelID,
     text as original_text,
     NULLIF(lq.title_loc{lang}, '') as loc_title,
     NULLIF({localized_text}, '') as loc_text,
@@ -557,6 +566,7 @@ SELECT
     name,
     type,
     id,
+    ModelID,
     text as original_text
 FROM ALL_DATA
         '''
@@ -573,6 +583,7 @@ SELECT
     IFNULL(NULLIF({localized_name}, ''), name) as name,
     ALL_DATA.type,
     id,
+    ModelID,
     text as original_text
 FROM ALL_DATA
 {localized_joins}'''
@@ -596,11 +607,11 @@ def query_creature_voices(connection, entries) -> dict:
     one entry is a creature whose display changed between content patches, which is a row
     apiece there too.
 
-    Where that query's inner join to CreatureDisplayInfoExtra drops a creature - no humanoid
-    race to voice it in - this one keeps it, with DisplayRaceID None and its display's ModelID,
-    because follow-up lines are voiced by model there (followup.corpus_rows), and only for a
-    creature with no humanoid variant at all (followup.creature_voices). A creature whose
-    display is not in db_CreatureDisplayInfo still has no entry.
+    A creature with no CreatureDisplayInfoExtra row - no humanoid race to voice it in - comes
+    back with DisplayRaceID None and its display's ModelID, because it is voiced by its model
+    (followup.corpus_rows), and only where it has no humanoid variant at all
+    (followup.creature_voices). A creature whose display is not in db_CreatureDisplayInfo
+    still has no entry.
     """
     if not entries:
         return {}
@@ -777,3 +788,33 @@ def query_npc_reachability(patch: int = 10):
 
     db.close()
     return facts
+
+
+def query_creature_displays():
+    """Every humanoid appearance of every creature, as (entry, slot, probability, DisplayRaceID,
+    DisplaySexID, npc_sound_name), from the latest patch's creature_template row.
+
+    All four display slots, since they need not share a sex. A display with no
+    CreatureDisplayInfoExtra row has no race or sex and is left out.
+    """
+    slots = " UNION ALL ".join(
+        f"SELECT entry, patch, {n} AS slot, display_id{n} AS display_id, "
+        f"display_probability{n} AS probability FROM creature_template WHERE display_id{n} <> 0"
+        for n in range(1, 5))
+    sql = f'''
+SELECT d.entry, d.slot, d.probability, cdie.DisplayRaceID, cdie.DisplaySexID, se.name
+FROM ({slots}) d
+JOIN (SELECT entry, MAX(patch) AS patch FROM creature_template GROUP BY entry) latest
+  ON latest.entry = d.entry AND latest.patch = d.patch
+JOIN db_CreatureDisplayInfo cdi ON cdi.ID = d.display_id
+JOIN db_CreatureDisplayInfoExtra cdie ON cdie.ID = cdi.ExtendedDisplayInfoID
+LEFT JOIN db_NPCSounds ns ON ns.ID = cdi.NPCSoundID
+LEFT JOIN sound_entries se ON se.id = ns.SoundGreeting
+ORDER BY d.entry, d.slot
+'''
+    db = make_connection()
+    with db.cursor() as cursor:
+        cursor.execute(sql)
+        rows = cursor.fetchall()
+    db.close()
+    return rows

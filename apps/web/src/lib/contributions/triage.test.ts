@@ -1,6 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { idOnlyResolution, npcSummaryFrom, questFor, resolveMissing } from "./triage";
+import type { BookMatchResult } from "./book-match";
+import { bookFor, idOnlyResolution, labelOf, npcSummaryFrom, packHeard, questFor, resolveMissing } from "./triage";
+
+describe("packHeard", () => {
+  it("names the packs' language when it is not the client's", () => {
+    expect(packHeard({ locale: "deDE", meta: { pack: "enUS" } })).toBe("enUS");
+  });
+
+  it("says nothing when the player hears their client's language, or the envelope has no pack", () => {
+    expect(packHeard({ locale: "deDE", meta: { pack: "deDE" } })).toBeNull();
+    expect(packHeard({ locale: "deDE", meta: {} })).toBeNull();
+  });
+});
 
 describe("questFor", () => {
   it("reads the title and quest id off a quest-moment envelope", async () => {
@@ -24,8 +36,8 @@ describe("questFor", () => {
   });
 
   it("is null for a source that has no quest concept at all", async () => {
-    expect(questFor({ source: "zones", meta: { map: "1519" } })).toBe(null);
-    expect(questFor({ source: "books", meta: { page: "42" } })).toBe(null);
+    expect(questFor({ source: "places", meta: { map: "1519" } })).toBe(null);
+    expect(questFor({ source: "readables", meta: { page: "42" } })).toBe(null);
   });
 
   it("is 'gossip' rather than a half-answer when only one of the two fields is present", async () => {
@@ -202,5 +214,36 @@ describe("resolveMissing", () => {
   it("is empty for nothing to resolve", async () => {
     const resolved = await resolveMissing(new Map(), async () => resolution());
     expect(resolved.size).toBe(0);
+  });
+});
+
+describe("labelOf", () => {
+  const describe_ = (id: string) => id;
+  const label = (match: BookMatchResult) => labelOf(match, describe_);
+
+  it("says what each kind of match is", () => {
+    expect(label({ kind: "known", lineId: "b:1", via: "text" })).toBe("Already there · b:1");
+    expect(label({ kind: "correction", lineId: "b:1", current: "x", via: "owner" })).toBe("Correction · b:1");
+    expect(label({ kind: "translation", lineId: "b:1", via: "moderator" })).toBe("Translation · b:1");
+    expect(label({ kind: "new-page", bookId: "7", pageNumber: 3, via: "title" })).toBe("New page · book:7 p.3");
+    expect(label({ kind: "new-book", title: "Tome", pageNumber: 2, via: "none" })).toBe("New book · Tome p.2");
+    expect(label({ kind: "new-book", title: "", pageNumber: 2, via: "none" })).toBe("New book · untitled p.2");
+    expect(label({ kind: "ambiguous", candidates: ["b:1", "b:2"] })).toBe("Ambiguous · 2 candidates");
+  });
+});
+
+describe("bookFor", () => {
+  const match: BookMatchResult = { kind: "translation", lineId: "b:1", via: "owner" };
+
+  it("summarises a readables row, with a link where the match names a page", () => {
+    const row = { source: "readables", meta: { book: " Livro ", number: "2" } };
+    expect(bookFor(row, match, (id) => id, (id) => `/readables/r/${id}`)).toEqual({
+      title: "Livro", number: 2, match, label: "Translation · b:1", href: "/readables/r/b:1",
+    });
+    expect(bookFor(row, { kind: "new-book", title: "Livro", pageNumber: 2, via: "none" }, (id) => id, (id) => id)?.href).toBeNull();
+  });
+
+  it("is null for a row that is not readables", () => {
+    expect(bookFor({ source: "places", meta: {} }, match, (id) => id)).toBeNull();
   });
 });

@@ -33,24 +33,33 @@ _G.C_Sound = {
         return sound and sound.volume
     end,
 }
+-- Spoken's own voice is one of the game's sounds too: unknown to IsPlaying, it would read as cut.
+local playSoundFile = _G.PlaySoundFile
+_G.PlaySoundFile = function(...)
+    local willPlay, handle = playSoundFile(...)
+    if willPlay then sounds[handle] = { volume = "spoken", ends = math.huge } end
+    return willPlay, handle
+end
 local stopSound = _G.StopSound
 _G.StopSound = function(handle, ...)
     if sounds[handle] then sounds[handle].ends = world.time end
     return stopSound(handle, ...)
 end
 
-stub.SetClient("11509"); stub.ResetSound(); stub.ResetTimers(); stub.ResetFrames()
+stub.SetClient("16001"); stub.ResetSound(); stub.ResetTimers(); stub.ResetFrames()
 _G.SpokenQuestsSettings = nil
 local VO = stub.LoadQuests(QUESTS, SPOKEN)
 VO.Addon:OnInitialize()
 VO.DataModules:Register("TestPack", {
     SoundLengthLookupByFileName = { ["101-accept"] = 3, ["102-accept"] = 3, ["103-accept"] = 3,
-        ["104-accept"] = 3, ["105-accept"] = 3, ["106-accept"] = 3 },
+        ["104-accept"] = 3, ["105-accept"] = 3, ["106-accept"] = 3, ["gossip-hash"] = 3 },
+    GossipLookupByNPCID = { [3052] = { ["Hail."] = "gossip-hash" } },
     GetSoundPath = function(_, fileName) return fileName .. ".ogg" end,
 })
 stub.Advance(2)
 local Spoken = _G.Spoken
 _G.SpokenEnv.Addon.db.profile.Audio.AutoToggleDialog = true
+_G.SpokenEnv.Addon.db.profile.Audio.SoundChannel = "Master"
 -- The other sliders stay where they are set: lowered under a line, they would not be the levels
 -- Dialog is compared with.
 _G.SpokenEnv.Addon.db.profile.Audio.LowerOthers.Enabled = false
@@ -97,6 +106,27 @@ Expect("...and fades the NPC out rather than cutting it", GetCVar("Sound_EnableD
 stub.Advance(0.6)
 Expect("...silent once the fade is over", GetCVar("Sound_EnableDialog"), "0")
 Close()
+
+-- A gossip window waits for the NPC's greeting too: it is the gossip source's line, not the quests'.
+Voice(1.2)
+stub.ShowGossip("Hail.")
+stub.FireEvent("GOSSIP_SHOW")
+stub.Advance(0.8)
+local gossip = Spoken:GetCurrent()
+Expect("the gossip line is queued", gossip and gossip.fileName, "gossip-hash")
+Expect("...and waits while the NPC speaks", Spoken:IsPlaying(), false)
+Expect("...saying why", gossip and Spoken:GetHeldReason(gossip), VO.L.QUEUE_HELD_GREETING)
+-- What a nearby NPC says in chat waits too, or it would play in the held line's place and fade the
+-- greeting out.
+VO.Player.chatterSource:Enqueue({ key = "chat-x", path = "chat-x.ogg", length = 2, priority = "low" })
+stub.Advance(0.1)
+Expect("chat from a nearby NPC waits for the greeting as well", Spoken:IsPlaying(), false)
+stub.Advance(1)
+Expect("...and starts once the greeting is over", Spoken:IsPlaying(), true)
+stub.HidePanels()
+stub.FireEvent("GOSSIP_CLOSED")
+stub.Advance(1)
+Spoken:StopAll()
 
 -- Gossip, then a quest picked from it: the NPC greeted once, as the gossip opened.
 Voice(0.3)

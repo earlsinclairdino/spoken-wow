@@ -57,8 +57,8 @@ export async function POST(request: Request) {
 
   // A place with no lore is only worth filing with something said about it: the addon names
   // the place, and the description is the contribution.
-  const description = parsed.value.source === "zones" ? descriptionFrom(body.description) : null;
-  if (parsed.value.source === "zones" && !description) {
+  const description = parsed.value.source === "places" ? descriptionFrom(body.description) : null;
+  if (parsed.value.source === "places" && !description) {
     return Response.json({ error: "describe" }, { status: 400 });
   }
 

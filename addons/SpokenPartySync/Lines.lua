@@ -18,8 +18,8 @@ local Comm = PartySync.Comm
 local Lines = {}
 PartySync.Lines = Lines
 
-local CODES = { quests = "q", zones = "z", books = "b" }
-local SOURCES = { q = "quests", z = "zones", b = "books" }
+local CODES = { quests = "q", places = "z", readables = "b" }
+local SOURCES = { q = "quests", z = "places", b = "readables" }
 
 -- Spoken_Quests' Enums.SoundEvent, which is private to it. Frozen: its sound packs' Module.lua
 -- branch on the same numbers.
@@ -33,15 +33,15 @@ function Lines:SourceKey(clip)
 	return clip and clip.source and clip.source.key or nil
 end
 
---- Which setting decides whether this line is played together: "quests", "gossip", "zones",
---- "books", or nil for a source this addon does not know.
+--- Which setting decides whether this line is played together: "quests", "gossip", "places",
+--- "readables", or nil for a source this addon does not know.
 function Lines:Kind(clip)
 	local src = self:SourceKey(clip)
 	if src == "quests" then
 		local event = tonumber(clip.event)
 		return (event == EVENT.greeting or event == EVENT.gossip) and "gossip" or "quests"
 	end
-	if src == "zones" or src == "books" then
+	if src == "places" or src == "readables" then
 		return src
 	end
 	return nil
@@ -97,7 +97,7 @@ function Lines:Describe(clip)
 		d.name = clip.name or d.name
 		d.title = clip.title or d.title
 		-- A quest line's words are on the dialog that was open here, and on nobody else's
-		-- screen: a class quest, a turn-in the others have not reached. Zones and books carry
+		-- screen: a class quest, a turn-in the others have not reached. Places and readables carry
 		-- their own text in every client's data.
 		d.text = clip.text
 	end

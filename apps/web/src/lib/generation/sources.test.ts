@@ -3,7 +3,7 @@
  *
  * Against a real Postgres, because the thing being tested lives only there. Adding a
  * section means widening a check constraint on every table that carries one, and the cost
- * of missing one is invisible until the one code path that writes that table runs: books
+ * of missing one is invisible until the one code path that writes that table runs: readables
  * shipped with `regeneration_batch` and `report` still refusing it, so single-page
  * regeneration worked and the first "Regenerate these" click returned a 500.
  *

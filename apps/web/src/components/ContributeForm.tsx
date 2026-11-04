@@ -17,7 +17,13 @@ import {
   DESCRIPTION_MAX,
   DESCRIPTION_MIN,
 } from "@/lib/contributions/contributions";
-import { decodeFragment, type DecodeError, parseEnvelope, type ParseError } from "@/lib/contributions/envelope";
+import {
+  decodeFragment,
+  type DecodeError,
+  parseEnvelope,
+  type ParseError,
+  takeFragment,
+} from "@/lib/contributions/envelope";
 
 const FIELD_LABELS: Record<string, string> = {
   quest: "Quest",
@@ -95,16 +101,14 @@ export default function ContributeForm({ signedInAs }: { signedInAs: string | nu
   // rather than merely read, so it cannot linger in history or get shared onward carrying the
   // decoded game text a second time.
   useEffect(() => {
-    const hash = window.location.hash;
-    if (!hash.startsWith("#e1=")) {
+    const fragment = takeFragment();
+    if (fragment === null) {
       setRead(true);
       return;
     }
 
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
-
     let cancelled = false;
-    decodeFragment(hash.slice("#e1=".length)).then((result) => {
+    decodeFragment(fragment).then((result) => {
       if (cancelled) return;
       if (result.ok) {
         setRaw(result.text);
@@ -121,7 +125,7 @@ export default function ContributeForm({ signedInAs }: { signedInAs: string | nu
   const preview = previewOf(raw);
   // A place with no lore: the addon can only name it, so what is sent is the player's own
   // description of it -- required, and in place of the optional note every other source gets.
-  const isPlace = preview.ok && preview.source === "zones";
+  const isPlace = preview.ok && preview.source === "places";
   const described = description.trim().length >= DESCRIPTION_MIN;
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {

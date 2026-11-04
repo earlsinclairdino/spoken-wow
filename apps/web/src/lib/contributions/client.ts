@@ -7,7 +7,7 @@
  *
  *   1.15.x  Classic Era, Hardcore and Season of Discovery (one client; the build cannot tell
  *           them apart)
- *   1.60.x  the WoW: Forever beta (1.16 and up, allowing for its later builds)
+ *   1.60.x  WoW: Forever (1.16 and up, allowing for its later builds)
  *   2.5.x   TBC Anniversary
  *   10+     retail
  *   1.12.1, 2.4.3, 3.3.5  the three legacy clients
@@ -15,7 +15,8 @@
  * Anything else (another Classic progression, say) is "other", labelled with its version so it
  * is still readable.
  *
- * Node-free: ContributionTable, a client component, imports the family list for its dropdown.
+ * Node-free: ContributionTable and NpcEditor, client components, import the filters for their
+ * dropdowns.
  */
 export const CLIENT_FAMILIES = ["era", "anniversary", "retail", "forever", "legacy", "other"] as const;
 
@@ -25,13 +26,47 @@ export const CLIENT_FAMILY_LABELS: Record<ClientFamily, string> = {
   era: "Classic Era",
   anniversary: "TBC Anniversary",
   retail: "Retail",
-  forever: "Forever beta",
+  forever: "Forever",
   legacy: "Legacy client",
   other: "Other",
 };
 
 export function isClientFamily(value: unknown): value is ClientFamily {
   return typeof value === "string" && (CLIENT_FAMILIES as readonly string[]).includes(value);
+}
+
+/**
+ * The clients the project voices for. Every other family is still taken in and stored, but goes
+ * to the "low effort" bin, which no list shows until it is asked for.
+ */
+export const FOCUS_FAMILIES: readonly ClientFamily[] = ["era", "forever"];
+
+/** The two bins, then single families, then everything. */
+export const CLIENT_FILTERS = ["focus", "low-effort", ...CLIENT_FAMILIES, "all"] as const;
+
+export type ClientFilter = (typeof CLIENT_FILTERS)[number];
+
+export const DEFAULT_CLIENT_FILTER: ClientFilter = "focus";
+
+export const CLIENT_BIN_LABELS: Record<"focus" | "low-effort", string> = {
+  focus: "Era + Forever",
+  "low-effort": "Low effort",
+};
+
+/** The `client` query parameter as a filter: the focus bin for anything unrecognised or absent. */
+export function clientFilterOf(value: unknown): ClientFilter {
+  return (CLIENT_FILTERS as readonly unknown[]).includes(value) ? (value as ClientFilter) : DEFAULT_CLIENT_FILTER;
+}
+
+/**
+ * Whether a row from `family` is in view. Null is a row no client sent, such as an NPC the
+ * extract named: it belongs with the focus bin and with no single family.
+ */
+export function matchesClient(family: ClientFamily | null, filter: ClientFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "focus") return family === null || FOCUS_FAMILIES.includes(family);
+  if (filter === "low-effort") return family !== null && !FOCUS_FAMILIES.includes(family);
+  return family === filter;
 }
 
 export type ClientSummary = {

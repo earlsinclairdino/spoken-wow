@@ -34,7 +34,7 @@ local function Api()
 	PartySync:Print("  Spoken player: %s; captions-only override: %s", Yes(PartySync:PlayerAvailable()),
 		Yes(Spoken and Spoken.SetCaptionsOnlyOverride ~= nil))
 	if Spoken and Spoken.GetSource then
-		for _, key in ipairs({ "quests", "zones", "books" }) do
+		for _, key in ipairs({ "quests", "places", "readables" }) do
 			local source = Spoken:GetSource(key)
 			PartySync:Print("  %s: %s%s", key, source and "installed" or "|cff909090not installed|r",
 				source and (source.rebuild and ", can play the party's lines" or " |cffff6060but too old to play the party's lines|r") or "")

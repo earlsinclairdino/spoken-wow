@@ -5,8 +5,10 @@ import { forwardRef, useCallback, useMemo } from "react";
 import DateChip from "@/components/DateChip";
 import { MadeByChips } from "@/components/MadeBy";
 import RecordedChip from "@/components/RecordedChip";
+import { BROADCAST_OPTIONS, type BroadcastStatus } from "@/lib/broadcast/status";
 import type { MadeByFacets } from "@/lib/takes/made-by";
 import FilterChip, { type ChipOption } from "@/components/FilterChip";
+import MultiFilterChip from "@/components/MultiFilterChip";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -133,9 +135,9 @@ const SearchBar = forwardRef<HTMLInputElement, Props>(function SearchBar(
           options={plainOptions(facets.voices)}
           onChange={(voice) => onFilters({ voice })}
         />
-        <FilterChip
+        <MultiFilterChip
           label="source"
-          value={filters.source}
+          values={filters.source}
           options={SOURCE_OPTIONS}
           onChange={(source) => onFilters({ source: source as LineFilters["source"] })}
         />
@@ -175,6 +177,13 @@ const SearchBar = forwardRef<HTMLInputElement, Props>(function SearchBar(
         {recordable && (
           <RecordedChip value={filters.recorded} onChange={(recorded) => onFilters({ recorded })} />
         )}
+        {/* Only gossip has ids, so any pick here narrows to gossip too. */}
+        <FilterChip
+          label="broadcast id"
+          value={filters.broadcast}
+          options={BROADCAST_OPTIONS}
+          onChange={(broadcast) => onFilters({ broadcast: broadcast as BroadcastStatus | undefined })}
+        />
 
         <div className="flex items-center gap-2 whitespace-nowrap">
           <Checkbox
@@ -221,7 +230,7 @@ const SearchBar = forwardRef<HTMLInputElement, Props>(function SearchBar(
             ignored only
           </Label>
         </div>
-        {/* Triagers only, as in the zones and books bars: the count on a row is public, but
+        {/* Triagers only, as in the places and readables bars: the count on a row is public, but
             a list of what people have complained about is a worklist. */}
         {canTriage && (
           <div className="flex items-center gap-2 whitespace-nowrap">

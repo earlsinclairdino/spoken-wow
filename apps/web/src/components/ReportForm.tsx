@@ -21,8 +21,12 @@
  * reached with the line already identified.
  */
 import { useLang } from "@/components/LangProvider";
+import Link from "@/components/LocaleLink";
+import ReportContextFacts from "@/components/reports/ReportContextFacts";
+import { decodeFragment, takeFragment } from "@/lib/contributions/envelope";
 import { withLang } from "@/lib/lang";
-import { useState } from "react";
+import { LATEST_VERSION, contextFrom, outdatedVersion } from "@/lib/reports/context";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/lib/auth-client";
@@ -33,11 +37,14 @@ export default function ReportForm({
   source,
   target,
   lineId,
+  fromGame = false,
 }: {
   source: Source;
   /** The raw address the report came in on, or null where the section has none. */
   target: string | null;
   lineId: string | null;
+  /** On an /r/ page the game links to, whose address may carry the addon's context. */
+  fromGame?: boolean;
 }) {
   const lang = useLang();
   // isPending rather than a bare null check: while the session is still loading, showing
@@ -47,6 +54,9 @@ export default function ReportForm({
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const raw = useFragmentContext(fromGame);
+  const context = useMemo(() => contextFrom(raw, source), [raw, source]);
+  const outdated = outdatedVersion(context);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -66,6 +76,7 @@ export default function ReportForm({
         name: data.get("name"),
         email: data.get("email"),
         website: data.get("website"),
+        context: context ? raw : null,
       }),
     }).catch(() => null);
 
@@ -93,6 +104,23 @@ export default function ReportForm({
 
   return (
     <form onSubmit={submit} className="flex max-w-xl flex-col gap-4">
+      {outdated ? (
+        <p className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          You are on Spoken {outdated}, and {LATEST_VERSION} is out. This might already be fixed
+          there: <Link href="/" className="underline underline-offset-2">get the latest version</Link>.
+          You can still send the report.
+        </p>
+      ) : null}
+
+      {context ? (
+        <details className="rounded border p-3 text-sm">
+          <summary className="cursor-pointer">Sent with this report, from your game</summary>
+          <div className="mt-2">
+            <ReportContextFacts context={context} />
+          </div>
+        </details>
+      ) : null}
+
       <label className="flex flex-col gap-1 text-sm">
         What went wrong?
         <select
@@ -165,4 +193,45 @@ export default function ReportForm({
       ) : null}
     </form>
   );
+}
+
+const STORED = "spoken.report.context";
+
+/**
+ * The envelope the addon put in the report link's #e1= fragment, decoded in the browser.
+ *
+ * Kept in sessionStorage under the page's path, because choosing which of an NPC's lines to
+ * report is a navigation to ?line=, and a link carries no fragment along. Taken out of the
+ * address bar once read, as ContributeForm does, so the game text does not linger in history.
+ */
+function useFragmentContext(enabled: boolean): string | null {
+  const [raw, setRaw] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const key = `${STORED}:${window.location.pathname}`;
+    const fragment = takeFragment();
+    if (fragment === null) {
+      try {
+        setRaw(window.sessionStorage.getItem(key));
+      } catch {
+        // Storage blocked: the report goes without context.
+      }
+      return;
+    }
+
+    // Not cancelled on cleanup: the hash is gone from the address once this runs, so an effect
+    // run twice (React's development double-invoke) has only this decode to get it from.
+    void decodeFragment(fragment).then((result) => {
+      if (!result.ok) return;
+      setRaw(result.text);
+      try {
+        window.sessionStorage.setItem(key, result.text);
+      } catch {
+        // As above.
+      }
+    });
+  }, [enabled]);
+
+  return raw;
 }

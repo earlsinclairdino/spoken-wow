@@ -1,11 +1,15 @@
 # Spoken Developer
 
-Tools for trying Spoken out, which a player never needs: a **debug log** to send with a report,
+Tools for working on Spoken, which a player never needs: a **debug log** to send with a report,
 and the **Developer** page in Spoken's settings where Spoken's modules put their own tools (Spoken
-Quests' Mock Missing Voice Over, for one). A download of its own, beside Spoken.
+Quests' Mock Missing Voice Over, for one).
+
+For developers only. It is not in Spoken's zip and is not published: there is no store page and
+no release. Link it into the game from a checkout, or build a zip with
+`scripts/developer/package.sh` to hand to someone asked for a log.
 
 - The log is on once the module is installed: installing it is asking for one. Turn it off (or on
-  again) with Spoken > Developer > Enable Debug Log Recording, the switch in Spoken's welcome
+  again) with Spoken > Developer > Keep a Debug Log, the switch in Spoken's welcome
   window, or `/spoken log off`. Off, nothing is kept.
 - Right-click any **Report a Problem** or **Contribute** button: the log's size, **Copy the Debug
   Log** (with the diagnostics, to send with a report), or **Write the Debug Log for an AI Agent**
@@ -34,7 +38,6 @@ How it works, what a line says and the API for feature addons:
 | `UI/Options.lua` | the Developer page |
 | `Commands.lua` | `/spoken log ...`, and the provider Spoken calls |
 | `Events.lua` | registering with Spoken as it loads, the login |
-| `UI/Layout.lua` | the settings layout every Spoken addon carries, byte-identical |
 
 Package with `scripts/developer/package.sh`. Tests: `tests/lua/developer_log_test.lua` (this
 module) and `tests/lua/developer_hooks_test.lua` (Spoken's side).

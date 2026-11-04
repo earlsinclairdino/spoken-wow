@@ -5,6 +5,7 @@ import { Download, Loader2, Scissors, Trash2 } from "lucide-react";
 
 import { useLang } from "@/components/LangProvider";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { withLang } from "@/lib/lang";
@@ -27,7 +28,7 @@ import type { Sample } from "@/lib/voices/samples";
  */
 export type ReferenceView = Pick<
   Reference,
-  "sample" | "startSec" | "endSec" | "transcript" | "clipHash"
+  "sample" | "startSec" | "endSec" | "transcript" | "clipHash" | "pinned"
 >;
 
 type Props = {
@@ -62,7 +63,7 @@ export default function FishReference({
   );
   const [duration, setDuration] = useState<number | null>(null);
   const [transcript, setTranscript] = useState(initial?.transcript ?? "");
-  const [busy, setBusy] = useState<"import" | "cut" | "transcript" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"import" | "cut" | "transcript" | "pin" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // The chosen clip's length, from its metadata, so a window past its end is refused here
@@ -97,7 +98,7 @@ export default function FishReference({
         ? `That clip is only ${duration.toFixed(1)} s long.`
         : null));
 
-  async function send(kind: "cut" | "transcript" | "delete", init: RequestInit) {
+  async function send(kind: "cut" | "transcript" | "pin" | "delete", init: RequestInit) {
     setBusy(kind);
     setError(null);
     try {
@@ -287,6 +288,24 @@ export default function FishReference({
               {busy === "delete" ? <Loader2 className="animate-spin" /> : <Trash2 />}
               Remove
             </Button>
+          </div>
+          <div className="flex items-start gap-2">
+            <Checkbox
+              id={`${voice}-reference-pinned`}
+              checked={reference.pinned}
+              disabled={busy !== null}
+              onCheckedChange={(on) =>
+                send("pin", { method: "PATCH", body: JSON.stringify({ pinned: on === true }) })
+              }
+            />
+            <Label htmlFor={`${voice}-reference-pinned`} className="grid gap-0.5 text-xs font-normal">
+              <span className="font-medium">Always speak this voice with fish.audio</span>
+              <span className="text-muted-foreground">
+                Its lines go to fish.audio even for somebody generating with ElevenLabs, on their
+                own fish.audio key and settings. A narrated line goes with it, so the narrator needs
+                a reference too.
+              </span>
+            </Label>
           </div>
         </div>
       )}

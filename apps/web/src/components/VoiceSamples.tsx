@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { Combine, Download, Loader2, Sparkles, Trash2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import AccountVoicePicker from "@/components/voices/AccountVoicePicker";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -254,6 +255,13 @@ export default function VoiceSamples({
           {busy === "upload" ? <Loader2 className="animate-spin" /> : <Upload />}
           Add clips
         </Button>
+
+        <AccountVoicePicker
+          voice={voice}
+          exists={exists}
+          disabled={busy !== null}
+          onAdopted={onCloned}
+        />
 
         {hasSeedClips && (
           <Button

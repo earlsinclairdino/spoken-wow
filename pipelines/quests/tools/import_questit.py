@@ -36,7 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tts_cli.corpus import _skip_reason  # noqa: E402
-from tts_cli.locale_import import clean_localized, decide, import_locale  # noqa: E402
+from tts_cli.locale_import import clean_localized, decide, import_locale, own_lines  # noqa: E402
 from tts_cli.questit import (FIELDS, Hasher, load, match_by_hash, match_quest_line,  # noqa: E402
                              speak_npc_gender)
 
@@ -76,16 +76,18 @@ def translated_lines(data: dict, hasher: Hasher, rows: list[tuple]) -> tuple[lis
         counts[f"{source} {outcome}"] += 1
         if italian is None:
             continue
-        text = speak_npc_gender(clean_localized(italian, player_gender), npc_gender)
-        reason = _skip_reason({"source": source, "cleanedText": text, "voice_name": voice})
-        lines.append({
-            "lineId": line_id,
-            "originalText": original,
-            "text": text,
-            "localeText": None,
-            "generatable": reason is None,
-            "skipReason": reason,
-        })
+        for own_id, _, text in own_lines(
+                line_id, player_gender, italian,
+                lambda gender: speak_npc_gender(clean_localized(italian, gender), npc_gender)):
+            reason = _skip_reason({"source": source, "cleanedText": text, "voice_name": voice})
+            lines.append({
+                "lineId": own_id,
+                "originalText": original,
+                "text": text,
+                "localeText": None,
+                "generatable": reason is None,
+                "skipReason": reason,
+            })
     return lines, counts
 
 
@@ -138,13 +140,17 @@ def import_pages(conn, data: dict, hasher: Hasher, note: str, dry_run: bool) -> 
                      ("lineId", "lang", "version", "isCurrent", "origin", "pageId", "bookId",
                       "pageNumber", "pageCount", "title", "ownerKind", "ownerIds", "material",
                       "text", "generatable", "skipReason", "note")
-                   select e."lineId", %s,
+                   select p."lineId", %s,
                           coalesce((select max(m."version") from "book_line" m
-                                     where m."lineId" = e."lineId" and m."lang" = %s), 0) + 1,
-                          %s, 'community', e."pageId", e."bookId", e."pageNumber", e."pageCount",
-                          e."title", e."ownerKind", e."ownerIds", e."material", %s, true, null, %s
-                     from "book_line" e
-                    where e."lineId" = %s and e."lang" = 'enUS' and e."isCurrent" """,
+                                     where m."lineId" = p."lineId" and m."lang" = %s), 0) + 1,
+                          %s, 'community', p."pageTextId",
+                          case when p."bookId" ~ '^\\d+$' then p."bookId"::int end, p."pageNumber",
+                          (select count(*) from "book_page" c
+                            where c."bookId" = p."bookId" and c."aliasOf" is null),
+                          e."title", p."ownerKind", p."ownerIds", coalesce(p."material", 0), %s, true, null, %s
+                     from "book_page" p
+                     join "book_line" e on e."lineId" = p."lineId" and e."lang" = 'enUS' and e."isCurrent"
+                    where p."lineId" = %s """,
                 (LANG, LANG, action == "promote", italian, note, line_id),
             )
     return counts

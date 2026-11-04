@@ -82,6 +82,12 @@ export type GenerationStatusResponse = {
   provider: Provider;
   /** fish.audio's balance in dollars, for a fish.audio user; null when it could not be read. */
   wallet?: { credit: number } | null;
+  /**
+   * For an ElevenLabs user, the voices pinned to fish.audio in this language, whose lines
+   * fish.audio speaks on their fish.audio key: its references, whether they have that key,
+   * and its rate. Absent or null when nothing is pinned.
+   */
+  pinned?: { voices: string[]; references: string[]; noApiKey: boolean; rate: Rate } | null;
 };
 
 export async function fetchGenerationStatus(
@@ -109,6 +115,17 @@ export type BatchJob = {
   preview: string;
 };
 
+/** Mirrors BatchSkip in lib/search.ts. */
+export type BatchSkip = "progress" | "untranslated" | "no-voice" | "invalid-chars" | "shared-file";
+
+export type BatchJobs = {
+  jobs: BatchJob[];
+  /** Lines the filters matched, which is what the button counts. */
+  matched: number;
+  /** The matched lines that are not a job of their own, by reason. */
+  skipped: Partial<Record<BatchSkip, number>>;
+};
+
 /**
  * Every job a set of filters would regenerate.
  *
@@ -119,11 +136,11 @@ export async function fetchBatchJobs(
   params: URLSearchParams,
   signal?: AbortSignal,
   lang: Lang = BASE_LANG,
-): Promise<BatchJob[] | null> {
+): Promise<BatchJobs | null> {
   try {
     const response = await fetch(withLang(lang, `/api/quests/search/lines?${params}`), { signal });
     if (!response.ok) return null;
-    return ((await response.json()) as { jobs: BatchJob[] }).jobs;
+    return (await response.json()) as BatchJobs;
   } catch {
     return null;
   }
@@ -201,7 +218,7 @@ export type QueueSnapshot = {
   queues?: QueueLine[];
   /**
    * Carries the source because two explorers poll one queue, and each may only adopt its
-   * own: a quests page told that a zones file is now at version 3 would look for a line it
+   * own: a quests page told that a places file is now at version 3 would look for a line it
    * does not have. The language for the same reason: an English page must not adopt a
    * Portuguese version number.
    */
@@ -216,9 +233,9 @@ export type QueuedBatch = { batchId: string; queued: number; skipped: number };
 /**
  * Start a batch, or say why not.
  *
- * The quests half sends filters and the zones half sends ids, which is the queue route's
+ * The quests half sends filters and the places half sends ids, which is the queue route's
  * distinction rather than this function's: quests re-derives the job set server-side so a
- * forty-thousand-line batch is a small request, while the zones corpus is ~1,400 lines
+ * forty-thousand-line batch is a small request, while the places corpus is ~1,400 lines
  * selected by hand, where the ids ARE what the user picked.
  *
  * A string rather than null for the refusals that have something to tell the operator -
@@ -231,7 +248,7 @@ export async function queueBatch(
     // Both id-driven sections, for the same reason: their explorers already hold the set
     // of ids the visitor was shown, and quoting one set while queueing another is the
     // failure the quote exists to prevent.
-    | { source: "zones" | "books"; lineIds: string[] },
+    | { source: "places" | "readables" | "bosses"; lineIds: string[] },
   label: string,
   lang: Lang = BASE_LANG,
 ): Promise<QueuedBatch | { error: string } | null> {

@@ -65,7 +65,7 @@ local message = "LN\t" .. table.concat(ns.Lines:Encode(huge, 0), "\t")
 Expect("an announcement with overlong names still fits in a message", #message <= 255, true)
 Expect("...and says it is gossip", ns.Lines:Decode(unpack(ns.Lines:Encode(huge, 0))).low, true)
 Expect("a quest line's id drops the player's gender", ns.Lines:IdFor("quests", "f-101-accept"), "101-accept")
-Expect("...a zone's does not change", ns.Lines:IdFor("zones", "s:1429:northshire valley"), "s:1429:northshire valley")
+Expect("...a zone's does not change", ns.Lines:IdFor("places", "s:1429:northshire valley"), "s:1429:northshire valley")
 
 ---------------------------------------------------------------- sending
 P.Clear()
@@ -154,7 +154,7 @@ Expect("an NPC gets no entry", entries[1], nil)
 -- speak for its party: each character keeps its own (2026-10-08, Tata logged out, Williams in,
 -- and Lala's computer refused every line Williams sent).
 local ACCOUNT_030 = { members = { ["lala throwaway"] = { name = "Lala Throwaway", added = 0 } },
-	lead = "lala throwaway", roomSpeaker = "me", controls = "anyone", sync = { quests = true, gossip = false, zones = true, books = true } }
+	lead = "lala throwaway", roomSpeaker = "me", controls = "anyone", sync = { quests = true, gossip = false, places = true, readables = true } }
 local ns3 = P.Boot(stub, LOOKUP, { account = ACCOUNT_030 })
 Expect("a party 0.3 kept with the account becomes this character's auto-form list", ns3.Autoform:Entry("Lala Throwaway") ~= nil, true)
 Expect("...accepted without asking, as a member was", ns3.Autoform:Accepts("Lala Throwaway"), true)

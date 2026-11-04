@@ -8,8 +8,8 @@
 #
 # Or `make web-import-locale LOCALE=frFR`, which passes the droplet settings.
 #
-# Runs HERE, not on the droplet: the quests and books imports read the vmangos MySQL, which
-# only a workstation has (make books-db), and the pipelines are not part of a release. So
+# Runs HERE, not on the droplet: the quests and readables imports read the vmangos MySQL, which
+# only a workstation has (make readables-db), and the pipelines are not part of a release. So
 # production is reached the other way round -- an ssh tunnel to its Postgres, with the
 # credentials read out of the droplet's shared/app.env for the length of this script and
 # never written down.
@@ -35,8 +35,8 @@ fi
 
 # Which of the three sources this language has. `vmangos` is null where the dump carries no
 # text at all; place names still come from the addon's aliases. A language no client runs in
-# (Italian) has neither: its text is the QuestIT community's (make quests-import-questit) and
-# what is written on the site.
+# (Italian, Vietnamese) has neither: its text is its community's (make quests-import-questit,
+# make quests-import-forever-csv) and what is written on the site.
 vmangos=$(node --input-type=module -e '
   const { localeInfo, BASE_LOCALE } = await import("./pipelines/lib/locales.mjs");
   const info = localeInfo(process.argv[1]);
@@ -120,15 +120,15 @@ if [ -t 0 ]; then
 fi
 
 if [ "$vmangos" = "none" ]; then
-  echo "== quests, books: skipped -- the vmangos dump has no $LOCALE text"
+  echo "== quests, readables: skipped -- the vmangos dump has no $LOCALE text"
 else
   echo "== quests"
   make --no-print-directory quests-import-locale LOCALE="$LOCALE"
-  echo "== books"
-  make --no-print-directory books-import-locale LOCALE="$LOCALE"
+  echo "== readables"
+  make --no-print-directory readables-import-locale LOCALE="$LOCALE"
 fi
 echo "== zone and subzone names"
-make --no-print-directory zones-lore-import-names LOCALE="$LOCALE"
+make --no-print-directory places-lore-import-names LOCALE="$LOCALE"
 
 echo
 echo "Done. Nothing is public yet: check /$LOCALE/quests as an admin, then switch $LOCALE on"

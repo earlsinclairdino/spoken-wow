@@ -1,16 +1,20 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
+import ApiTokenTable from "@/components/ApiTokenTable";
 import LanguageTable from "@/components/LanguageTable";
-import UserTable, { type UserRow } from "@/components/UserTable";
+import UserSearch from "@/components/UserSearch";
+import UserTable from "@/components/UserTable";
 import { userIdsWithApiKey } from "@/lib/api-key";
-import { auth } from "@/lib/auth";
 import { listGrants, viewerOf } from "@/lib/grants/store";
 import { langName } from "@/lib/lang";
 import { languageStates } from "@/lib/languages/store";
 import { isAdmin, langsWhere } from "@/lib/permissions";
 import { currentSession } from "@/lib/session";
+import { listAllTokens } from "@/lib/tokens/store";
+import { userSortOf } from "@/lib/users/sort";
+import { listUsers } from "@/lib/users/store";
+import LocaleLink from "@/components/LocaleLink";
 import { Contained, Wide } from "@/components/Width";
 
 export const metadata: Metadata = { title: "Users · Spoken" };
@@ -31,7 +35,7 @@ const PAGE_SIZE = 25;
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; q?: string; sort?: string; dir?: string }>;
 }) {
   const session = await currentSession();
   const viewer = await viewerOf(session);
@@ -39,29 +43,20 @@ export default async function Page({
   if (!session || !viewer || administered.length === 0) notFound();
 
   const global = isAdmin(viewer.role);
-  const page = Math.max(1, Number.parseInt((await searchParams).page ?? "", 10) || 1);
+  const params = await searchParams;
+  const page = Math.max(1, Number.parseInt(params.page ?? "", 10) || 1);
+  const q = params.q?.trim() ?? "";
+  const sort = userSortOf(params.sort, params.dir);
   // A language admin's list is built from the grants alone (UserTable adds their holders),
-  // not from listUsers: that is the admin plugin's, and lists every address on the site --
-  // more than looking after one language entitles anybody to.
+  // not from listUsers, which lists every address on the site -- more than looking after one
+  // language entitles anybody to.
   //
-  // Only a global admin's list is paged: a language admin's is however many people work in
-  // their languages, which is a handful.
+  // Only a global admin's list is paged, searched and sorted on the server: a language
+  // admin's is however many people work in their languages, a handful the table filters and
+  // sorts itself.
   const [{ users, total }, grants, keyed, languages] = global
     ? await Promise.all([
-        auth.api
-          .listUsers({
-            headers: await headers(),
-            query: {
-              limit: PAGE_SIZE,
-              offset: (page - 1) * PAGE_SIZE,
-              sortBy: "createdAt",
-              sortDirection: "asc",
-            },
-          })
-          .then(({ users, total }) => ({
-            users: users.map((user): UserRow => ({ ...user, createdAt: new Date(user.createdAt).toISOString() })),
-            total,
-          })),
+        listUsers({ q, sort, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
         listGrants(),
         // Which accounts hold a key, and nothing else about it. An admin hands out what
         // spends, so they must be able to take back what it spends with; reading a
@@ -71,11 +66,20 @@ export default async function Page({
         languageStates(),
       ])
     : [{ users: [], total: 0 }, await listGrants(administered), null, null];
+  const tokens = global ? await listAllTokens() : null;
 
   return (
     <main className="pt-6 pb-36">
       <Contained>
         <h1 className="text-xl font-semibold">Users</h1>
+        {global && (
+          <LocaleLink href="/admin/teams" className="text-muted-foreground text-sm hover:underline">
+            Teams
+          </LocaleLink>
+        )}
+        <LocaleLink href="/admin/release" className="text-muted-foreground ml-4 text-sm hover:underline">
+          Release
+        </LocaleLink>
         <p className="text-muted-foreground mt-1 mb-5 text-sm">
           {global ? (
             <>
@@ -94,14 +98,17 @@ export default async function Page({
         </p>
       </Contained>
       <Wide>
+        <UserSearch q={q} sort={sort} />
         <UserTable
-          // Remounted per page: the table keeps what it was given in state.
-          key={page}
+          // Remounted per page, search and sort: the table keeps what it was given in state.
+          key={`${page}:${q}:${sort.column}:${sort.direction}`}
           users={users}
           grants={grants}
           viewer={viewer}
           currentUserId={session.user.id}
           keyedUserIds={keyed}
+          q={q}
+          sort={sort}
           page={global ? { page, pageCount: Math.ceil(total / PAGE_SIZE) } : null}
         />
       </Wide>
@@ -118,6 +125,7 @@ export default async function Page({
             />
           </>
         )}
+        {tokens && <ApiTokenTable initial={tokens} />}
       </Contained>
     </main>
   );

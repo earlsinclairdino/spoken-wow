@@ -31,7 +31,7 @@
 --   PS  controls, room, sync, share, audio
 --                           the rules, from the leader: whose controls act everywhere, which
 --                           computer plays the voice, which kinds of line are played together
---                           (four flags: quests, gossip, zones, books), whose accepted quests
+--                           (four flags: quests, gossip, places, readables), whose accepted quests
 --                           are shared with the party, and who plays the game's channels
 --                           ("music=<owner>;effects=...;ambience=...;dialog=..."). An owner is
 --                           "none" (every computer), a key, or "-<key>,<key>" (all but those).
@@ -79,7 +79,7 @@ local REJOIN_SECONDS = 600
 -- Logging out (offline) is how a party usually ends.
 local TROUBLE = { lost = true }
 
-local SYNC_KINDS = { "quests", "gossip", "zones", "books" }
+local SYNC_KINDS = { "quests", "gossip", "places", "readables" }
 
 -- key -> { name, version, lastSeen, rtt, rtts = { whisper = ms, group = ms }, state, session, own }
 -- state: "online" | "lost" | "offline" (the client said there is no such player online)

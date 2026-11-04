@@ -766,7 +766,7 @@ Comm:On("AK", function(sender, channel, id, state, ms)
 	PartySync:Changed()
 end)
 
-local SOURCE_TITLES = { quests = "Spoken Quests", zones = "Spoken Zones", books = "Spoken Books" }
+local SOURCE_TITLES = { quests = "Spoken Quests", places = "Spoken Places", readables = "Spoken Readables" }
 
 --- The module a source key stands for, by the name players know it by.
 function Sync:SourceTitle(src)

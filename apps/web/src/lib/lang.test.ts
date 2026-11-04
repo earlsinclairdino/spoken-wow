@@ -34,6 +34,12 @@ describe("the site's language list", () => {
     expect(isClientLang("ptBR")).toBe(true);
   });
 
+  it("knows Vietnamese as a language no client runs in", () => {
+    expect(isLang("viVN")).toBe(true);
+    expect(isClientLang("viVN")).toBe(false);
+    expect(clientLang("viVN")).toBeNull();
+  });
+
   it("takes a contribution's language only from a client that exists", () => {
     expect(clientLang("enGB")).toBe("enUS");
     expect(clientLang("ptBR")).toBe("ptBR");

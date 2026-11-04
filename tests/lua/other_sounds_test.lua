@@ -90,6 +90,15 @@ Expect("switching it off mid-line brings the sound back at once", Near(Volume("M
 Q:RemoveAllSoundsFromQueue(); stub.Advance(3)
 lower.Enabled = true
 
+---------------------------------------------------------------- the voice's own channel
+audio.SoundChannel = "Music"
+quests:Enqueue(H.Clip({ length = 5 }))
+stub.Advance(1.5)
+Expect("the channel the voices play on is never turned down", Near(Volume("Music"), 0.8), true)
+Expect("...while the others are", Near(Volume("Ambience"), 0.25), true)
+Q:RemoveAllSoundsFromQueue(); stub.Advance(3)
+audio.SoundChannel = "Master"
+
 ---------------------------------------------------------------- the session ending mid-line
 env.Addon.db.global.LoweredVolumes = { Music = 0.9 }
 world.cvars.Sound_MusicVolume = "0.2"
@@ -123,13 +132,5 @@ Expect("...and a logout mid-line still puts it back", Near(Volume("Music"), 0.8)
 Expect("...with every other channel", Near(Volume("Ambience"), 0.5) and Near(Volume("SFX"), 1), true)
 Expect("...though the settings were stripped to nothing", env.Addon.db.profile.Audio, nil)
 Expect("...and nothing went wrong in a callback", #env.Callbacks.errors, 0)
-
----------------------------------------------------------------- the legacy clients
--- 2.4.3 and 3.3.5 speak through the music channel itself.
-stub.SetClient("3.3.5")
-stub.ResetSound(); stub.ResetTimers()
-_G.SpokenSettings = nil
-env = stub.LoadSpoken(SPOKEN)
-Expect("not offered where speech goes out on the music channel", env.OtherSounds:IsAvailable(), false)
 
 os.exit(Failures() == 0 and 0 or 1)

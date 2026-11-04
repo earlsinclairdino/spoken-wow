@@ -68,12 +68,16 @@ export function canConfigureGeneration(role: string | null | undefined): boolean
 /**
  * What a grant lets somebody do in one language. See migration 0037 for each.
  *
- * `admin` in a language is every other capability there, plus handing out `edit` and
- * `regenerate` in it -- never `configure`, `ignore`, `record` or `admin`, which only a global
- * admin grants: the first three decide things for everybody working in the language, and
- * `record` puts somebody's voice in a pack under their name (0061).
+ * `text` is a text maintainer: the language's original text and its contributions, whichever
+ * team voices it. The rest are capabilities inside a team, and `edit` among them is the team's
+ * audio reports and missing audio. What a team speaks in place of the original is an override,
+ * which `regenerate` writes.
+ *
+ * `admin` in a language is every team capability there and hands them out, `admin` included.
+ * It is not `text`: only a global admin appoints a text maintainer, because the original text is
+ * what every team in the language voices.
  */
-export const CAPABILITIES = ["edit", "regenerate", "configure", "ignore", "admin", "record"] as const;
+export const CAPABILITIES = ["text", "edit", "regenerate", "configure", "ignore", "admin", "record"] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
 
@@ -82,6 +86,7 @@ export type Capability = (typeof CAPABILITIES)[number];
  * it. Total, so a capability added above without a label is a type error.
  */
 const CAPABILITY_LABELS: Record<Capability, string> = {
+  text: "text maintainer",
   edit: "edit",
   regenerate: "regenerate",
   configure: "configure",
@@ -107,15 +112,16 @@ export type Viewer = { role: string | null | undefined; grants: readonly Grant[]
  * The one definition of whether somebody may do something in a language.
  *
  * A global admin may do anything anywhere. Everybody else holds what their grants for that
- * language say, `admin` there standing for all of them -- English no differently from the
- * rest, since 0045 turned the old collaborator role into English grants.
+ * language say, `admin` there standing for all of them but `text` -- English no differently
+ * from the rest, since 0045 turned the old collaborator role into English grants.
  */
 export function can(viewer: Viewer | null, capability: Capability, lang: Lang): boolean {
   if (!viewer) return false;
   if (viewer.role === "admin") return true;
   return viewer.grants.some(
     (grant) =>
-      grant.lang === lang && (grant.capability === capability || grant.capability === "admin"),
+      grant.lang === lang &&
+      (grant.capability === capability || (grant.capability === "admin" && capability !== "text")),
   );
 }
 
@@ -145,11 +151,11 @@ export function canViewVoices(viewer: Viewer | null, lang: Lang): boolean {
   return can(viewer, "regenerate", lang) || can(viewer, "configure", lang);
 }
 
-/** Whether somebody may hand out `capability` in `lang`. */
+/** Whether somebody may hand out or take away `capability` in `lang`. */
 export function canGrant(viewer: Viewer | null, capability: Capability, lang: Lang): boolean {
   if (!viewer) return false;
   if (viewer.role === "admin") return true;
-  return (capability === "edit" || capability === "regenerate") && can(viewer, "admin", lang);
+  return capability !== "text" && can(viewer, "admin", lang);
 }
 
 /** Whether somebody holds anything at all in a language, which lets them see it switched off. */

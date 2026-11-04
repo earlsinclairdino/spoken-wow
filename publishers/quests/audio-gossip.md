@@ -6,9 +6,9 @@ section: quests
 lang: enUS
 pack: gossip
 github: false
-slug: spoken-quests-audio-gossip
-name: Spoken Quests Audio: Gossip
-summary: NPC gossip chatter, voiced. Optional extra for any of the quest packs. Needs Spoken Player.
+slug: spoken-audio-gossip
+name: Spoken Audio: Gossip
+summary: NPC gossip chatter, voiced. Optional extra for any of the quest packs. Needs Spoken.
 categories:
   - Audio & Video
   - Roleplay
@@ -22,8 +22,8 @@ Innkeepers, guards, faction quartermasters and the rest saying their piece out l
 
 **You need the player and at least one quest pack for any of this to work:**
 
-1. **[Spoken Player](https://www.curseforge.com/wow/addons/spoken-player)** — the player. Without it no pack plays.
-2. Your quest audio — **[Alliance](https://www.curseforge.com/wow/addons/spoken-quests-audio-alliance)** or **[Horde](https://www.curseforge.com/wow/addons/spoken-quests-audio-horde)**, plus **[Shared](https://www.curseforge.com/wow/addons/spoken-quests-audio-shared)**.
+1. **[Spoken](https://www.curseforge.com/wow/addons/spoken)** — the player. Without it no pack plays.
+2. Your quest audio — **[Alliance](https://www.curseforge.com/wow/addons/spoken-audio-quests-alliance)** or **[Horde](https://www.curseforge.com/wow/addons/spoken-audio-quests-horde)**, plus **[Shared](https://www.curseforge.com/wow/addons/spoken-audio-quests-shared)**.
 
 ## The packs
 
@@ -32,9 +32,9 @@ Innkeepers, guards, faction quartermasters and the rest saying their piece out l
 <!-- only:curseforge -->
 | [All](https://www.curseforge.com/wow/addons/spoken-quests-audio-all) | installs the four below | |
 <!-- /only -->
-| [Alliance](https://www.curseforge.com/wow/addons/spoken-quests-audio-alliance) | Alliance-only quests | |
-| [Horde](https://www.curseforge.com/wow/addons/spoken-quests-audio-horde) | Horde-only quests | |
-| [Shared](https://www.curseforge.com/wow/addons/spoken-quests-audio-shared) | quests both factions can take | |
+| [Alliance](https://www.curseforge.com/wow/addons/spoken-audio-quests-alliance) | Alliance-only quests | |
+| [Horde](https://www.curseforge.com/wow/addons/spoken-audio-quests-horde) | Horde-only quests | |
+| [Shared](https://www.curseforge.com/wow/addons/spoken-audio-quests-shared) | quests both factions can take | |
 | **Gossip** | NPC gossip chatter | **this pack** |
 
 Gossip is not split by faction: an NPC greets whoever walks up, so one pack serves both sides.

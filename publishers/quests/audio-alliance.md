@@ -6,9 +6,9 @@ section: quests
 lang: enUS
 pack: alliance
 github: false
-slug: spoken-quests-audio-alliance
-name: Spoken Quests Audio: Alliance
-summary: Alliance-only quest dialogue, voiced. Pair it with the Shared pack. Needs Spoken Player.
+slug: spoken-audio-quests-alliance
+name: Spoken Audio: Quests - Alliance
+summary: Alliance-only quest dialogue, voiced. Pair it with the Shared pack. Needs Spoken.
 categories:
   - Audio & Video
   - Roleplay
@@ -20,8 +20,8 @@ Voiced dialogue for the quests only an Alliance character can take.
 
 **You need two more addons for this to do anything:**
 
-1. **[Spoken Player](https://www.curseforge.com/wow/addons/spoken-player)** — the player. Without it no pack plays.
-2. **[Spoken Quests Audio: Shared Quests](https://www.curseforge.com/wow/addons/spoken-quests-audio-shared)** — the quests both factions can take, including everything in the neutral hubs like Booty Bay and Gadgetzan. Without it an Alliance character hears only part of their quests.
+1. **[Spoken](https://www.curseforge.com/wow/addons/spoken)** — the player. Without it no pack plays.
+2. **[Spoken Audio: Quests - Shared](https://www.curseforge.com/wow/addons/spoken-audio-quests-shared)** — the quests both factions can take, including everything in the neutral hubs like Booty Bay and Gadgetzan. Without it an Alliance character hears only part of their quests.
 
 ## The packs
 
@@ -31,9 +31,9 @@ Voiced dialogue for the quests only an Alliance character can take.
 | [All](https://www.curseforge.com/wow/addons/spoken-quests-audio-all) | installs the four below | |
 <!-- /only -->
 | **Alliance** | Alliance-only quests | **this pack** |
-| [Horde](https://www.curseforge.com/wow/addons/spoken-quests-audio-horde) | Horde-only quests | |
-| [Shared](https://www.curseforge.com/wow/addons/spoken-quests-audio-shared) | quests both factions can take | |
-| [Gossip](https://www.curseforge.com/wow/addons/spoken-quests-audio-gossip) | NPC gossip chatter | |
+| [Horde](https://www.curseforge.com/wow/addons/spoken-audio-quests-horde) | Horde-only quests | |
+| [Shared](https://www.curseforge.com/wow/addons/spoken-audio-quests-shared) | quests both factions can take | |
+| [Gossip](https://www.curseforge.com/wow/addons/spoken-audio-gossip) | NPC gossip chatter | |
 
 Gossip — the chatter NPCs give you when you talk to them without a quest — is optional on top.
 

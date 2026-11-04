@@ -1,7 +1,63 @@
-# Changelog — Spoken Everything: Quests, Zones, Books AI Voiceover
+# Changelog — Spoken Everything and the language meta addons (Spoken: <Language>)
 
 The meta addon: no audio and no code, only required dependencies. Versioned on its own, apart
 from the player whose changelog is CHANGELOG.md beside this one.
+
+## Unreleased
+
+- **Each meta addon is now called Spoken: <Language>**, so Spoken: German, Spoken: French and
+  Spoken: English, in the AddOns list and on CurseForge.
+  *([rusty-key](https://github.com/rusty-key))*
+
+## 1.0.0 — spoken-all-deDE — 2026-10-15
+
+- First release. Installs Spoken Player with every German sound pack on CurseForge, 6 in all,
+  so one install voices the game in German.
+
+## 1.0.0 — spoken-all-esES — 2026-10-15
+
+- First release. Installs Spoken Player with every Spanish (EU) sound pack on CurseForge, 6 in all,
+  so one install voices the game in Spanish (EU).
+
+## 1.0.0 — spoken-all-esMX — 2026-10-15
+
+- First release. Installs Spoken Player with every Spanish (AL) sound pack on CurseForge, 6 in all,
+  so one install voices the game in Spanish (AL).
+
+## 1.0.0 — spoken-all-frFR — 2026-10-15
+
+- First release. Installs Spoken Player with every French sound pack on CurseForge, 6 in all,
+  so one install voices the game in French.
+
+## 1.0.0 — spoken-all-itIT — 2026-10-15
+
+- First release. Installs Spoken Player with every Italian sound pack on CurseForge, 2 in all,
+  so one install voices the game in Italian.
+
+## 1.0.0 — spoken-all-ptBR — 2026-10-15
+
+- First release. Installs Spoken Player with every Portuguese sound pack on CurseForge, 4 in all,
+  so one install voices the game in Portuguese.
+
+## 1.0.0 — spoken-all-koKR — 2026-10-15
+
+- First release. Installs Spoken Player with every Korean sound pack on CurseForge, 4 in all,
+  so one install voices the game in Korean.
+
+## 1.0.0 — spoken-all-ruRU — 2026-10-15
+
+- First release. Installs Spoken Player with every Russian sound pack on CurseForge, 4 in all,
+  so one install voices the game in Russian.
+
+## 1.0.0 — spoken-all-zhCN — 2026-10-15
+
+- First release. Installs Spoken Player with every Chinese (Simplified) sound pack on CurseForge, 4 in all,
+  so one install voices the game in Chinese (Simplified).
+
+## 1.0.0 — spoken-all-zhTW — 2026-10-15
+
+- First release. Installs Spoken Player with every Chinese (Traditional) sound pack on CurseForge, 4 in all,
+  so one install voices the game in Chinese (Traditional).
 
 ## 3.0.0 — 2026-10-05
 

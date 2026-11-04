@@ -13,13 +13,17 @@
  */
 import type { Corpus, CorpusLine } from "./corpus";
 import { npcKey } from "./corpus";
+import { baseLineId } from "./contributions/naming";
 import { audioRelPath } from "./audio";
 import { hasNarration, restoresOnlyNarration } from "./generation/narration";
 import type { NpcType, Source } from "./line-fields";
 import type { LineIgnore } from "./quests/ignores";
-import type { LineOverride } from "./quests/override";
+import { overrideOf, type LineOverride } from "./quests/override";
+import { hasDrifted } from "./quests/override-drift";
+import type { LineBroadcast } from "./broadcast/store";
+import type { BroadcastStatus } from "./broadcast/status";
 import type { AudioState } from "./audio-state";
-import { isVoiceable } from "./text-gate";
+import { isVoiceable, unvoicedReason, type UnvoicedReason } from "./text-gate";
 import { madeByFacets, madeByMatches, type MadeBy, type MadeByFacets } from "./takes/made-by";
 import { recordedMatches, type LiveRecording, type Recorded } from "./recordings/live";
 
@@ -42,7 +46,8 @@ export type LineFilters = {
   gender?: string;
   flavor?: string;
   voice?: string;
-  source?: Source;
+  /** Lines of any of these sources. */
+  source?: Source[];
   npcType?: NpcType;
   /** Only lines carrying a capitalised <stage direction>, which a narrator reads. */
   narration?: boolean;
@@ -85,7 +90,7 @@ export type LineFilters = {
   dirty?: boolean;
   /**
    * 'open' selects lines carrying at least one unresolved report. A value rather than a
-   * boolean, and `fb` in the URL, to match the zones and books filters it mirrors.
+   * boolean, and `fb` in the URL, to match the places and readables filters it mirrors.
    */
   reports?: "open";
   /**
@@ -112,6 +117,11 @@ export type LineFilters = {
    * which only somebody who records in the language gets; the route drops it otherwise.
    */
   recorded?: Recorded;
+  /**
+   * Gossip lines by how their BroadcastText ids were found. Needs `broadcast` in the context;
+   * without it nothing matches. Every other source has no ids, so it never matches.
+   */
+  broadcast?: BroadcastStatus;
 };
 
 /** Midnight local at the start of a "YYYY-MM-DD", or null when it is not one. */
@@ -162,6 +172,8 @@ export type SearchContext = {
   madeBy?: Map<string, MadeBy>;
   /** file -> its live voice-actor recording. Absent for anybody who does not record here. */
   recordings?: Map<string, LiveRecording>;
+  /** lineId -> how its BroadcastText ids were found. Absent means nobody asked. */
+  broadcast?: Map<string, Exclude<BroadcastStatus, "none">>;
 };
 
 export const NO_CONTEXT: SearchContext = { overrides: new Map() };
@@ -180,8 +192,8 @@ export type ResultLine = CorpusLine & {
   reportsOpen: number;
   /**
    * The live take of this line's file, and how many takes it has. Null when none is
-   * recorded, which means the line has never been generated. Shaped like the zones and
-   * books rows' `take` for the same reason the Audio column is shaped like theirs.
+   * recorded, which means the line has never been generated. Shaped like the places and
+   * readables rows' `take` for the same reason the Audio column is shaped like theirs.
    */
   take: { version: number; takes: number } | null;
   /** The live take was cut from text that has since changed. */
@@ -193,6 +205,11 @@ export type ResultLine = CorpusLine & {
   dirty: boolean;
   /** The rewritten spoken text, or null. `text` stays what the corpus says. */
   override: string | null;
+  /**
+   * Set when the original has changed since the override was saved, naming where the override is
+   * stored: a voice's row inherits its line's, so not always this row.
+   */
+  driftedOverride: { file: string; lineId: string } | null;
   /**
    * Whether this line would be voiced *now*, which `generatable` cannot answer: that flag was
    * computed in Python from text nobody could edit yet, so an override that strips a stage
@@ -216,6 +233,10 @@ export type ResultLine = CorpusLine & {
    * column out.
    */
   recording?: LiveRecording | null;
+  /** The BroadcastText ids a gossip line speaks. Absent on every other source. */
+  broadcast?: LineBroadcast[];
+  /** Gossip: the other lines of its moment (broadcast/store.ts momentSiblingsFor). */
+  moment?: string[];
 };
 
 export type SearchResult = {
@@ -268,14 +289,34 @@ export function batchJobs(
   lines: CorpusLine[],
   overrides: Map<string, LineOverride> = NO_CONTEXT.overrides,
 ): BatchLine[] {
+  return batchPlan(lines, overrides).jobs;
+}
+
+/** Why a matched line is not a job of its own: never voiced, or its file is already in. */
+export type BatchSkip = UnvoicedReason | "shared-file";
+
+/** batchJobs, plus a count of the matched lines that did not become a job, by reason. */
+export function batchPlan(
+  lines: CorpusLine[],
+  overrides: Map<string, LineOverride> = NO_CONTEXT.overrides,
+): { jobs: BatchLine[]; skipped: Partial<Record<BatchSkip, number>> } {
   const byFile = new Map<string, BatchLine>();
+  const skipped: Partial<Record<BatchSkip, number>> = {};
+  const skip = (why: BatchSkip) => (skipped[why] = (skipped[why] ?? 0) + 1);
   for (const line of lines) {
     const audioPath = audioRelPath(line);
     // The effective text, so the estimate prices what will actually be sent and a rescued
     // line is not quietly dropped from the batch that was quoted for it.
-    const text = overrides.get(audioPath)?.text ?? line.text;
-    if (!isVoiceable(line, text)) continue;
-    if (byFile.has(audioPath)) continue;
+    const text = overrideOf(overrides, audioPath)?.text ?? line.text;
+    const unvoiced = unvoicedReason(line, text);
+    if (unvoiced) {
+      skip(unvoiced);
+      continue;
+    }
+    if (byFile.has(audioPath)) {
+      skip("shared-file");
+      continue;
+    }
     byFile.set(audioPath, {
       lineId: line.lineId,
       audioPath,
@@ -285,7 +326,7 @@ export function batchJobs(
       preview: text.slice(0, 80),
     });
   }
-  return [...byFile.values()];
+  return { jobs: [...byFile.values()], skipped };
 }
 
 const keyCache = new WeakMap<Corpus, Map<CorpusLine, string>>();
@@ -347,7 +388,7 @@ export function isGap(
   overrides: Map<string, LineOverride> = NO_CONTEXT.overrides,
 ): boolean {
   const audioPath = audioRelPath(line);
-  const text = overrides.get(audioPath)?.text ?? line.text;
+  const text = overrideOf(overrides, audioPath)?.text ?? line.text;
   return isVoiceable(line, text) && !store.has(audioPath);
 }
 
@@ -400,6 +441,7 @@ export function matchingLines(
     model,
     author,
     recorded,
+    broadcast,
   }: LineFilters = {},
   {
     overrides,
@@ -410,6 +452,7 @@ export function matchingLines(
     reports: reportsOf,
     madeBy,
     recordings,
+    broadcast: broadcastOf,
   }: SearchContext = NO_CONTEXT,
 ): CorpusLine[] {
   const query = q.trim();
@@ -420,8 +463,8 @@ export function matchingLines(
   // over a corpus without them unless they are what was asked for.
   if (ignores?.size) {
     lines = ignored
-      ? lines.filter((line) => ignores.has(line.lineId))
-      : lines.filter((line) => !ignores.has(line.lineId));
+      ? lines.filter((line) => ignores.has(baseLineId(line.lineId)))
+      : lines.filter((line) => !ignores.has(baseLineId(line.lineId)));
   }
   if (query) lines = lines.filter((line) => matches(line, query, filter));
   if (state === "missing") lines = lines.filter((line) => isGap(line, store, overrides));
@@ -429,10 +472,10 @@ export function matchingLines(
   if (gender) lines = lines.filter((line) => line.gender === gender);
   if (flavor) lines = lines.filter((line) => line.flavor === flavor);
   if (voice) lines = lines.filter((line) => line.voice === voice);
-  if (source) lines = lines.filter((line) => line.source === source);
+  if (source?.length) lines = lines.filter((line) => source.includes(line.source));
   // After the source filter and not before it, so asking for progress explicitly still works:
   // `source=progress` alone would otherwise return nothing at all.
-  if (!includeProgress && source !== "progress") {
+  if (!includeProgress && !source?.includes("progress")) {
     lines = lines.filter((line) => line.source !== "progress");
   }
   if (npcType) lines = lines.filter((line) => line.npcType === npcType);
@@ -441,7 +484,7 @@ export function matchingLines(
   // which is 314 of them, and the ones most worth finding.
   if (narration) {
     lines = lines.filter((line) =>
-      hasNarration(overrides.get(audioRelPath(line))?.text ?? line.text),
+      hasNarration(overrideOf(overrides, audioRelPath(line))?.text ?? line.text),
     );
   }
   // An id the corpus no longer carries matches nothing rather than everything, because a
@@ -467,7 +510,7 @@ export function matchingLines(
   // words, so it does not belong in a list of lines someone rewrote by hand.
   if (overridden) {
     lines = lines.filter((line) => {
-      const override = overrides.get(audioRelPath(line))?.text;
+      const override = overrideOf(overrides, audioRelPath(line))?.text;
       return override !== undefined && !restoresOnlyNarration(override, line.text);
     });
   }
@@ -497,6 +540,11 @@ export function matchingLines(
     lines = lines.filter((line) => madeByMatches(madeBy?.get(audioRelPath(line)), { model, author }));
   }
   if (recorded) lines = lines.filter((line) => recordedMatches(recordings?.get(audioRelPath(line)), recorded));
+  if (broadcast) {
+    lines = broadcastOf
+      ? lines.filter((line) => line.source === "gossip" && (broadcastOf.get(line.lineId) ?? "none") === broadcast)
+      : [];
+  }
 
   return [...lines].sort(order);
 }
@@ -513,7 +561,8 @@ export function search(
   const start = Math.max(0, Math.floor(offset));
   const lines = all.slice(start, start + limit).map((line) => {
     const audioPath = audioRelPath(line);
-    const override = context.overrides.get(audioPath)?.text ?? null;
+    const own = overrideOf(context.overrides, audioPath);
+    const override = own?.text ?? null;
     return {
       ...line,
       key: keys.get(line)!,
@@ -526,10 +575,11 @@ export function search(
       stale: context.stale?.has(audioPath) ?? false,
       dirty: context.dirty?.has(audioPath) ?? false,
       override,
+      driftedOverride: own && hasDrifted(own, line.text) ? { file: own.file, lineId: own.lineId } : null,
       voiceable: isVoiceable(line, override ?? line.text),
       narration: hasNarration(override ?? line.text),
       narrationRestored: override !== null && restoresOnlyNarration(override, line.text),
-      ignored: context.ignores?.get(line.lineId)?.reason ?? null,
+      ignored: context.ignores?.get(baseLineId(line.lineId))?.reason ?? null,
       madeBy: context.madeBy?.get(audioPath) ?? null,
       ...(context.recordings && { recording: context.recordings.get(audioPath) ?? null }),
     };

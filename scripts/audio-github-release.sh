@@ -3,8 +3,9 @@
 #
 #   ./scripts/audio-github-release.sh --dry-run          # say what would be sent, send nothing
 #   ./scripts/audio-github-release.sh                    # every English pack
-#   ./scripts/audio-github-release.sh zones              # zones' English packs
-#   ./scripts/audio-github-release.sh zones esMX         # zones' Spanish packs
+#   ./scripts/audio-github-release.sh places             # places' English packs
+#   ./scripts/audio-github-release.sh places esMX        # places' Spanish packs
+#   ./scripts/audio-github-release.sh bosses             # the bosses' English pack (only by name)
 #
 # WHY THIS EXISTS. CurseForge takes the packs and Wago does not: each is 280-452 MB and
 # Cloudflare answers 413 to Wago's version endpoint before Wago sees the body. A player who
@@ -17,7 +18,7 @@
 # the same contract scripts/*/release.sh has, and the workflow keeps the addons.
 #
 # ONE TAG PER PACK PROJECT. A pack is versioned by the module last built for it and the three
-# groups move independently -- zones audio is at 2.0.1 while the quests packs are at 2.0.0 --
+# groups move independently -- places audio is at 2.0.1 while the quests packs are at 2.0.0 --
 # so a tag spanning them would name a version that is only true for one. The tags are
 # deliberately outside the prefixes release-addons.yaml watches (spoken/, quests/, zones/):
 # that workflow would try to build an addon from a pack tag and fail the tag.
@@ -60,7 +61,8 @@ if (( ${#args[@]} > 2 )); then
   echo "error: too many arguments -- expected [section] [lang], got: ${args[*]}" >&2
   exit 2
 fi
-SECTIONS_ALL="quests zones books"
+# Bosses are released by name only, so a bare run does not stop on a pack nobody built yet.
+SECTIONS_ALL="quests places readables"
 section="${args[0]:-}"; lang="${args[1]:-enUS}"
 targets=()   # "section lang pack"
 for s in ${section:-$SECTIONS_ALL}; do
@@ -147,7 +149,7 @@ release_target() {
   folder="$(field "$section" "$lang" "$pack" folder)"
   release="$(field "$section" "$lang" "$pack" release)"
   title="$(field "$section" "$lang" "$pack" name)"
-  needs="spoken-$section"
+  needs="spoken"
   changelog_file="$REPO/docs/$section/CHANGELOG.md"
 
   echo
@@ -182,8 +184,9 @@ release_target() {
   if [[ "$lang" == enUS ]]; then
     case "$section" in
       quests) kind="pack|audio";;
-      zones)  kind="audio";;
-      books)  kind="";;
+      places) kind="audio";;
+      readables) kind="";;
+      bosses) kind="— bosses-audio";;
     esac
     notes="$(changelog_for "$changelog_file" "$version" "$kind")" || return 1
   else
@@ -205,7 +208,11 @@ release_target() {
   # A pack can reach GitHub before its CurseForge project exists (scripts/lib/packs.mjs), and
   # the notes should not send a reader to a store that does not have it.
   local elsewhere="CurseForge carries it too, and Wago's upload endpoint refuses a file this size."
-  if [[ -z "$(field "$section" "$lang" "$pack" curseforge)" ]]; then
+  local bundled_in
+  bundled_in="$(field "$section" "$lang" "$pack" bundledIn)"
+  if [[ -n "$bundled_in" ]]; then
+    elsewhere="CurseForge carries it inside [$bundled_in](https://www.curseforge.com/wow/addons/$bundled_in), and Wago's upload endpoint refuses a file this size."
+  elif [[ -z "$(field "$section" "$lang" "$pack" curseforge)" ]]; then
     elsewhere="Wago's upload endpoint refuses a file this size, and it is not on CurseForge yet."
   fi
 

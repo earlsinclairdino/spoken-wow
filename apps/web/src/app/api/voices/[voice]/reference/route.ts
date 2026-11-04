@@ -1,6 +1,6 @@
 /**
  * One voice slot's fish.audio reference, in one language: cut it, correct its transcript,
- * or remove it.
+ * pin the slot to fish.audio, or remove it.
  *
  * Cutting transcribes the clip with fish.audio, and that is spent from the admin's own
  * fish.audio key -- the rule every other paid action here follows. It costs a fraction of a
@@ -16,10 +16,11 @@ import {
   deleteReference,
   readReference,
   rejectWindow,
+  savePinned,
   saveReference,
   saveTranscript,
 } from "@/lib/voices/references";
-import { isStoredSampleName, samplePath } from "@/lib/voices/samples";
+import { isStoredSampleName, withSampleFiles } from "@/lib/voices/samples";
 
 export const dynamic = "force-dynamic";
 
@@ -64,17 +65,18 @@ export async function POST(request: Request, context: Context) {
   if (noKey) return noKey;
 
   try {
-    const reference = await saveReference({
-      voice,
-      lang,
-      sample,
-      // The language's own clips, where its clone's clips are (clone-name.ts).
-      sourcePath: await samplePath(cloneName(voice, lang), sample),
-      startSec,
-      endSec,
-      userId: session.user.id,
-      transcribe: (audio) => transcribe(audio, elevenLabsCode(lang), { apiKey: key }),
-    });
+    const reference = await withSampleFiles(cloneName(voice, lang), [sample], ([sourcePath]) =>
+      saveReference({
+        voice,
+        lang,
+        sample,
+        sourcePath,
+        startSec,
+        endSec,
+        userId: session.user.id,
+        transcribe: (audio) => transcribe(audio, elevenLabsCode(lang), { apiKey: key }),
+      }),
+    );
     return Response.json({ reference });
   } catch (error) {
     return Response.json(
@@ -84,13 +86,22 @@ export async function POST(request: Request, context: Context) {
   }
 }
 
-/** A corrected transcript. The audio stays as cut. */
+/** A corrected transcript, or the pin. The audio stays as cut. */
 export async function PATCH(request: Request, context: Context) {
   const { voice } = await context.params;
   const checked = await guard(request, voice);
   if (checked.denied) return checked.denied;
 
-  const body = (await request.json().catch(() => ({}))) as { transcript?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { transcript?: unknown; pinned?: unknown };
+  if (body.pinned !== undefined) {
+    if (typeof body.pinned !== "boolean") {
+      return Response.json({ error: "pinned is true or false" }, { status: 400 });
+    }
+    const reference = await savePinned(voice, checked.lang, body.pinned, checked.session.user.id);
+    if (!reference) return Response.json({ error: "no reference to pin" }, { status: 404 });
+    return Response.json({ reference });
+  }
+
   const transcript = typeof body.transcript === "string" ? body.transcript : "";
   if (!transcript.trim()) return Response.json({ error: "a transcript cannot be empty" }, { status: 400 });
 

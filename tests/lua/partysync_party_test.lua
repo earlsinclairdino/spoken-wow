@@ -236,18 +236,18 @@ SlashCmdList["SPOKENPARTYSYNC"]("quests me")
 stub.Advance(2.1)
 Expect("/sps quests me shares here", Pushes(), "1,3")
 
----------------------------------------------------------------- zones and books
+---------------------------------------------------------------- places and readables
 -- Their lines are rebuilt from the key alone, by their own module.
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
 local asked
-Spoken:RegisterSource("zones", { title = "Zones", addon = "Spoken_Zones", order = 2,
+Spoken:RegisterSource("places", { title = "Places", addon = "Spoken_Places", order = 2,
 	rebuild = function(fields) asked = fields.key; return H.Clip({ key = fields.key }) end })
 P.Receive(stub, LALA, "LN", "s:1429:northshire valley", "z", "", "", "", "35.00", "", 0, "Elwynn Forest", "Northshire Valley")
-Expect("zone lore she announces is rebuilt by the zones module", asked, "s:1429:northshire valley")
+Expect("place lore she announces is rebuilt by the places module", asked, "s:1429:northshire valley")
 Expect("...queued here and held for her", Spoken:GetCurrent() and Spoken:GetHeldReason(Spoken:GetCurrent()), "waiting for Lala Throwaway")
 P.Receive(stub, LALA, "LN", "b:4242", "b", "", "", "", "20.00", "", 0, "A Book", "")
-Expect("a book page needs the books module: it says it has none", P.Last("AK", LALA).fields[3], "absent")
+Expect("a page needs the readables module: it says it has none", P.Last("AK", LALA).fields[3], "absent")
 local quests = Spoken:GetSource("quests")
 local rebuild = quests.rebuild
 -- The store's build of Spoken Quests: the same version, no rebuild.
@@ -255,7 +255,7 @@ quests.rebuild = nil
 P.Receive(stub, LALA, "LN", "102-accept", "q", 1, 102, 1234, "2.00", "", 0, "Giver", "Quest 102")
 Expect("a Spoken Quests that cannot rebuild a line says so, not that the file is missing", P.Last("AK", LALA).fields[3], "old")
 quests.rebuild = rebuild
-local zone = Spoken:GetSource("zones")
+local zone = Spoken:GetSource("places")
 P.Clear()
 zone:Enqueue(H.Clip({ key = "z:1411" }))
 Expect("zone lore queued here is announced", P.Last("LN", LALA) and P.Last("LN", LALA).fields[3], "z")
@@ -375,7 +375,7 @@ else
 	-- The party's buttons sit under Spoken's own on its Developer page.
 	local devLabels = {}
 	for _, text in ipairs(stub.LabelsUnder(_G.SpokenDeveloperOptionsPanel)) do devLabels[text] = true end
-	Expect("Spoken's Developer page has the log", devLabels["Enable Debug Log Recording"], true)
+	Expect("Spoken's Developer page has the log", devLabels["Keep a Debug Log"], true)
 	Expect("...and Party Sync's section", devLabels["Spoken Party Sync"], true)
 	Expect("...collecting the party's logs", devLabels["Collect the Party's Logs"], true)
 	Expect("...and clearing them", devLabels["Clear the Party's Logs"], true)
@@ -417,7 +417,7 @@ Expect("the party's diagnostics name the addon and the group", Has("Spoken Party
 Expect("...the debug log", Has("debug log: ", diag), true)
 Expect("...the party", Has("party: " .. P.SESSION .. ", 2 member(s)", diag), true)
 Expect("...who leads, and why", Has("leader: Lala Throwaway (leads the party); voice: Every Computer", diag), true)
-Expect("...and the leader's rules", Has("rules (the leader's): controls anyone, sound none, quests shared by anyone, played together quests, gossip, zones, books", diag), true)
+Expect("...and the leader's rules", Has("rules (the leader's): controls anyone, sound none, quests shared by anyone, played together quests, gossip, places, readables", diag), true)
 Expect("...the member, online and leading", Has("Lala Throwaway: online", diag) and Has(", leads", diag), true)
 Expect("...and, detailed, the lines played together", Has("101-accept, driver", diag), true)
 Expect("...but not when brief", Has("101-accept, driver", ns.Diagnostics:Lines(false)), false)

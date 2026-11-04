@@ -1,7 +1,7 @@
 -- The settings page: Spoken > Party Sync.
 --
--- Nested under Spoken's own entry, after Quests, Books and Zones, through
--- Spoken:AddSettingsPage, and laid out by the UI/Layout.lua every Spoken addon carries a copy of,
+-- Nested under Spoken's own entry, after Quests, Places and Readables, through
+-- Spoken:AddSettingsPage, and laid out by Spoken's own UI/Layout.lua (the global SpokenLayout),
 -- so it reads like the others. A top-level entry of its own where the player cannot nest pages.
 -- Every setting here also has a slash command.
 --
@@ -313,8 +313,8 @@ function PartySync:SetupOptions()
 		return
 	end
 	if not SpokenLayout then
-		-- Carried, not shared, so this can only be a broken install.
-		self:Print("|cffffcc00UI/Layout.lua did not load; settings page unavailable (use /sps)|r")
+		-- Spoken's own (UI/Layout.lua), loaded before this addon: without it there is no page.
+		self:Print("|cffffcc00Spoken's settings layout did not load; settings page unavailable (use /sps)|r")
 		return
 	end
 
@@ -324,12 +324,8 @@ function PartySync:SetupOptions()
 	local scroller = SpokenLayout.Scroll(panel)
 	local content = scroller.child
 	layout = SpokenLayout.New(content, INDENT, -16)
-	layout:Header(L.PAGE_TITLE, L.OPT_NOTE, nil, ICON)
 	local Spoken = _G.Spoken
-	if Spoken and Spoken.SettingsStyle and Spoken:SettingsStyle() == "pages" then
-		layout:HideHeader()
-		layout:Intro(ICON, L.PAGE_TITLE)
-	end
+	layout:Intro(ICON, L.PAGE_TITLE, L.OPT_NOTE)
 	local refresh = function() layout:Refresh() end
 
 	layout:Section(L.OPT_SECTION_MEMBERS)
@@ -385,8 +381,8 @@ function PartySync:SetupOptions()
 	layout:Indent()
 	SyncBox("quests", L.OPT_SYNC_QUESTS, L.OPT_SYNC_QUESTS_TIP)
 	SyncBox("gossip", L.OPT_SYNC_GOSSIP, L.OPT_SYNC_GOSSIP_TIP)
-	SyncBox("zones", L.OPT_SYNC_ZONES, L.OPT_SYNC_ZONES_TIP)
-	SyncBox("books", L.OPT_SYNC_BOOKS, L.OPT_SYNC_BOOKS_TIP)
+	SyncBox("places", L.OPT_SYNC_PLACES, L.OPT_SYNC_PLACES_TIP)
+	SyncBox("readables", L.OPT_SYNC_READABLES, L.OPT_SYNC_READABLES_TIP)
 	layout:Outdent()
 
 	layout:Section(L.OPT_SECTION_SOUND)

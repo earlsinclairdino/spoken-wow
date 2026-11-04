@@ -50,6 +50,8 @@ type Props = {
   /** Why the account could not be read, when there is a key to read it with. */
   accountError: string | null;
   manager: boolean;
+  /** May change this language's directions. */
+  directs: boolean;
 };
 
 /**
@@ -273,7 +275,7 @@ export default function VoicesTabs(props: Props) {
           references={references}
           setReferences={setReferences}
           raceTags={props.raceTags}
-          manager={props.manager}
+          directs={props.directs}
           editing={editing}
           canClone={props.keys.elevenlabs}
         />
