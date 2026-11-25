@@ -76,6 +76,36 @@ function Actions.TintWithRings(ring)
     TintRing(ring)
 end
 
+local PRESSED_SHADE = 0.7
+
+-- Held, the glyph (and Skip's bar) sinks a pixel and darkens. Its own colour is given back after,
+-- so a tint another look gave it survives. A button hidden while held never hears the release.
+local function Sinks(button)
+    local pressed, saved = false, {}
+    local function Press(down)
+        if pressed == down then return end
+        pressed = down
+        local offset = down and 1 or -1
+        button.glyph:AdjustPointsOffset(offset, -offset)
+        if not down then
+            for texture, colour in pairs(saved) do texture:SetVertexColor(unpack(colour)) end
+            saved = {}
+            return
+        end
+        -- Skip's bar is added after this runs, so it is looked up at the press.
+        for _, texture in ipairs({ button.glyph, button.bar }) do
+            local r, g, b, a = texture:GetVertexColor()
+            saved[texture] = { r, g, b, a }
+            texture:SetVertexColor(r * PRESSED_SHADE, g * PRESSED_SHADE, b * PRESSED_SHADE, a)
+        end
+    end
+    button:HookScript("OnMouseDown", function(self, mouse)
+        if mouse == "LeftButton" and self:IsEnabled() then Press(true) end
+    end)
+    button:HookScript("OnMouseUp", function() Press(false) end)
+    button:HookScript("OnHide", function() Press(false) end)
+end
+
 --- Dress `button` as the player's round buttons are -- the windows' pause, the subtitle's
 --- controls: the ring round its edge, `icon` inside it, brighter under the pointer. Sized by the
 --- button, so a corner icon and a subtitle control are the same button at different sizes. With
@@ -96,6 +126,7 @@ function Actions.RoundIcon(button, icon, own)
     button:HookScript("OnEnter", function() if button:IsEnabled() then glyph:SetAlpha(1) end end)
     button:HookScript("OnLeave", function() if button:IsEnabled() then glyph:SetAlpha(GLYPH_ALPHA) end end)
     button.ring, button.glyph = ring, glyph
+    Sinks(button)
     if Ellesmere and not own then Ellesmere:When(function(skin) Actions.Square(skin, button) end) end
     return button
 end
@@ -165,21 +196,25 @@ function Actions.RoundButton(parent, glyphSize, name, own)
     return button
 end
 
--- A line's button shows one of three glyphs: Play for a line not yet queued, Stop while it
--- speaks, Replay once it is stopped and still at the head. Play is the portrait atlas's cell;
--- Stop and Replay are drawn in its gold, each in a 93-wide cell of a 128 canvas.
-local GLYPH_STOP = ART .. "GlyphStop"
-local GLYPH_REPLAY = ART .. "GlyphReplay"
+-- A line's button shows one of four glyphs: Play for a line a click starts, Stop while it
+-- speaks, Replay once it is stopped and still at the head, and a plus for "queue" and "queued",
+-- a line that waits or would wait behind another. Play is the portrait atlas's cell; the others
+-- are drawn in its gold, each in a 93-wide cell of a 128 canvas, as are Stop All's eject mark and
+-- the subtitle's four-arrow move mark.
+local GLYPHS = { stop = ART .. "GlyphStop", replay = ART .. "GlyphReplay", queue = ART .. "GlyphQueue",
+    queued = ART .. "GlyphQueue", eject = ART .. "GlyphEject", move = ART .. "GlyphMove" }
 local CELL = 93 / 128
+local PLAY_LEFT, PLAY_RIGHT = 0, 93 / PORTRAIT_ATLAS_SIZE
+local PLAY_TOP, PLAY_BOTTOM = 419 / PORTRAIT_ATLAS_SIZE, 1
 
 function Actions.Glyph(texture, state)
-    if state == "stop" or state == "replay" then
-        texture:SetTexture(state == "stop" and GLYPH_STOP or GLYPH_REPLAY)
+    if GLYPHS[state] then
+        texture:SetTexture(GLYPHS[state])
         texture:SetTexCoord(0, CELL, 0, CELL)
         return
     end
     texture:SetTexture(PORTRAIT_ATLAS)
-    texture:SetTexCoord(0, 93 / PORTRAIT_ATLAS_SIZE, 419 / PORTRAIT_ATLAS_SIZE, 512 / PORTRAIT_ATLAS_SIZE)
+    texture:SetTexCoord(PLAY_LEFT, PLAY_RIGHT, PLAY_TOP, PLAY_BOTTOM)
 end
 
 --- Stop while the head plays, Replay once it is stopped.
@@ -193,12 +228,15 @@ function Actions.SetPlayGlyph(button, state)
     button.state, button.playing = state, state == "stop"
 end
 
---- Dims and disables `buttons` while the line at the head cannot be stopped. Returns whether it can.
+--- Dims and disables `buttons` while the line at the head cannot be stopped, or for one with
+--- its own `canAct()`, while that says no. Returns whether the head can be stopped.
 function Actions.SetPausable(buttons)
     local pausable = SoundQueue:CanBePaused()
     for _, button in ipairs(buttons) do
-        button:SetAlpha(pausable and 1 or .4)
-        if pausable then button:Enable() else button:Disable() end
+        local on = pausable
+        if button.canAct then on = button.canAct() end
+        button:SetAlpha(on and 1 or .4)
+        if on then button:Enable() else button:Disable() end
     end
     return pausable
 end
@@ -210,29 +248,79 @@ function Actions.Skip()
     return skipped
 end
 
---- Skip: the round button with the play glyph against a bar, the usual "next" mark.
-function Actions.SkipButton(parent, name)
-    local skip = Actions.RoundButton(parent, 10, name, true)
-    Actions.Glyph(skip.glyph, "play")
-    skip.glyph:ClearAllPoints()
-    skip.glyph:SetPoint("CENTER", -2, 0)
-    skip.bar = skip:CreateTexture(nil, "ARTWORK")
-    local P = SpokenLayout and SpokenLayout.Pixels
-    skip.bar:SetSize(P and P(skip, 2) or 2, P and P(skip, 9) or 9)
-    skip.bar:SetPoint("LEFT", skip.glyph, "RIGHT", 0, 0)
-    if skip.bar.SetColorTexture then skip.bar:SetColorTexture(1, 0.82, 0, 0.85) end
-    -- Squared once the bar exists, so EllesmereUI keeps it with the glyph.
-    if Ellesmere then Ellesmere:When(function(skin) Actions.Square(skin, skip) end) end
-    skip:SetScript("OnClick", Actions.Skip)
-    skip:SetScript("OnEnter", function()
-        skip.glyph:SetAlpha(1)
-        GameTooltip:SetOwner(skip, "ANCHOR_TOP")
-        GameTooltip:SetText(L.BIND_SKIP)
+function Actions.Previous()
+    local previous = SoundQueue:Previous()
+    if previous then SpokenLayout.Sound("U_CHAT_SCROLL_BUTTON") end
+    return previous
+end
+
+local function Tip(button, tip)
+    button:SetScript("OnEnter", function()
+        button.glyph:SetAlpha(1)
+        GameTooltip:SetOwner(button, "ANCHOR_TOP")
+        GameTooltip:SetText(tip)
         local why = SoundQueue:WhyNoControl()
         if why then GameTooltip:AddLine(why, 1, .5, .5, true) end
         GameTooltip:Show()
     end)
+end
+
+--- Skip, or with `back` Previous: the play glyph against a bar, mirrored to point back.
+local function StepButton(parent, name, back)
+    local step = Actions.RoundButton(parent, 10, name, true)
+    Actions.Glyph(step.glyph, "play")
+    if back then step.glyph:SetTexCoord(PLAY_RIGHT, PLAY_LEFT, PLAY_TOP, PLAY_BOTTOM) end
+    step.glyph:ClearAllPoints()
+    step.glyph:SetPoint("CENTER", back and 2 or -2, 0)
+    step.bar = step:CreateTexture(nil, "ARTWORK")
+    local P = SpokenLayout and SpokenLayout.Pixels
+    step.bar:SetSize(P and P(step, 2) or 2, P and P(step, 9) or 9)
+    if back then
+        step.bar:SetPoint("RIGHT", step.glyph, "LEFT", 0, 0)
+    else
+        step.bar:SetPoint("LEFT", step.glyph, "RIGHT", 0, 0)
+    end
+    if step.bar.SetColorTexture then step.bar:SetColorTexture(1, 0.82, 0, 0.85) end
+    -- Squared once the bar exists, so EllesmereUI keeps it with the glyph.
+    if Ellesmere then Ellesmere:When(function(skin) Actions.Square(skin, step) end) end
+    Tip(step, back and L.BIND_SKIP_BACKWARD or L.BIND_SKIP_FORWARD)
+    return step
+end
+
+--- Skip: the round button with the play glyph against a bar, the usual "next" mark.
+function Actions.SkipButton(parent, name)
+    local skip = StepButton(parent, name)
+    -- Next Line advances to a waiting line; Eject is the control that ends the current one.
+    skip.canAct = function()
+        return SoundQueue:GetQueueSize() > 1 and SoundQueue:CanBePaused()
+    end
+    skip:SetScript("OnClick", Actions.Skip)
     return skip
+end
+
+function Actions.PreviousButton(parent, name)
+    local previous = StepButton(parent, name, true)
+    previous.canAct = function() return SoundQueue:CanPrevious() end
+    previous:SetScript("OnClick", function()
+        local replayed = Actions.Previous()
+        -- Greyed at once: the windows redraw on the queue's callback, a frame later, and the
+        -- last line of the history must not be clickable twice meanwhile.
+        Actions.SetPausable({ previous })
+        return replayed
+    end)
+    return previous
+end
+
+--- Stop All, sized with the step buttons beside it. Its own picture: Play turned upward over
+--- a bar read as a blob at 10 px.
+function Actions.EjectButton(parent, name)
+    local eject = Actions.RoundButton(parent, 10, name, true)
+    Actions.Glyph(eject.glyph, "eject")
+    if Ellesmere then Ellesmere:When(function(skin) Actions.Square(skin, eject) end) end
+    Tip(eject, L.BIND_EJECT)
+    eject.canAct = function() return SoundQueue:GetQueueSize() > 0 end
+    eject:SetScript("OnClick", function() SoundQueue:RemoveAllSoundsFromQueue() end)
+    return eject
 end
 
 --- Stop or Replay for the line at the head. `allowed()`, optional, says whether the window has
@@ -268,11 +356,92 @@ function Actions.LayOutRow(controls, row, gap)
     controls:SetSize(math.max(1, x - gap), tallest)
 end
 
--- What follows a window's title: why the line is held, "• (Stopped)" while it is stopped and the
--- lines waiting, "• +N", TAIL_GAP after it. One more fades the count in over TAIL_IN; Stopped fades in and
+-- What follows a window's title: why the line is held, "· (Stopped)" while it is stopped and the
+-- lines waiting, "· +N", TAIL_GAP after it. One more fades the count in over TAIL_IN; Stopped fades in and
 -- out, and keeps its room until it has faded.
 local TAIL_GAP, TAIL_IN = 6, .25
 local function EaseOut(t) return 1 - (1 - t) * (1 - t) end
+
+-- A line queued while Spoken is stopped waits unheard, and a count that only fades in reads as
+-- nothing happening, so the count swells, lit gold, and settles back.
+local PULSE_TIME, PULSE_PEAK, PULSE_GROW = .7, .15, 1.8
+local PULSE_GOLD = { 1, .82, 0 }
+local COUNT_GLOW = ART .. "CountGlow"
+
+local Pulse = {}
+
+--- The swell for `text`, a waiting count: a larger copy of it drawn over it, and a glow.
+function Actions.Pulse(text)
+    local parent = text:GetParent()
+    -- Under the copy: added over it, the gold glow would wash out the gold number.
+    local glow = parent:CreateTexture(nil, "OVERLAY", nil, -1)
+    glow:SetTexture(COUNT_GLOW)
+    if glow.SetBlendMode then glow:SetBlendMode("ADD") end
+    glow:SetVertexColor(unpack(PULSE_GOLD))
+    glow:SetPoint("CENTER", text, "CENTER")
+    glow:Hide()
+    local burst = parent:CreateFontString(nil, "OVERLAY")
+    burst:SetShadowColor(0, 0, 0, 1)
+    burst:SetShadowOffset(1, -1)
+    burst:SetWordWrap(false)
+    burst:SetPoint("CENTER", text, "CENTER")
+    burst:Hide()
+    local pulse = { text = text, glow = glow, burst = burst }
+    for key, fn in pairs(Pulse) do pulse[key] = fn end
+    -- A window's Tick stops while it is hidden: left running, the swell would keep the count
+    -- unseen and play out of context when the window comes back.
+    if parent.HasScript and parent:HasScript("OnHide") then
+        parent:HookScript("OnHide", function() pulse:Stop() end)
+    end
+    return pulse
+end
+
+function Pulse:Start()
+    local font, size, flags = self.text:GetFont()
+    if not font then return end
+    self.font, self.size, self.flags = font, size or 12, flags or ""
+    local r, g, b = self.text:GetTextColor()
+    self.color = { r or 1, g or 1, b or 1 }
+    self.drawn = nil
+    self.t = 0
+end
+
+function Pulse:Active() return self.t ~= nil end
+
+--- The count itself is hidden under the copy until it settles.
+function Pulse:Step(elapsed)
+    if not self.t then return end
+    self.t = self.t + elapsed
+    if self.t >= PULSE_TIME or not self.text:IsShown() then return self:Stop() end
+    local swell = self.t < PULSE_PEAK and EaseOut(self.t / PULSE_PEAK)
+        or 1 - EaseOut((self.t - PULSE_PEAK) / (PULSE_TIME - PULSE_PEAK))
+    local burst, color = self.burst, self.color
+    -- Whole sizes, each set once: the client renders a font afresh at every size it is given.
+    local size = math.floor(self.size * (1 + (PULSE_GROW - 1) * swell) + .5)
+    local text = self.text:GetText()
+    if not self.drawn then
+        burst:Show()
+        self.glow:Show()
+        self.text:SetAlpha(0)
+    end
+    if size ~= self.drawn or text ~= burst:GetText() then
+        self.drawn = size
+        burst:SetFont(self.font, size, self.flags)
+        burst:SetText(text)
+        self.glow:SetSize((burst:GetStringWidth() or 0) + self.size * 3, self.size * 3.5)
+    end
+    burst:SetTextColor(color[1] + (PULSE_GOLD[1] - color[1]) * swell, color[2] + (PULSE_GOLD[2] - color[2]) * swell,
+        color[3] + (PULSE_GOLD[3] - color[3]) * swell)
+    self.glow:SetAlpha(.8 * swell)
+end
+
+function Pulse:Stop()
+    if not self.t then return end
+    self.t = nil
+    self.burst:Hide()
+    self.glow:Hide()
+    self.text:SetAlpha(1)
+end
 
 local Tail = {}
 
@@ -283,6 +452,7 @@ function Actions.Tail(stopped, count, held)
     local tail = { stopped = stopped, count = count, held = held, alpha = 0, want = false, parts = {} }
     for key, fn in pairs(Tail) do tail[key] = fn end
     tail.hover = Actions.WaitingHover(count)
+    tail.pulse = Actions.Pulse(count)
     return tail
 end
 
@@ -332,20 +502,23 @@ function Tail:SetStopped(stopped)
     self.want = stopped and true or false
 end
 
---- Why the line is held back, "• (in combat)", or nil once it may play. A held line with no
+--- Why the line is held back, "· (in combat)", or nil once it may play. A held line with no
 --- reason looks exactly like narration that failed.
 function Tail:SetHeld(reason)
     if not self.held or reason == self.reason then return end
     self.reason = reason
-    self.held:SetText(reason and "• (" .. reason .. ")" or "")
+    self.held:SetText(reason and "· (" .. reason .. ")" or "")
 end
 
---- `waiting` lines behind the one playing: the count says it, fading in when it grew.
+--- `waiting` lines behind the one playing: the count says it, fading in when it grew, or
+--- swelling when it grew behind a stop. Not on its first count: that is the window opening.
 function Tail:SetCount(waiting)
     if waiting ~= self.counted then
-        if waiting > (self.counted or 0) then self.fade = 0 end
+        if waiting > (self.counted or 0) then
+            if self.counted and SoundQueue:IsPaused() then self.pulse:Start() else self.fade = 0 end
+        end
         self.counted = waiting
-        self.count:SetText(waiting > 0 and "• +" .. waiting or "")
+        self.count:SetText(waiting > 0 and "· +" .. waiting or "")
     end
     self.hover:SetShown(waiting > 0)
     self.parts = {}
@@ -376,12 +549,13 @@ function Tail:Place(text, x)
 end
 
 function Tail:Paint()
-    self.count:SetAlpha(EaseOut(self.fade and math.min(1, self.fade / TAIL_IN) or 1))
+    self.count:SetAlpha(self.pulse:Active() and 0 or EaseOut(self.fade and math.min(1, self.fade / TAIL_IN) or 1))
     self.stopped:SetAlpha(EaseOut(self.alpha))
 end
 
 --- The fades, `elapsed` on. True when Stopped has faded out and its room is to be given back.
 function Tail:Step(elapsed)
+    self.pulse:Step(elapsed)
     if self.fade then
         self.fade = self.fade + elapsed
         self:Paint()
@@ -397,6 +571,7 @@ end
 
 --- The fades at their ends at once.
 function Tail:Finish()
+    self.pulse:Stop()
     self.fade = nil
     self.alpha = self.want and 1 or 0
 end
@@ -691,7 +866,7 @@ local function Greys(button)
 end
 
 --- Dress `button` as a square Play button with the game's checkbox for a border, as the quest
---- log's rows have beside it: Play's glyph inside, `button:SetState("play" | "stop" | "replay")`.
+--- log's rows have beside it: Play's glyph inside, `button:SetState(state)`, a state of `Spoken:PlayState`.
 --- `button:MatchBox(checkbox)` takes the checkbox's size and, where it is drawn from an atlas,
 --- that atlas, so the two read as a pair whatever the client draws its checkbox with.
 function Actions.BoxPlay(button)
@@ -757,7 +932,7 @@ function Actions.NewRound(parent, kind, name, icon)
     if kind == "play" then
         local button = Actions.RoundButton(parent, 12, name)
         Actions.SetPlayGlyph(button, "play")
-        --- "play", "stop" or "replay".
+        --- A state of `Spoken:PlayState`.
         function button:SetState(state) Actions.SetPlayGlyph(self, state) end
         function button:SetPlaying(playing) Actions.SetPlayGlyph(self, playing and "stop" or "play") end
         Greys(button)
@@ -765,6 +940,11 @@ function Actions.NewRound(parent, kind, name, icon)
     end
     if kind == "skip" then
         local button = Actions.SkipButton(parent, name)
+        Greys(button)
+        return button
+    end
+    if kind == "previous" then
+        local button = Actions.PreviousButton(parent, name)
         Greys(button)
         return button
     end
@@ -809,8 +989,10 @@ function Actions.DialogRow(dialog, tooltip, report)
     end
     row.play = Round("play")
     row.play:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    row.previous = Round("previous")
+    row.tips[row.previous] = function(tip) tip:SetText(L.BIND_SKIP_BACKWARD) end
     row.skip = Round("skip")
-    row.tips[row.skip] = function(tip) tip:SetText(L.BIND_SKIP) end
+    row.tips[row.skip] = function(tip) tip:SetText(L.BIND_SKIP_FORWARD) end
     if report then row.report = Round("report") end
     return row
 end
@@ -837,7 +1019,7 @@ function DialogRow:RefreshTip(button)
 end
 
 function DialogRow:HideTips()
-    for _, button in ipairs({ self.play, self.skip, self.report }) do
+    for _, button in ipairs({ self.play, self.previous, self.skip, self.report }) do
         if button.tooltip then button.tooltip:Hide() end
     end
 end

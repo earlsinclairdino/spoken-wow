@@ -120,12 +120,23 @@ local function CreatureFor(soundData)
     return nil
 end
 
+--- The icon of the item that starts `questID`, with its crop: the one in the bags, else `itemID` or
+--- the one the packs name, which the client knows after the item has left the bags.
+function Player:QuestItemIcon(questID, itemID)
+    local icon, crop = Spoken:QuestItemIcon(questID)
+    if icon then return icon, crop end
+    if not itemID then
+        local kind, id = DataModules:GetQuestLogQuestGiverTypeAndID(questID)
+        itemID = kind == Enums.GUID.Item and id or nil
+    end
+    return Spoken:ItemIcon(itemID)
+end
+
 -- A line from something faceless shows the item that starts the quest, else a posted notice.
 local NOTICE = [[Interface\Icons\INV_Misc_Note_01]]
 local ICON_CROP = { 0.08, 0.92, 0.08, 0.92 }
 local function Faceless(soundData)
-    local icon, crop
-    if Spoken and Spoken.QuestItemIcon then icon, crop = Spoken:QuestItemIcon(soundData.questID) end
+    local icon, crop = Player:QuestItemIcon(soundData.questID)
     return { kind = "texture", texture = icon or NOTICE, texCoord = crop or ICON_CROP }
 end
 
@@ -250,7 +261,16 @@ function Player:Prepare(soundData)
         portrait = PortraitFor(soundData),
         actions = ACTIONS,
         timings = soundData.timings,
+        transcript = soundData.packText,
     }
+    -- No pack in the Text Language voices the line: a text pack's words, timed by estimate.
+    if not soundData.packText and DataModules and DataModules.TextPackText then
+        local text, language = DataModules:TextPackText(soundData)
+        if text then
+            soundData.present.transcript, soundData.present.timings = text, nil
+            soundData.present.font = Spoken:ClipFont(language)
+        end
+    end
     return soundData
 end
 
@@ -467,6 +487,14 @@ end
 -- Registration
 --------------------------------------------------------------------------------
 
+local function OnPage(clip)
+    return Addon:IsPageLine(clip)
+end
+
+local function EndsWithWindow(clip)
+    return Addon:EndsWithWindow(clip)
+end
+
 function Player:Setup()
     if self.source then
         return true
@@ -491,6 +519,8 @@ function Player:Setup()
         profiles = function() return Addon.db end,
         -- Printed after Spoken's own by its Show Diagnostics.
         diagnostics = function() Options:PrintDiagnostics() end,
+        onScreen = OnPage,
+        endsWithWindow = EndsWithWindow,
         -- What Spoken's settings show on this part's card: which voice packs are installed.
         packs = function()
             local names = {}
@@ -507,6 +537,8 @@ function Player:Setup()
         order = 2,
         interClipGap = 0.55,
         testBeforeQueue = true,
+        onScreen = OnPage,
+        endsWithWindow = EndsWithWindow,
         profiles = function() return Addon.db end,
         -- The voice packs that hold gossip.
         packs = function()
@@ -550,6 +582,10 @@ function Player:Setup()
     Spoken:RegisterCallback("CLIP_STARTED", function(clip)
         if not Player:Owns(clip) then
             return
+        end
+        if clip.source == Player.source and clip.origin ~= "/spq test" then
+            -- A queued or dropped clip was never heard. Manual plays count as heard too.
+            Addon:MarkQuestLineHeard(clip.event, clip.questID)
         end
         Debug:Record("playing", format("Playing %s", clip.path or clip.fileName or "voiceover"))
     end)

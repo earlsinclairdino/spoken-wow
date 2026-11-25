@@ -9,6 +9,10 @@
 -- tiles exactly as Blizzard's MapExplorationPin lays it out. It lights and goes out at once, as
 -- the continent map's own highlight does.
 --
+-- On OpenMap's stitched map the overlay is only the highlight's shape: a mask over a plain colour.
+-- On WoW Forever the overlays are the zone's painted art, which OpenMap draws masked and graded,
+-- so drawing them again showed Blizzard's raw art through OpenMap's map.
+--
 -- Overlays do not say which area they belong to, and an overlay's rectangle reaches into its
 -- neighbours. So each overlay is matched to an area once per map: the area a click resolves to
 -- at most points of a grid over its rectangle. What lights is then the overlay of the area a
@@ -19,7 +23,7 @@ local _, SpokenPlaces = ...
 -- Points across and down an overlay's rectangle asked which area they are in.
 local SAMPLES = 6
 
-local state = { tiles = {} }
+local state = { tiles = {}, known = {} }
 SpokenPlaces.mapHighlight = state
 
 -- The smallest power of two at least `n`, from 16: the size of a tile's file where the tile is
@@ -32,15 +36,17 @@ local function FileSize(n)
 	return size
 end
 
--- The explored overlays of the map shown, asked for once per map and again whenever it opens.
-local function Overlays(mapID)
-	if state.overlaysFor ~= mapID then
-		state.overlaysFor = mapID
+-- A zone map's explored overlays and the area each is of, asked for once per map and again
+-- whenever the map opens. Kept for every zone the cursor crosses: on OpenMap's map it moves
+-- between neighbours, and matching overlays to areas is the costly part.
+local function Known(mapID)
+	local known = state.known[mapID]
+	if not known then
 		local ok, list = pcall(C_MapExplorationInfo.GetExploredMapTextures, mapID)
-		state.overlays = ok and list or {}
-		state.areaOf = {}
+		known = { overlays = ok and list or {}, areaOf = {} }
+		state.known[mapID] = known
 	end
-	return state.overlays
+	return known
 end
 
 local function ArtLayer(mapID)
@@ -69,10 +75,9 @@ end
 
 -- The area an overlay is of: the one most points of a grid over its rectangle resolve to. False
 -- where none resolves. Asked once per overlay while the map stays the same.
-local function AreaOf(info, mapID, layer)
-	local known = state.areaOf[info]
-	if known ~= nil then
-		return known
+local function AreaOf(info, mapID, layer, areaOf)
+	if areaOf[info] ~= nil then
+		return areaOf[info]
 	end
 	local r = info.hitRect
 	local scaleX, scaleY = 1, 1
@@ -93,14 +98,14 @@ local function AreaOf(info, mapID, layer)
 			end
 		end
 	end
-	state.areaOf[info] = best
+	areaOf[info] = best
 	return best
 end
 
---- The overlay to light at the map's normalised position x, y, with its art layer: only over an
+--- The overlay to light under the cursor, with its zone's art layer and the zone: only over an
 --- area whose story a click would open.
 local function Target()
-	if not SpokenPlaces:IsPartOn() then
+	if not SpokenPlaces:IsPartOn() or SpokenPlaces:MapLeftToOpenMap() then
 		return nil
 	end
 	local container = WorldMapFrame.ScrollContainer
@@ -114,12 +119,11 @@ local function Target()
 	else
 		overCanvas = container:IsMouseOver()
 	end
-	local mapID = WorldMapFrame.mapID
-	if not overCanvas or not mapID or not SpokenPlaces:IsZoneMap(mapID) then
+	if not overCanvas then
 		return nil
 	end
-	local x, y = container:GetNormalizedCursorPosition()
-	if not x or not y then
+	local mapID, x, y = SpokenPlaces:CursorArea()
+	if not mapID then
 		return nil
 	end
 	-- As the click finds it (SpokenPlaces:AreaAt), so what lights up is what a click opens.
@@ -133,19 +137,84 @@ local function Target()
 	end
 	local px, py = x * layer.layerWidth, y * layer.layerHeight
 	local best
-	for _, info in ipairs(Overlays(mapID)) do
-		if Holds(info, layer, px, py) and AreaOf(info, mapID, layer) == name
+	local known = Known(mapID)
+	for _, info in ipairs(known.overlays) do
+		if Holds(info, layer, px, py) and AreaOf(info, mapID, layer, known.areaOf) == name
 			and (not best or Area(info) < Area(best)) then
 			best = info
 		end
 	end
-	return best, layer
+	return best, layer, mapID
+end
+
+-- The colour an area lights in on OpenMap's map, where the overlay is only its shape.
+local GLOW = { 1, 0.82, 0.25 }
+
+-- Drawn where it lies, not nudged onto the screen's pixel grid: on OpenMap's scaled map,
+-- tiles snapped separately part by a pixel where they meet.
+local function Unsnap(texture)
+	if texture.SetSnapToPixelGrid then texture:SetSnapToPixelGrid(false) end
+	if texture.SetTexelSnappingBias then texture:SetTexelSnappingBias(0) end
+end
+
+-- On WoW Forever an overlay's art does not fade out by its rectangle's edge, so its shape alone
+-- left the rectangle's outline in the glow; OpenMap hides it under masks of its own. A second mask
+-- over the whole overlay fades the glow to nothing at that edge.
+local EDGE = [[Interface\AddOns\Spoken_Places\Textures\Art\HighlightEdge]]
+
+local function NewTile()
+	local tile = state.frame:CreateTexture(nil, "OVERLAY")
+	tile:SetBlendMode("ADD")
+	tile.mask = state.frame:CreateMaskTexture()
+	tile.mask:SetAllPoints(tile)
+	Unsnap(tile)
+	Unsnap(tile.mask)
+	return tile
+end
+
+local function Edge()
+	if not state.edge then
+		state.edge = state.frame:CreateMaskTexture()
+		state.edge:SetTexture(EDGE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+		Unsnap(state.edge)
+	end
+	return state.edge
+end
+
+-- One tile of the overlay: the file itself on Blizzard's map; on OpenMap's, the colour cut to the
+-- file's shape. CLAMP, not CLAMPTOBLACK: a mask clamped to black fades out over its last pixel,
+-- which drew a dark line along every seam between tiles.
+local function Paint(tile, file, right, bottom, shaped)
+	if shaped then
+		tile:SetColorTexture(GLOW[1], GLOW[2], GLOW[3], 1)
+		tile.mask:SetTexture(file, "CLAMP", "CLAMP", "TRILINEAR")
+		tile.mask:SetTexCoord(0, right, 0, bottom)
+		if not tile.masked then
+			tile:AddMaskTexture(tile.mask)
+			tile:AddMaskTexture(Edge())
+			tile.masked = true
+		end
+	else
+		if tile.masked then
+			tile:RemoveMaskTexture(tile.mask)
+			tile:RemoveMaskTexture(Edge())
+			tile.masked = false
+		end
+		tile:SetTexture(file, nil, nil, "TRILINEAR")
+		tile:SetTexCoord(0, right, 0, bottom)
+	end
 end
 
 -- Lays the overlay out in tiles over the map, as MapExplorationPin does.
-local function Light(info, layer)
+local function Light(info, layer, shaped)
 	local tileW, tileH = layer.tileWidth or 256, layer.tileHeight or 256
 	local wide, tall = math.ceil(info.textureWidth / tileW), math.ceil(info.textureHeight / tileH)
+	if shaped then
+		local edge = Edge()
+		edge:ClearAllPoints()
+		edge:SetPoint("TOPLEFT", state.frame, "TOPLEFT", info.offsetX, -info.offsetY)
+		edge:SetSize(info.textureWidth, info.textureHeight)
+	end
 	local n = 0
 	for row = 1, tall do
 		local h = row < tall and tileH or info.textureHeight - tileH * (tall - 1)
@@ -158,13 +227,11 @@ local function Light(info, layer)
 				n = n + 1
 				local tile = state.tiles[n]
 				if not tile then
-					tile = state.frame:CreateTexture(nil, "OVERLAY")
-					tile:SetBlendMode("ADD")
+					tile = NewTile()
 					state.tiles[n] = tile
 				end
-				tile:SetTexture(file, nil, nil, "TRILINEAR")
+				Paint(tile, file, w / fileW, h / fileH, shaped)
 				tile:SetSize(w, h)
-				tile:SetTexCoord(0, w / fileW, 0, h / fileH)
 				tile:ClearAllPoints()
 				tile:SetPoint("TOPLEFT", state.frame, "TOPLEFT", info.offsetX + tileW * (col - 1),
 					-(info.offsetY + tileH * (row - 1)))
@@ -180,20 +247,30 @@ end
 -- Every frame, as the continent map's highlight follows the cursor; nothing done while the cursor
 -- rests, since finding the area under it and its overlay is the costly part.
 local function OnUpdate()
-	local container = WorldMapFrame.ScrollContainer
-	local x, y
-	if container then x, y = container:GetNormalizedCursorPosition() end
+	local x, y, zoom = SpokenPlaces:MapCursor()
 	local focus = WorldMapFrame.IsCanvasMouseFocus and WorldMapFrame:IsCanvasMouseFocus()
 	local mapID = WorldMapFrame.mapID
-	if state.x ~= nil and x == state.x and y == state.y and mapID == state.mapID and focus == state.focus then
+	if state.x ~= nil and x == state.x and y == state.y and zoom == state.zoom and mapID == state.mapID
+		and focus == state.focus then
 		return
 	end
-	state.x, state.y, state.mapID, state.focus = x, y, mapID, focus
-	local info, layer = Target()
-	if info and info ~= state.lit then
-		Light(info, layer)
+	state.x, state.y, state.zoom, state.mapID, state.focus = x, y, zoom, mapID, focus
+	local info, layer, zone = Target()
+	if info and not SpokenPlaces:PlaceOverZone(state.frame, state.canvas, zone, layer) then
+		info = nil
 	end
-	state.lit = info
+	local shaped = SpokenPlaces:OpenMap() ~= nil
+	if info then
+		-- OpenMap's art, which this has to show over, is only built once its map first shows.
+		local level = SpokenPlaces:OverArtLevel(state.level)
+		if level ~= state.levelSet and pcall(state.frame.SetFrameLevel, state.frame, level) then
+			state.levelSet = level
+		end
+		if info ~= state.lit or shaped ~= state.shaped then
+			Light(info, layer, shaped)
+		end
+	end
+	state.lit, state.shaped = info, shaped
 	state.frame:SetShown(info ~= nil)
 end
 
@@ -203,8 +280,8 @@ local function Opacity()
 end
 
 local function Reset()
-	state.overlaysFor, state.lit = nil, nil
-	state.x, state.y, state.mapID, state.focus = nil, nil, nil, nil
+	state.known, state.lit = {}, nil
+	state.x, state.y, state.zoom, state.mapID, state.focus = nil, nil, nil, nil, nil
 	if state.frame then state.frame:Hide() end
 end
 
@@ -221,10 +298,12 @@ function SpokenPlaces:SetupMapHighlight()
 	frame:SetAllPoints(canvas)
 	local levels = WorldMapFrame.GetPinFrameLevelsManager and WorldMapFrame:GetPinFrameLevelsManager()
 	local explored = levels and levels.GetValidFrameLevel and levels:GetValidFrameLevel("PIN_FRAME_LEVEL_MAP_EXPLORATION")
-	frame:SetFrameLevel((explored or canvas:GetFrameLevel()) + 1)
+	state.level = (explored or canvas:GetFrameLevel()) + 1
+	state.levelSet = state.level
+	frame:SetFrameLevel(state.level)
 	frame:Hide()
 	frame:EnableMouse(false)
-	state.frame = frame
+	state.frame, state.canvas = frame, canvas
 
 	-- Parented to WorldMapFrame so OnUpdate only runs while the map is open.
 	state.driver = CreateFrame("Frame", nil, WorldMapFrame)

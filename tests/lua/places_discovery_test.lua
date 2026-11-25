@@ -48,6 +48,7 @@ local Z = { Zones = { [1411] = {}, [1426] = {}, [1454] = {}, [1450] = {}, [1416]
 local names = { [1411] = "Durotar", [1426] = "Dun Morogh", [1454] = "Orgrimmar", [1450] = "Moonglade" }
 local settings = {}
 function Z:Get(key) return settings[key] end
+function Z:IsPlayerDead() return stub.world.playerDead end
 function Z:GetMapName(mapID) return names[mapID] end
 function Z:ResolveAreaKey(name) return name and string.lower(name) end
 function Z:GetPlayerMapID() return where.map end
@@ -66,6 +67,7 @@ end
 local onZone
 function Z:OnZoneChanged(fn) onZone = fn end
 _G.SpokenPlacesCharacter = nil
+assert(loadfile(PLACES .. "History.lua"))("Spoken_Places", Z)
 assert(loadfile(PLACES .. "Discovery.lua"))("Spoken_Places", Z)
 Z:SetupDiscovery()
 
@@ -73,6 +75,12 @@ Z:SetupDiscovery()
 Expect("a city is found by its name explored on the zone around it, whichever is asked first", Z:IsFound(1454), true)
 Expect("an explored area is found", Z:IsFound(1411, "valley of trials"), true)
 Expect("...and its zone", Z:IsFound(1411), true)
+Z:SetSharesHistory(true)
+Z:RefreshFound()
+Expect("explored areas are folded into shared visited history", Z:IsFound(1411, "valley of trials"), true)
+Expect("...including the zone containing them", SpokenPlacesAccountHistory.visited["1411"], true)
+Expect("...and the explored area's key", SpokenPlacesAccountHistory.visited["1411/valley of trials"], true)
+Z:SetSharesHistory(false)
 Expect("an area with no overlay is not found before it is stood in", Z:IsFound(1411, "razor hill barracks"), false)
 Z:MarkFound(1411, "razor hill barracks")
 Expect("...or clicked on the map, which resolves only an explored one", Z:IsFound(1411, "razor hill barracks"), true)
@@ -113,6 +121,14 @@ where.map = 1426
 onZone()
 Expect("...a zone's still does", SpokenPlacesCharacter.visited["1426"], true)
 
+where.map, where.subzone = 1450, ""
+stub.world.playerDead = true
+onZone()
+Expect("a dead player does not record a new place", SpokenPlacesCharacter.visited["1450"], nil)
+stub.world.playerDead = false
+onZone()
+Expect("the same place is recorded once alive", SpokenPlacesCharacter.visited["1450"], true)
+
 -- Razorfen Downs: its story kept under Thousand Needles, its entrance in The Barrens, where the
 -- game reports it (Spoken's Data/Dungeons.lua).
 function Z:FoundOn(mapID, key) if mapID == 1441 and key == "razorfen downs" then return { 1413 } end return {} end
@@ -130,6 +146,27 @@ Z:RefreshFound()
 Expect("undiscovered places hidden unless the setting says", Z:ShowsUndiscovered(), false)
 settings.showUndiscovered = true
 Expect("...shown when it does", Z:ShowsUndiscovered(), true)
+
+-- A map scanned before sharing was enabled stays in the cache. Sharing must export
+-- that cache immediately, including a city whose own map has no exploration overlay.
+SpokenPlacesAccountHistory = nil
+Z:SetSharesHistory(false)
+Z:RefreshFound()
+Z:IsFound(1411, "valley of trials")
+Z:SetSharesHistory(true)
+Expect("enabling sharing exports an already scanned area", SpokenPlacesAccountHistory.visited["1411/valley of trials"], true)
+Expect("...and the city discovered on its parent map", SpokenPlacesAccountHistory.visited["1454"], true)
+
+-- An alt has not explored Durotar and has no local visits. Its discovered city is
+-- nevertheless inherited from the first character, without scanning the same map.
+SpokenPlacesCharacter = {}
+local firstMap = OVERLAYS[1411]
+OVERLAYS[1411] = nil
+Z:RefreshFound()
+Expect("an alt with no city or surrounding-zone exploration inherits the city's visit",
+    Z:IsFound(1454), true)
+Expect("...and the surrounding zone itself", Z:IsFound(1411), true)
+OVERLAYS[1411] = firstMap
 
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll discovery tests passed")

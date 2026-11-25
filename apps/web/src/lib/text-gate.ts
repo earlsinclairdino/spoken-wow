@@ -14,14 +14,15 @@
  *
  * `$` starts a template token the game expands and we do not - `$2113w` is a war-effort tally,
  * `$Gmale:female;` a branch - and a model asked to read one says "dollar twenty-one thirteen
- * w". A bare `<` or `>` is a bracket nobody can speak.
+ * w". A bare `<` or `>` is a bracket nobody can speak. A client escape left in the text,
+ * `|3-6(Друид)` or `|1이;가;`, would be read out as written.
  *
  * No node imports: the override dialog checks a draft before sending it, and the server checks
  * the copy that counts.
  */
 
 import { BASE_LANG, type Lang } from "./lang";
-import { speakPlayerTokens } from "./player-words";
+import { CLIENT_ESCAPE, speakQuestTokens } from "./player-words";
 import { isModelVoice } from "./voices/voices";
 
 /** Kept as a string, character for character, so the two files can be diffed by eye. */
@@ -46,16 +47,14 @@ export function withoutDirections(text: string, spaceBefore = false): string {
 
 export function hasInvalidChars(text: string): boolean {
   const spoken = withoutDirections(text);
-  return [...INVALID_CHARS].some((c) => spoken.includes(c));
+  return [...INVALID_CHARS].some((c) => spoken.includes(c)) || CLIENT_ESCAPE.test(spoken);
 }
 
 /**
  * Whether a line would be voiced, given the text that would be sent.
  *
- * `progress` is skipped by policy - quest-in-progress text is deliberately never voiced - so
- * it is read off the corpus's own skipReason and no override can reach it. `invalid-chars` is
- * a property of the text, so it is re-decided here rather than trusted from the corpus: that
- * is what lets an override rescue the 99 lines the extractor had to give up on.
+ * `invalid-chars` is a property of the text, so it is re-decided here rather than trusted from the
+ * corpus: that is what lets an override rescue the 99 lines the extractor had to give up on.
  *
  * `untranslated` is a language with no text for the line: what the row carries is the
  * English, shown so the explorer has something to show, and voicing it would file an English
@@ -72,18 +71,18 @@ type GatedLine = {
   playerGender?: "m" | "f" | null;
 };
 
-export type UnvoicedReason = "progress" | "untranslated" | "no-voice" | "invalid-chars";
+export type UnvoicedReason = "untranslated" | "no-voice" | "invalid-chars";
 
 /** Why isVoiceable says no, or null when it says yes. */
 export function unvoicedReason(line: GatedLine, effectiveText: string): UnvoicedReason | null {
-  if (line.skipReason === "progress" || line.skipReason === "untranslated") return line.skipReason;
+  if (line.skipReason === "untranslated") return "untranslated";
   // A model slot has no voice chosen yet (voices.ts isModelVoice). Asked of the voice rather
   // than of the corpus's "no-voice" skipReason, because a translation's row carries its own
   // skipReason, decided from its text alone, and would otherwise be voiced in English's stead.
   if (line.voice !== undefined && isModelVoice(line.voice)) return "no-voice";
   // Judged on what would be sent: a translation's $N is spoken as its language's word
   // (player-words.ts), so it is not what stops the line.
-  const spoken = speakPlayerTokens(effectiveText, line.lang ?? BASE_LANG, line.playerGender ?? null);
+  const spoken = speakQuestTokens(effectiveText, line.lang ?? BASE_LANG, line.playerGender ?? null);
   return hasInvalidChars(spoken) ? "invalid-chars" : null;
 }
 
@@ -94,11 +93,9 @@ export function unvoicedReason(line: GatedLine, effectiveText: string): Unvoiced
  * isVoiceable asks it.
  */
 export function skipReasonFor(
-  source: string,
   text: string,
   lang: Lang = BASE_LANG,
   playerGender: "m" | "f" | null = null,
-): "progress" | "invalid-chars" | null {
-  if (source === "progress") return "progress";
-  return hasInvalidChars(speakPlayerTokens(text, lang, playerGender)) ? "invalid-chars" : null;
+): "invalid-chars" | null {
+  return hasInvalidChars(speakQuestTokens(text, lang, playerGender)) ? "invalid-chars" : null;
 }

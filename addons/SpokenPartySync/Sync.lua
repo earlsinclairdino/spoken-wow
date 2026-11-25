@@ -513,8 +513,8 @@ end
 local function Enqueue(entry, clip, source, why)
 	clip.partySync = entry
 	entry.clip = clip
-	-- The voice on whoever triggers it: another computer's line is captions only here.
-	clip.captionsOnly = PartySync.Room:CaptionsHere() or nil
+	-- The voice on whoever triggers it: another computer's line is muted here, captions alone.
+	clip.muted = PartySync.Room:CaptionsHere() or nil
 	local added, reason = source:Enqueue(clip)
 	Trace("follow %s from %s: %s%s", entry.id, tostring(entry.driver), added and ("queued as " .. tostring(clip.key)) or
 		("not queued: " .. tostring(reason)), why == "missing" and " (no file here: captions over silence)" or "")

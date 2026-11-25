@@ -19,13 +19,30 @@ local L = SpokenReadables.L
 -- plays silence and reports nothing.
 local PACK_FORMAT = 1
 
--- The player's own book art. Pointed at rather than copied: Spoken is installed
--- alongside this addon by definition -- it is what the clips are queued through -- and a
--- second copy of the same texture is a second thing to keep in step.
-local BOOK_TEXTURE = [[Interface\AddOns\Spoken\Textures\Book]]
-
--- A page's picture: a bag item's own icon, else the material it is on, else the book.
 local ICON_CROP = { 0.08, 0.92, 0.08, 0.92 }
+
+local TYPE_ICONS = {}
+for kind, icon in pairs({
+	book = "INV_Misc_Book_09", journal = "INV_Misc_Book_11", letter = "INV_Letter_15", note = "INV_Misc_Note_01",
+	scroll = "INV_Scroll_03", tablet = "INV_Misc_StoneTablet_11", plaque = "INV_Misc_Note_06",
+	grave = "INV_Misc_Bone_HumanSkull_01", exhibit = "INV_Misc_Statue_01", picture = "INV_Misc_Map_01",
+	other = "INV_Misc_QuestionMark",
+}) do TYPE_ICONS[kind] = [[Interface\Icons\]] .. icon end
+
+local function BookType(book)
+	local places = _G.SpokenReadablesPlaces and SpokenReadablesPlaces.books
+	local place = book and places and places[book]
+	return place and place.type
+end
+
+-- The Compendium's header and the player's picture both come from here, so they cannot disagree.
+-- A readable missing from the Places data is listed as "other", so it plays as one too.
+function SpokenReadables:ReadableIcon(kind, bookID)
+	local icon, crop = self:ItemIcon(bookID)
+	if icon then return icon, crop end
+	return TYPE_ICONS[kind] or TYPE_ICONS.other, ICON_CROP
+end
+
 local MATERIALS = {
 	Stone = [[Interface\Icons\INV_Misc_StoneTablet_01]],
 	Marble = [[Interface\Icons\INV_Misc_StoneTablet_07]],
@@ -42,23 +59,24 @@ local KIND_MATERIAL = { grave = "Stone", tablet = "Stone", plaque = "Bronze", ex
 
 -- Whether `pageId` is a page of the book open in the world, whose item and material the game can
 -- tell: they are the same on every page, and the next page is built while another is open.
-local function IsOpen(self, pageId)
-	return self.lastPage ~= nil and (pageId == nil or self:PlaceOf(pageId) == self:PlaceOf(self.lastPage))
+function SpokenReadables:IsOpen(pageId)
+	local open = self.lastPage
+	if open == nil then return false end
+	if pageId == nil or pageId == open then return true end
+	-- Two pages nothing places are not one book.
+	local book = self:PlaceOf(open)
+	return book ~= nil and self:PlaceOf(pageId) == book
 end
 
 --- What `pageId`'s readable is written on by its kind, or nil for paper.
 function SpokenReadables:KindMaterial(pageId)
 	local place = pageId and self:Data() and self:Data().pages[pageId]
-	local places = _G.SpokenReadablesPlaces and SpokenReadablesPlaces.books
-	local entry = place and places and places[place.book]
-	return entry and KIND_MATERIAL[entry.type] or nil
+	return place and KIND_MATERIAL[BookType(place.book)] or nil
 end
 
---- Open is what the item text events say, not the game's frame, which DialogueUI hides. A page
---- not open (of another book than the one open, or nothing open) takes what its kind is written
---- on, else the book.
+--- Item-text events identify the open readable even when DialogueUI hides the game's frame.
 function SpokenReadables:PagePicture(pageId)
-	if IsOpen(self, pageId) then
+	if self:IsOpen(pageId) then
 		local item = ItemTextGetItem and NotSecret(ItemTextGetItem())
 		local icon, crop
 		if Spoken and Spoken.BagItemIcon then icon, crop = Spoken:BagItemIcon(item) end
@@ -69,15 +87,15 @@ function SpokenReadables:PagePicture(pageId)
 			return { kind = "texture", texture = MATERIALS[material], texCoord = ICON_CROP }
 		end
 	end
-	local material = not IsOpen(self, pageId) and self:KindMaterial(pageId)
-	if material then return { kind = "texture", texture = MATERIALS[material], texCoord = ICON_CROP } end
-	return { kind = "texture", texture = BOOK_TEXTURE }
+	local bookID = pageId and self:PlaceOf(pageId)
+	local icon, crop = self:ReadableIcon(BookType(bookID), bookID)
+	return { kind = "texture", texture = icon, texCoord = crop }
 end
 
 --- What `pageId` is written on (ItemTextGetMaterial: Parchment, Stone, Marble...): the game's
 --- word for the page open, else its kind's (KindMaterial), else nil.
 function SpokenReadables:PageMaterial(pageId)
-	if IsOpen(self, pageId) then return ItemTextGetMaterial and NotSecret(ItemTextGetMaterial()) or nil end
+	if self:IsOpen(pageId) then return ItemTextGetMaterial and NotSecret(ItemTextGetMaterial()) or nil end
 	return self:KindMaterial(pageId)
 end
 
@@ -101,9 +119,7 @@ SpokenReadables.TYPE_NAMES = {
 
 --- What `book` is (a book, a letter, a gravestone...), as the Compendium sorts it.
 function SpokenReadables:KindOf(book)
-	local places = _G.SpokenReadablesPlaces and SpokenReadablesPlaces.books
-	local place = places and places[book]
-	return L[(self.TYPE_NAMES[place and place.type] or self.TYPE_NAMES.other).one]
+	return L[(self.TYPE_NAMES[BookType(book)] or self.TYPE_NAMES.other).one]
 end
 
 --- Whether a book is one line in the queue (Read Book as One Line), rather than a line per page.
@@ -161,6 +177,12 @@ function SpokenReadables:BuildAudioPacks()
 			if Listable(pack)
 				and not (renamed and current[(name:gsub("^SpokenBooksAudio", "SpokenReadablesAudio"))]) then
 				pack.addon = pack.addon or name
+				-- A pack's Lua says its language too, for one whose .toc names none: Spoken's
+				-- registry learns it here, as it does from a .toc it scans.
+				if Spoken and Spoken.DeclareLanguage then
+					Spoken:DeclareLanguage(self:PackLanguage(pack), pack.addon)
+				end
+				pack.voice = self:PackVoice(pack)
 				table.insert(packs, pack)
 			end
 		end
@@ -191,7 +213,7 @@ local ACTIONS = {
 			if not clip then
 				return
 			end
-			SpokenReadables:ShowReport(clip.pageId)
+			SpokenReadables:ShowReport(clip.pageId, clip)
 		end,
 	},
 }
@@ -202,11 +224,6 @@ local function PageStopped(clip, finished)
 	end
 end
 
---- The clip for a page, as the player's queue wants it, or nil when no pack carries it.
----
---- Language before pack order: a pack in the voice language answers before any other, and a
---- page it lacks falls back to the fallback language's packs -- page by page, so a partial
---- translation still reads what it has.
 -- Letters and digits only, for asking whether a page opens with its own title.
 local function Bare(text)
 	return (string.gsub(string.lower(text or ""), "[%s%p]", ""))
@@ -231,7 +248,15 @@ local function TitleFirstTimings(title, text, length)
 	return timings
 end
 
-function SpokenReadables:ClipFor(pageId)
+--- The clip for a page, as the player's queue wants it, or nil when no pack carries it.
+---
+--- Voice before pack order: a pack in the first voice answers before any other, and a page it
+--- lacks falls to the next voice's packs -- page by page, so a partial translation still reads
+--- what it has. A language's plain voice never reads from a team's pack, nor the other way.
+---
+--- `bookPresentation`, the `present` of the page read before it, gives its portrait and material:
+--- a later page is built after its window may have closed or another book opened.
+function SpokenReadables:ClipFor(pageId, bookPresentation)
 	local bookId, number = self:PlaceOf(pageId)
 	if not bookId then
 		return nil
@@ -239,10 +264,11 @@ function SpokenReadables:ClipFor(pageId)
 	local place = (self:Data() and self:Data().pages[pageId]) or { book = bookId, number = number }
 
 	local packs = self:GetAudioPacks()
-	for _, language in ipairs(self:LanguageOrder()) do
+	for _, voice in ipairs(self:LanguageOrder()) do
 		for _, pack in ipairs(packs) do
-			local entry = self:PackLanguage(pack) == language and pack.pages[pageId]
+			local entry = pack.voice == voice and pack.pages[pageId]
 			if entry then
+				local language = self:PackLanguage(pack)
 				local book = self:BookOf(pageId)
 				local oneLine = self:OneLine()
 				-- `shown` is the language the words are in, and the title is in it too.
@@ -256,9 +282,12 @@ function SpokenReadables:ClipFor(pageId)
 				if recorded then
 					timings = entry.times or place.number == 1 and TitleFirstTimings(title, text, length) or nil
 				end
+				local look = bookPresentation
+					or { portrait = self:PagePicture(pageId), material = self:PageMaterial(pageId) }
+				-- A pack built before packs shipped Ogg names no format, and its clips are mp3.
 				return {
 					key = "b:" .. pageId,
-					path = [[Interface\AddOns\]] .. pack.addon .. [[\Sounds\]] .. entry.file .. ".mp3",
+					path = [[Interface\AddOns\]] .. pack.addon .. [[\Sounds\]] .. entry.file .. (pack.format == "ogg" and ".ogg" or ".mp3"),
 					-- 0 means the pack recorded no duration -- an imported take rather than one
 					-- this project cut. The player falls back to its own timer; a wrong number
 					-- here would reset the Play button mid-sentence.
@@ -270,6 +299,10 @@ function SpokenReadables:ClipFor(pageId)
 					-- What the report is filed under: a fallback page is an English take even
 					-- under a German selection, and its report is about that.
 					language = language,
+					-- The pack that played and its voice, which a report names: a team's pack is
+					-- that team's to hear about.
+					packFolder = pack.addon,
+					voice = voice,
 					present = {
 						-- One line: what it is over its name, as a speaker over a quest's title,
 						-- whatever page of it this is. A line per page: the book over its page,
@@ -282,8 +315,10 @@ function SpokenReadables:ClipFor(pageId)
 							or ((book and #book.pages > 1)
 								and format(L.OPT_PAGE_COUNT_FMT, place.number, #book.pages) or nil),
 						bullet = "book",
-						material = self:PageMaterial(pageId),
-						portrait = self:PagePicture(pageId),
+						-- A text pack's language may need a font the game's lacks.
+						font = Spoken:ClipFont(shown, self),
+						material = look.material,
+						portrait = look.portrait,
 						actions = ACTIONS,
 					},
 					stopCallback = PageStopped,
@@ -299,9 +334,9 @@ end
 --- recorded none.
 function SpokenReadables:PageLength(pageId)
 	local packs = self:GetAudioPacks()
-	for _, language in ipairs(self:LanguageOrder()) do
+	for _, voice in ipairs(self:LanguageOrder()) do
 		for _, pack in ipairs(packs) do
-			local entry = self:PackLanguage(pack) == language and pack.pages[pageId]
+			local entry = pack.voice == voice and pack.pages[pageId]
 			if entry then
 				return (entry.len and entry.len > 0) and entry.len or nil
 			end
@@ -326,9 +361,9 @@ function SpokenReadables:HasAudio(pageId)
 		return false
 	end
 	local packs = self:GetAudioPacks()
-	for _, language in ipairs(self:LanguageOrder()) do
+	for _, voice in ipairs(self:LanguageOrder()) do
 		for _, pack in ipairs(packs) do
-			if self:PackLanguage(pack) == language and pack.pages[pageId] then
+			if pack.voice == voice and pack.pages[pageId] then
 				return true
 			end
 		end

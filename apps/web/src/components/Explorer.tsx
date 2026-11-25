@@ -4,10 +4,12 @@ import { TranslateDialog, type TranslateSubject } from "@/components/TranslateDi
 import { isTypingTarget } from "@/lib/keyboard";
 import { useLang } from "@/components/LangProvider";
 import { BASE_LANG, withLang } from "@/lib/lang";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { clientFilterOf, DEFAULT_CLIENT_FILTER } from "@/lib/contributions/client";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import LineRow from "./LineRow";
+import LineRow, { newSpeaker, SpeakerHeader } from "./LineRow";
+import { BatchGenerate } from "@/components/catalogue/RowParts";
 import Key from "./Key";
 import Pagination from "./Pagination";
 import Player from "./Player";
@@ -18,8 +20,9 @@ import OverrideDialog from "./OverrideDialog";
 import RegenerateDialog, { type PendingBatch } from "./RegenerateDialog";
 import RegenerationPanel from "./RegenerationPanel";
 import SearchBar from "./SearchBar";
-import { Contained, Wide } from "./Width";
+import TeamPicker from "./TeamPicker";
 import { Loading, Refreshing } from "@/components/Loading";
+import { useUiText } from "@/components/UiTextProvider";
 import { Button } from "@/components/ui/button";
 import { audioStateFromParams } from "@/lib/audio-state";
 import { useSession } from "@/lib/auth-client";
@@ -27,7 +30,7 @@ import RecordingDropZone from "@/components/RecordingDropZone";
 import { RECORDED, type Recorded } from "@/lib/recordings/live";
 import { BROADCAST_STATUSES } from "@/lib/broadcast/status";
 import type { Facets } from "@/lib/facets";
-import { sourcesFromParam } from "@/lib/line-fields";
+import { levelFromParam, sourcesFromParam } from "@/lib/line-fields";
 import { NARRATOR_VOICE } from "@/lib/generation/narration";
 import { PROVIDER_NAME } from "@/lib/generation/providers";
 import {
@@ -46,11 +49,13 @@ import { useCan } from "@/components/useCan";
 import { useHistoryMode } from "@/components/useHistoryMode";
 import { canConfigureGeneration, isAdmin } from "@/lib/permissions";
 import { isVoiceable } from "@/lib/text-gate";
+import { fill } from "@/lib/site-text/format";
 import { isModelVoice } from "@/lib/voices/voices";
 import type { Filter, LineFilters, ResultLine, SearchResult } from "@/lib/search";
 import { fetchRows, patchRows } from "@/lib/row-refresh";
 import { type Pending, receive, target, write } from "@/lib/url-echo";
 import { triages } from "@/lib/reports/reports";
+import { forTeam, isOwn, keepTeam, otherTeam, type TeamView } from "@/lib/teams/view";
 
 /** What a line's Regenerate button is doing, keyed by lineId. */
 export type LineState =
@@ -59,10 +64,6 @@ export type LineState =
   | { phase: "error"; message: string };
 
 const DEBOUNCE_MS = 200;
-
-function plural(count: number, noun: string): string {
-  return `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;
-}
 
 /** Everything that narrows the corpus, as the query string the two search endpoints read. */
 function filterParams(filters: LineFilters): URLSearchParams {
@@ -76,7 +77,8 @@ function filterParams(filters: LineFilters): URLSearchParams {
   if (filters.voice) params.set("voice", filters.voice);
   if (filters.source?.length) params.set("source", filters.source.join(","));
   if (filters.npcType) params.set("type", filters.npcType);
-  if (filters.includeProgress) params.set("progress", "1");
+  if (filters.zone !== undefined) params.set("zone", String(filters.zone));
+  if (filters.client && filters.client !== DEFAULT_CLIENT_FILTER) params.set("client", filters.client);
   if (filters.narration) params.set("narration", "1");
   if (filters.line) params.set("line", filters.line);
   if (filters.overridden) params.set("overridden", "1");
@@ -88,27 +90,13 @@ function filterParams(filters: LineFilters): URLSearchParams {
   if (filters.model) params.set("model", filters.model);
   if (filters.author) params.set("author", filters.author);
   if (filters.recorded) params.set("rec", filters.recorded);
+  if (filters.minLevel !== undefined) params.set("minLevel", String(filters.minLevel));
+  if (filters.maxLevel !== undefined) params.set("maxLevel", String(filters.maxLevel));
   if (filters.broadcast) params.set("bt", filters.broadcast);
+  if (filters.playerGender) params.set("playerGender", filters.playerGender);
   return params;
 }
 
-/**
- * How many rows each row's speaker cells span: adjacent rows of one line and speaker are its
- * player-gender wordings, and say the same thing in every column but the text.
- */
-function speakerSpans(lines: ResultLine[]): number[] {
-  // A $g line's two rows are <id>:m and <id>:f.
-  const key = (line: ResultLine) =>
-    `${line.playerGender ? line.lineId.replace(/:[mf]$/, "") : line.lineId}|${line.npcType}|${line.npcId}|${line.voice}`;
-  const spans = lines.map(() => 1);
-  for (let start = 0; start < lines.length; ) {
-    let end = start + 1;
-    while (end < lines.length && key(lines[end]) === key(lines[start])) spans[end++] = 0;
-    spans[start] = end - start;
-    start = end;
-  }
-  return spans;
-}
 
 /**
  * The URL change that narrows to one NPC.
@@ -125,8 +113,9 @@ function questNarrowing(line: ResultLine) {
   return { q: String(line.questId), filter: "quest", type: undefined };
 }
 
-export default function Explorer({ facets }: { facets: Facets }) {
+export default function Explorer({ facets, teams, viewed, home }: { facets: Facets } & TeamView) {
   const router = useRouter();
+  const t = useUiText().catalogue;
   const lang = useLang();
   const params = useSearchParams();
   const pathname = usePathname();
@@ -134,14 +123,19 @@ export default function Explorer({ facets }: { facets: Facets }) {
 
   // Read once here and drilled down, rather than a hook per row: a page renders fifty
   // LineRows and the answer is the same for all of them.
+  //
+  // Team-specific writes target the acting team, so another team's view hides them. Names
+  // and speakers are shared.
   const may = useCan();
-  const showRegenerate = may("regenerate");
+  const own = isOwn(viewed);
+  const team = otherTeam(viewed);
+  const showRegenerate = own && may("regenerate");
   const canName = may("text");
-  const canTriage = triages(may);
+  const canTriage = own && triages(may);
   // Ignoring hides a line from everyone and takes it out of the module, which is the reach
   // the generation settings have rather than the reach a rewrite has. Same gate as the API.
   const canConfigure = canConfigureGeneration(session?.user.role);
-  const canIgnore = may("ignore");
+  const canIgnore = own && may("ignore");
   // Who speaks a line holds in every language, as an NPC's answer does: admins only, as the API.
   const canSpeakers = isAdmin(session?.user.role);
 
@@ -163,7 +157,9 @@ export default function Explorer({ facets }: { facets: Facets }) {
       voice: params.get("voice") ?? undefined,
       source: sourcesFromParam(params.get("source")),
       npcType: (params.get("type") as LineFilters["npcType"]) ?? undefined,
-      includeProgress: params.get("progress") === "1",
+      // Only a zone on offer, as the server reads it: an unknown one would show as a filter in force.
+      zone: facets.zones.find((zone) => String(zone.uiMapID) === params.get("zone"))?.uiMapID,
+      client: clientFilterOf(params.get("client")),
       narration: params.get("narration") === "1",
       line: params.get("line") ?? undefined,
       overridden: params.get("overridden") === "1",
@@ -176,8 +172,11 @@ export default function Explorer({ facets }: { facets: Facets }) {
       author: params.get("author") ?? undefined,
       recorded: RECORDED.find((value) => value === params.get("rec")),
       broadcast: BROADCAST_STATUSES.find((value) => value === params.get("bt")),
+      minLevel: levelFromParam(params.get("minLevel")),
+      maxLevel: levelFromParam(params.get("maxLevel")),
+      playerGender: (["m", "f"] as const).find((value) => value === params.get("playerGender")),
     }),
-    [params, urlQuery],
+    [params, urlQuery, facets.zones],
   );
 
   const [query, setQuery] = useState(urlQuery);
@@ -286,8 +285,8 @@ export default function Explorer({ facets }: { facets: Facets }) {
 
       for (const [key, value] of Object.entries(next)) {
         if (key === "page") continue;
-        if (value) search.set(key, String(value));
-        else search.delete(key);
+        if (value === undefined || value === "") search.delete(key);
+        else search.set(key, String(value));
       }
 
       if (next.page !== undefined && next.page > 1) search.set("page", String(next.page));
@@ -323,10 +322,9 @@ export default function Explorer({ facets }: { facets: Facets }) {
         ...("voice" in next ? { voice: next.voice } : {}),
         ...("source" in next ? { source: next.source?.join(",") } : {}),
         ...("npcType" in next ? { type: next.npcType } : {}),
+        ...("zone" in next ? { zone: next.zone === undefined ? undefined : String(next.zone) } : {}),
         ...("narration" in next ? { narration: next.narration ? "1" : undefined } : {}),
-        ...("includeProgress" in next
-          ? { progress: next.includeProgress ? "1" : undefined }
-          : {}),
+        ...("client" in next ? { client: next.client === DEFAULT_CLIENT_FILTER ? undefined : next.client } : {}),
         ...("line" in next ? { line: next.line } : {}),
         ...("overridden" in next ? { overridden: next.overridden ? "1" : undefined } : {}),
         ...("dirty" in next ? { dirty: next.dirty ? "1" : undefined } : {}),
@@ -338,6 +336,9 @@ export default function Explorer({ facets }: { facets: Facets }) {
         ...("author" in next ? { author: next.author } : {}),
         ...("recorded" in next ? { rec: next.recorded } : {}),
         ...("broadcast" in next ? { bt: next.broadcast } : {}),
+        ...("minLevel" in next ? { minLevel: next.minLevel } : {}),
+        ...("maxLevel" in next ? { maxLevel: next.maxLevel } : {}),
+        ...("playerGender" in next ? { playerGender: next.playerGender } : {}),
       });
     },
     [updateUrl],
@@ -357,8 +358,9 @@ export default function Explorer({ facets }: { facets: Facets }) {
   const clearAll = useCallback(() => {
     setQuery("");
     pending.current = write(pending.current, "");
-    router[historyMode(false)](pathname, { scroll: false });
-  }, [historyMode, pathname, router]);
+    const kept = keepTeam(new URLSearchParams(), params).toString();
+    router[historyMode(false)](kept ? `${pathname}?${kept}` : pathname, { scroll: false });
+  }, [historyMode, params, pathname, router]);
 
   // Held in a ref so the debounce below restarts on keystrokes only. `updateUrl` changes
   // identity on every param change, and letting that reset the timer would let a filter
@@ -387,10 +389,10 @@ export default function Explorer({ facets }: { facets: Facets }) {
     if (page > 1) search.set("page", String(page));
 
     setLoading(true);
-    fetch(withLang(lang, `/api/quests/search?${search}`), { signal: controller.signal })
-      .then((r) => r.json())
-      .then((data: SearchResult) => {
-        setResult(data);
+    fetch(withLang(lang, forTeam(`/api/quests/search?${search}`, team)), { signal: controller.signal })
+      .then(async (r) => {
+        // An error body is no result: a team renamed since the page loaded answers 404.
+        setResult(r.ok ? ((await r.json()) as SearchResult) : null);
         setLoading(false);
       })
       .catch((error) => {
@@ -398,7 +400,7 @@ export default function Explorer({ facets }: { facets: Facets }) {
       });
 
     return () => controller.abort();
-  }, [filterQuery, page, refreshKey, lang]);
+  }, [filterQuery, page, refreshKey, lang, team]);
 
   useEffect(() => {
     if (!showRegenerate) return;
@@ -442,7 +444,7 @@ export default function Explorer({ facets }: { facets: Facets }) {
    * Fetch the rows `touches` picks again and swap them in where they sit. See lib/row-refresh.
    *
    * The id alone, not the page's filters, so a row the change moved out of the filter stays.
-   * `progress` and `ignored` because the search hides those rows unless asked.
+   * `ignored` because the search hides those rows unless asked.
    */
   const refreshRows = useCallback(
     async (touches: (row: ResultLine) => boolean) => {
@@ -451,9 +453,9 @@ export default function Explorer({ facets }: { facets: Facets }) {
       const ignored = new Set(rows.filter((row) => row.ignored).map((row) => row.lineId));
       const fresh = await fetchRows<ResultLine>(
         (id) => {
-          const search = new URLSearchParams({ line: id, progress: "1" });
+          const search = new URLSearchParams({ line: id });
           if (ignored.has(id)) search.set("ignored", "1");
-          return withLang(lang, `/api/quests/search?${search}`);
+          return withLang(lang, forTeam(`/api/quests/search?${search}`, team));
         },
         rows.map((row) => row.lineId),
       );
@@ -461,7 +463,7 @@ export default function Explorer({ facets }: { facets: Facets }) {
         current && { ...current, lines: patchRows(current.lines, fresh, (row) => row.lineId, (row) => row.key) },
       );
     },
-    [lang],
+    [lang, team],
   );
 
   /**
@@ -838,7 +840,6 @@ export default function Explorer({ facets }: { facets: Facets }) {
   }, [current]);
 
   const pageCount = result ? Math.max(1, Math.ceil(result.total / result.limit)) : 1;
-  const groupSpans = speakerSpans(result?.lines ?? []);
   // This page's marks, minus what has been cleared without a refetch since.
   const marked = new Set(
     (result?.lines ?? [])
@@ -848,11 +849,17 @@ export default function Explorer({ facets }: { facets: Facets }) {
 
   // The search sends facets only to somebody working in the language; see MadeBy.tsx.
   const showMadeBy = result?.madeBy !== undefined;
-  const showRecordings = result?.recordable === true;
+  const showRecordings = own && result?.recordable === true;
 
   return (
     <>
-      <Contained>
+      <div className="bs-wide">
+        <TeamPicker
+          teams={teams}
+          viewed={viewed}
+          home={home}
+        />
+
         <SearchBar
           ref={searchInput}
           query={query}
@@ -864,6 +871,7 @@ export default function Explorer({ facets }: { facets: Facets }) {
           canTriage={showRegenerate}
           madeBy={result?.madeBy}
           recordable={showRecordings}
+          counts={result?.counts}
         />
 
         {showRecordings && <RecordingDropZone source="quests" onUploaded={refetch} />}
@@ -873,38 +881,28 @@ export default function Explorer({ facets }: { facets: Facets }) {
         {filters.line && (
           <div className="text-muted-foreground mt-3 flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs">
             <span>
-              Showing one line: <span className="font-mono">{filters.line}</span>
+              {t.showingOne} <span className="font-mono">{filters.line}</span>
             </span>
             <Button size="xs" variant="ghost" onClick={() => updateFilters({ line: undefined })}>
-              Show everything
+              {t.showEverything}
             </Button>
           </div>
         )}
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-3 pb-1">
-          <div className="text-muted-foreground flex items-center gap-2 text-sm">
-            {result && `${plural(result.total, "line")} across ${plural(result.npcCount, "NPC")}`}
-            {loading && result && <Refreshing />}
-          </div>
+          {loading && result && <Refreshing />}
           {/* This page's marks, which is what the row-level question was asked for. The
               corpus-wide count is what the "pronunciation moved" filter is for. */}
           {showRegenerate && marked > 0 && (
             <span className="flex items-center gap-1 text-sm text-amber-300">
-              {marked} pronunciation on this page
+              {fill(t.markedHere, { n: marked })}
               <Button size="xs" variant="ghost" onClick={() => void clearAllDirty()}>
-                clear all matching
+                {t.clearAllMatching}
               </Button>
             </span>
           )}
           {showRegenerate && result && result.total > 0 && (
-            <Button
-              size="xs"
-              variant="secondary"
-              className="ml-auto"
-              onClick={() => void requestBatch()}
-            >
-              Regenerate all {result.total.toLocaleString()}
-            </Button>
+            <BatchGenerate total={result.total} state={filters.state} noun="line" onClick={() => void requestBatch()} />
           )}
         </div>
 
@@ -913,100 +911,98 @@ export default function Explorer({ facets }: { facets: Facets }) {
           pageCount={pageCount}
           onPage={(next) => updateUrl({ page: next })}
         />
-      </Contained>
+      </div>
 
-      <Wide>
-        {/* Fixed layout, because the point of the columns is that they line up down the page:
-            left to auto sizing, one long quest title would widen its column for every row. The
-            text column takes whatever the named columns leave. */}
+      <div className="bs-wide">
         {loading && !result && <Loading />}
 
         {result && result.lines.length > 0 && (
-          <table
-            aria-busy={loading}
-            className={`w-full table-fixed border-collapse text-sm transition-opacity ${loading ? "opacity-60" : ""}`}
-          >
-            <colgroup>
-              <col className="w-52" />
-              <col className="w-48" />
-              <col className="w-32" />
-              {/* The line text takes whatever the named columns leave, which is what anyone
-                  here to read came for. */}
-              <col />
-              {/* Audio: a state word, or the take selector. Both are short. */}
-              <col className="w-28" />
-              {/* Made by: "fish:2.1-pro-free" over a name. Only when the search sent it. */}
-              {showMadeBy && <col className="w-36" />}
-              {/* Voice actor: play, the version, upload; the credit under them. */}
-              {showRecordings && <col className="w-32" />}
-              {/* Wide enough for what the cell actually holds, which the old w-20 was not:
-                  icon buttons are 32px, and a collaborator can have four side by side --
-                  report, edit, ignore, regenerate -- plus the report count. Anything narrower
-                  pushes them left over the line text. w-16 for everyone else, who has the
-                  report button and the count; never w-0, since that button is not gated. */}
-              <col className={showRegenerate ? "w-40" : "w-16"} />
-            </colgroup>
-            <thead>
-              <tr className="text-muted-foreground border-border border-b text-left text-xs">
-                <th className="px-2 pb-1 font-medium">NPC / object</th>
-                <th className="px-2 pb-1 font-medium">Quest / broadcast</th>
-                <th className="px-2 pb-1 font-medium">Race / gender / flavor</th>
-                <th className="px-2 pb-1 font-medium">Line</th>
-                <th className="px-2 pb-1 font-medium">Audio</th>
-                {showMadeBy && <th className="px-2 pb-1 font-medium">Made by</th>}
-                {showRecordings && <th className="px-2 pb-1 font-medium">Voice actor</th>}
-                <th className="sr-only">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {result.lines.map((line, index) => (
-                <LineRow
-                  key={line.key}
-                  line={line}
-                  current={line.key === current?.key}
-                  showMadeBy={showMadeBy}
-                  showRecordings={showRecordings}
-                  onRecordingChanged={(l) => void refreshRows((row) => row.audioPath === l.audioPath)}
-                  canRegenerate={showRegenerate}
-                  canTriage={canTriage}
-                  onOverrideAnswered={(l) =>
-                    void refreshRows((row) => row.driftedOverride?.file === l.driftedOverride?.file)
-                  }
-                  state={lineStates[line.lineId]}
-                  blocked={blockedReason(line)}
-                  takes={line.take?.takes ?? 0}
-                  version={versions[line.audioPath] ?? line.take?.version ?? null}
-                  stale={line.stale}
-                  dirty={line.dirty && !cleared.has(line.audioPath)}
-                  onClearDirty={(l) => clearDirty([l.audioPath])}
-                  onPlay={play}
-                  onEditText={setEditing}
-                  onRename={lang !== BASE_LANG && canName ? rename : null}
-                  onIgnore={canIgnore ? setIgnoring : null}
-                  onAddSpeaker={canSpeakers ? (l) => setSpeakerDialog({ line: l, replace: false }) : null}
-                  onReplaceSpeaker={canSpeakers ? (l) => setSpeakerDialog({ line: l, replace: true }) : null}
-                  onRemoveSpeaker={canSpeakers ? (l) => void removeSpeaker(l) : null}
-                  onReport={setReporting}
-                  onRegenerate={regenerateLine}
-                  onRestored={handleRestored}
-                  onNarrowToNpc={narrowToNpc}
-                  npcHref={npcHref}
-                  showNpcPage={isAdmin(session?.user.role)}
-                  groupSpan={groupSpans[index]}
-                  onNarrowToQuest={narrowToQuest}
-                  questHref={questHref}
-                />
-              ))}
-            </tbody>
-          </table>
+          <div className="cat-list">
+            {/* Fixed layout, so the columns line up down the page: left to auto sizing, one long
+                quest title would widen its column for every row. */}
+            <table
+              aria-busy={loading}
+              className={`cat-table w-full table-fixed border-collapse text-sm transition-opacity ${loading ? "opacity-60" : ""}`}
+            >
+              <colgroup>
+                <col className="w-12" />
+                <col />
+                <col className="w-56" />
+                <col className="w-36" />
+                {showMadeBy && <col className="w-36" />}
+                {showRecordings && <col className="w-28" />}
+                <col className="w-48" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>
+                    <span className="sr-only">{t.columns.play}</span>
+                  </th>
+                  <th>{t.columns.line}</th>
+                  <th>{t.columns.quest}</th>
+                  <th>{t.columns.audio}</th>
+                  {showMadeBy && <th>{t.columns.madeBy}</th>}
+                  {showRecordings && <th>{t.columns.voiceActor}</th>}
+                  <th>
+                    <span className="sr-only">{t.columns.actions}</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.lines.map((line, index) => (
+                  <Fragment key={line.key}>
+                    {newSpeaker(line, result.lines[index - 1]) && (
+                      <SpeakerHeader
+                        line={line}
+                        columns={5 + (showMadeBy ? 1 : 0) + (showRecordings ? 1 : 0)}
+                        onRename={lang !== BASE_LANG && canName ? rename : null}
+                        showNpcPage={isAdmin(session?.user.role)}
+                        onNarrowToNpc={narrowToNpc}
+                        npcHref={npcHref}
+                      />
+                    )}
+                    <LineRow
+                      line={line}
+                      current={line.key === current?.key}
+                      showMadeBy={showMadeBy}
+                      showRecordings={showRecordings}
+                      onRecordingChanged={(l) => void refreshRows((row) => row.audioPath === l.audioPath)}
+                      canRegenerate={showRegenerate}
+                      canTriage={canTriage}
+                      onOverrideAnswered={(l) =>
+                        void refreshRows((row) => row.driftedOverride?.file === l.driftedOverride?.file)
+                      }
+                      state={lineStates[line.lineId]}
+                      blocked={blockedReason(line)}
+                      takes={line.take?.takes ?? 0}
+                      version={versions[line.audioPath] ?? line.take?.version ?? null}
+                      stale={line.stale}
+                      dirty={line.dirty && !cleared.has(line.audioPath)}
+                      onClearDirty={(l) => clearDirty([l.audioPath])}
+                      onPlay={play}
+                      onEditText={setEditing}
+                      onRename={lang !== BASE_LANG && canName ? rename : null}
+                      onIgnore={canIgnore ? setIgnoring : null}
+                      onAddSpeaker={canSpeakers ? (l) => setSpeakerDialog({ line: l, replace: false }) : null}
+                      onReplaceSpeaker={canSpeakers ? (l) => setSpeakerDialog({ line: l, replace: true }) : null}
+                      onRemoveSpeaker={canSpeakers ? (l) => void removeSpeaker(l) : null}
+                      onReport={own ? setReporting : null}
+                      onRegenerate={regenerateLine}
+                      onRestored={handleRestored}
+                      onNarrowToQuest={narrowToQuest}
+                      questHref={questHref}
+                    />
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
 
-        {result && result.lines.length === 0 && (
-          <div className="text-muted-foreground py-2 text-sm">No matches.</div>
-        )}
-      </Wide>
+        {result && result.lines.length === 0 && <p className="cat-empty">{t.empty}</p>}
+      </div>
 
-      <Contained>
+      <div className="bs-wide">
         <Pagination
           page={page}
           pageCount={pageCount}
@@ -1014,10 +1010,10 @@ export default function Explorer({ facets }: { facets: Facets }) {
         />
 
         <p className="text-muted-foreground mt-6 flex flex-wrap items-center gap-1.5 text-xs">
-          <Key>/</Key> search · <Key>space</Key> play/pause · <Key>j</Key> <Key>k</Key> next
-          and previous line on this page
+          <Key>/</Key> {t.shortcuts.search} · <Key>space</Key> {t.shortcuts.playPause} · <Key>j</Key> <Key>k</Key> {" "}
+          {t.shortcuts.step}
         </p>
-      </Contained>
+      </div>
 
       <OverrideDialog
         line={editing}
@@ -1081,6 +1077,7 @@ export default function Explorer({ facets }: { facets: Facets }) {
 
         <Player
           ref={audio}
+          team={team}
           line={current}
           version={current ? (versions[current.audioPath] ?? current.take?.version) : undefined}
         />

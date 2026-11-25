@@ -143,6 +143,72 @@ quests:Enqueue(H.Clip())
 Q:PauseQueue()
 Expect("RecheckGates on a paused player stops nothing", quests:RecheckGates(), false)
 
+---------------------------------------------------------------- muted audio still advances the queue
+Fresh()
+local muted = H.Clip()
+local afterMuted = H.Clip()
+Q:SetMuted(true)
+quests:SetInterClipGap(0)
+quests:Enqueue(muted); quests:Enqueue(afterMuted)
+Expect("mute does not play the first voice", #world.played, 0)
+Expect("...but the first line is still active", Q:IsPlaying(muted), true)
+stub.Advance(1.1)
+Expect("...and advances to the next line silently", Q:IsPlaying(afterMuted), true)
+Q:SetMuted(false)
+Expect("unmute does not replay a line already passed", #world.played, 0)
+stub.Advance(1.1)
+Expect("...and the muted queue drains", Q:IsEmpty(), true)
+
+Fresh()
+local speaking = H.Clip()
+quests:Enqueue(speaking)
+Q:SetMuted(true)
+Expect("mute stops a voice already playing", #world.stopped, 1)
+Expect("...without stopping its timed line", Q:IsPlaying(speaking), true)
+stub.Advance(1)
+Expect("...then removes it normally", Q:IsEmpty(), true)
+
+Fresh()
+local interrupted = H.Clip({ length = 5 })
+quests:Enqueue(interrupted)
+stub.Advance(1)
+Q:SetMuted(true)
+Q:SetMuted(false)
+Expect("unmuting an interrupted line starts its sound again", world.played[2], interrupted.path)
+stub.Advance(5)
+Expect("...and the restarted line finishes normally", Q:IsEmpty(), true)
+
+Fresh()
+local silent = H.Clip({ length = 5 })
+Q:SetMuted(true)
+quests:Enqueue(silent)
+Expect("a line started muted is marked silent", silent.silent, true)
+Q:SetMuted(false)
+Expect("...and remains controllable after unmuting", Q:CanBePaused(), true)
+Expect("...so Skip can remove it", Q:Skip(), true)
+Expect("...without waiting for its original timer", Q:IsEmpty(), true)
+
+Fresh()
+local pausableSilent = H.Clip({ length = 5 })
+Q:SetMuted(true)
+quests:Enqueue(pausableSilent)
+Q:SetMuted(false)
+Expect("a silent line can be paused after unmuting", Q:PauseQueue(), true)
+Expect("...and remains paused", Q:IsPaused(), true)
+Q:RemoveAllSoundsFromQueue()
+
+Fresh()
+local repeatedlyToggled = H.Clip({ length = 5 })
+Q:SetMuted(true)
+quests:Enqueue(repeatedlyToggled)
+stub.Advance(1)
+Q:SetMuted(false)
+Q:SetMuted(true)
+Q:SetMuted(false)
+Expect("repeated toggles keep a line that started muted silent", #world.played, 0)
+stub.Advance(4.1)
+Expect("...and leave its original finish timer intact", Q:IsEmpty(), true)
+
 ---------------------------------------------------------------- per-source queue limit
 Fresh()
 local head = H.Clip()
@@ -194,6 +260,107 @@ quests:Enqueue(first); quests:Enqueue(second)
 Q:PauseQueue()
 Q:Skip()
 Expect("Skip on a stopped queue plays the next line", Q:IsPaused() == false and world.played[2], second.path)
+
+---------------------------------------------------------------- previous line history
+Fresh()
+local previous, current = H.Clip(), H.Clip()
+quests:Enqueue(previous); quests:Enqueue(current)
+stub.Advance(1.6)
+Expect("a finished line is kept for Previous", Q:GetPrevious(), previous)
+Expect("Previous replays the line before the current one", Q:Previous(), true)
+Expect("...without losing the waiting current line", Q:GetQueue()[2], current)
+Expect("...and starts the replay immediately", world.played[3], previous.path)
+
+Fresh()
+local firstLine, middleLine, latestLine = H.Clip(), H.Clip(), H.Clip()
+quests:Enqueue(firstLine); quests:Enqueue(middleLine); quests:Enqueue(latestLine)
+stub.Advance(1.6); stub.Advance(1.6)
+Expect("Previous from the third line reaches the second", Q:Previous(), true)
+Expect("Previous remains available for the first line", Q:CanPrevious(), true)
+Expect("Previous from the second line reaches the first", Q:Previous(), true)
+Expect("Previous is unavailable on the first line", Q:CanPrevious(), false)
+
+Fresh()
+local last = H.Clip()
+quests:Enqueue(last)
+stub.Advance(1.1)
+Expect("a drained queue keeps its last line", Q:GetPrevious(), last)
+Expect("Previous also works after the queue drained", Q:Previous(), true)
+Expect("...replaying the last line", world.played[2], last.path)
+
+Fresh()
+local old = H.Clip()
+quests:Enqueue(old)
+stub.Advance(1.1)
+Expect("an older queue leaves a previous line", Q:CanPrevious(), true)
+quests:Enqueue(H.Clip())
+Expect("a new line after the drain can still go back to it", Q:GetPrevious(), old)
+
+Fresh()
+local history = {}
+for index = 1, 5 do
+    history[index] = H.Clip()
+    quests:Enqueue(history[index])
+end
+for _ = 1, 5 do stub.Advance(1.6) end
+for _ = 1, 5 do Q:Previous() end
+Expect("Previous walks back through five lines", Q:GetCurrentSound(), history[1])
+Expect("Previous is unavailable at the oldest line", Q:CanPrevious(), false)
+Q:Skip()
+Expect("skipping a replayed oldest line makes it the previous line", Q:GetPrevious(), history[1])
+Expect("Previous returns after skipping forward", Q:CanPrevious(), true)
+
+-- A replay heard to its end is the line before the current one again.
+Fresh()
+local heardA, heardB, heardC = H.Clip(), H.Clip(), H.Clip()
+quests:Enqueue(heardA); quests:Enqueue(heardB); quests:Enqueue(heardC)
+stub.Advance(1.6); stub.Advance(1.6)
+Q:Previous()
+stub.Advance(1.6)
+Expect("after a replay the current line speaks again", Q:IsPlaying(heardC), true)
+Expect("...and Previous reaches the replayed line, not the one before it", Q:GetPrevious(), heardB)
+
+-- The current line stays queued: it is silenced, not dropped, so whatever its stopCallback ends
+-- (a book's following pages) carries on.
+Fresh()
+local before = H.Clip()
+local stopped = {}
+local speaking = H.Clip({ stopCallback = function(clip, finished) table.insert(stopped, finished) end })
+quests:Enqueue(before); quests:Enqueue(speaking)
+stub.Advance(1.6)
+rec = H.Recorder(env)
+Q:Previous()
+Expect("Previous does not run the current line's stopCallback", #stopped, 0)
+Expect("...but says the line stopped speaking", rec:Has("CLIP_STOPPED " .. speaking.key .. " false"), true)
+Expect("...nor queues it again", rec:Has("CLIP_QUEUED " .. speaking.key), false)
+stub.Advance(1.6)
+Expect("...which speaks again after the replay", Q:IsPlaying(speaking), true)
+
+-- Walking back past a source's queueLimit keeps every line: the replays are already heard.
+Fresh()
+local walked = {}
+for index = 1, 5 do
+    walked[index] = H.Clip()
+    places:Enqueue(walked[index])
+    stub.Advance(1.3)
+end
+for _ = 1, 5 do Q:Previous() end
+Expect("walking back over a queueLimit of 3 keeps all five lines", Q:GetQueueSize(), 5)
+Expect("...the newest still last", Q:GetQueue()[5], walked[5])
+
+-- A line the queue would refuse is dropped from history before the current line is touched.
+Fresh()
+local refusedLine, playingLine = H.Clip(), H.Clip()
+quests:Enqueue(refusedLine)
+stub.Advance(1.1)
+quests:Enqueue(playingLine)
+quests:Enqueue(H.Clip({ key = refusedLine.key }))
+local played = #world.played
+local ok, why = Q:Previous()
+Expect("Previous refuses a line already queued again", tostring(ok) .. " " .. tostring(why), "false duplicate")
+Expect("...without restarting the current line", #world.played == played and Q:IsPlaying(playingLine), true)
+Expect("...and lets it go from the history", Q:GetPrevious(), nil)
+
 -- The last line skipped mid-word fades out, as Stop does, rather than cutting off.
 Fresh()
 quests:Enqueue(H.Clip({ length = 5 }))
@@ -336,116 +503,76 @@ local again, why = probed:Enqueue(H.Clip({ key = p.key }))
 Expect("a duplicate of a probed clip is refused", why, "duplicate")
 Expect("...without its file being played or stopped", #world.played == plays and #world.stopped == stops, true)
 
----------------------------------------------------------------- captions only
--- Two players in one room: one client speaks, the other shows the line without playing it.
--- Muting the channel instead is what used to be done, and it refuses the line outright.
--- The saved settings outlive a fresh player, as they outlive a /reload in the game, so each
--- case starts from the defaults it depends on.
-local function CaptionsFresh()
+---------------------------------------------------------------- a feature addon's mute
+-- Two players in one room: one client speaks, the other shows the line without playing it. The
+-- saved settings outlive a fresh player, as they outlive a /reload in the game, so each case
+-- starts from the defaults it depends on.
+local function MuteFresh()
     Fresh()
     env.Addon.db.profile.Audio.AutoToggleDialog = false
     world.cvars.Sound_EnableDialog = nil
     world.cvars.Sound_MasterVolume = nil
-    Q:SetCaptionsOnly(false)
-    Q:SetCaptionsOnlyOverride(false)
+    Q:SetMuted(false)
+    Q:SetMuteOverride(false)
 end
 
-CaptionsFresh()
+MuteFresh()
 world.cvars.Sound_MasterVolume = "0"
-local refused, refusal = quests:Enqueue(H.Clip())
-Expect("a muted channel refuses the line", refused, nil)
-Expect("...saying why", refusal, "the master volume is 0")
-
-CaptionsFresh()
-world.cvars.Sound_MasterVolume = "0"
-Q:SetCaptionsOnly(true)
-local silent, silent2 = H.Clip(), H.Clip()
-Expect("captions only, a muted channel admits the line", quests:Enqueue(silent) ~= nil, true)
-Expect("...which starts, so the player and its captions show", rec:Has("CLIP_STARTED " .. silent.key), true)
-Expect("...without playing anything", world.played[1], nil)
-quests:Enqueue(silent2)
-stub.Advance(1.55)
-Expect("...and ends on its duration, starting the next", Q:GetCurrentSound(), silent2)
-Expect("...which is silent too", world.played[1], nil)
-Expect("a silent line can still be skipped", Q:Skip(), true)
-Expect("...and is gone", Q:GetCurrentSound(), nil)
-local silent3 = H.Clip()
-quests:Enqueue(silent3)
-Q:PauseQueue()
-Expect("...or paused", Q:IsPaused(), true)
-Q:ResumeQueue()
-Expect("...and resumed", Q:IsPlaying(silent3), true)
-
-CaptionsFresh()
-world.cvars.Sound_MasterVolume = "0"
-Q:SetCaptionsOnly(true)
+Q:SetMuted(true)
 local probedQuiet = env.Sources:Register("probedQuiet", { title = "Probed", addon = "Spoken_Quests", order = 3,
     testBeforeQueue = true })
-Expect("captions only, the existence probe does not refuse every line on a muted channel",
-    probedQuiet:Enqueue(H.Clip()) ~= nil, true)
-Expect("...and the source reports it can play", (probedQuiet:CanPlay()), true)
-
-CaptionsFresh()
-local loud = H.Clip()
-quests:Enqueue(loud)
-Expect("a line plays normally", world.played[1], loud.path)
-Q:SetCaptionsOnly(true)
-Expect("switching to captions only stops it at once", world.stopped[1], 1)
-Expect("...and keeps it as the head, captions running", Q:GetCurrentSound(), loud)
-Expect("...which can still be skipped, though its sound is already stopped", Q:CanBePaused(), true)
-stub.Advance(1.55)
-Expect("...until its duration is up", Q:GetCurrentSound(), nil)
-Q:SetCaptionsOnly(false)
-local loudAgain = H.Clip()
-quests:Enqueue(loudAgain)
-Expect("switched back, lines play again", world.played[2], loudAgain.path)
-
-CaptionsFresh()
-env.Addon.db.profile.Audio.AutoToggleDialog = true
-Q:SetCaptionsOnly(true)
-quests:Enqueue(H.Clip())
-stub.Advance(0.6) -- the NPC's voice is faded out, not cut
-Expect("captions only, the game's own dialogue is still muted while the line runs",
-    GetCVar("Sound_EnableDialog"), "0")
-stub.Advance(0.95)
-Expect("...and let back when the queue drains", GetCVar("Sound_EnableDialog"), "1")
+Expect("muted, a probed source reports it can play on a muted channel", (probedQuiet:CanPlay()), true)
 
 -- A party addon's override: the session goes quiet while another client in the room speaks,
--- and the player's own choice is never written.
-CaptionsFresh()
+-- and the player's own mute is never written.
+MuteFresh()
 local before = H.Clip()
 quests:Enqueue(before)
-Q:SetCaptionsOnlyOverride(true)
-Expect("an override stops a line speaking, as the setting does", world.stopped[1], 1)
-Expect("...without saving anything", env.Addon.db.profile.Audio.CaptionsOnly, false)
+Expect("an override mutes", Q:SetMuteOverride(true), true)
+Expect("...stopping a line speaking, as the player's mute does", world.stopped[1], 1)
+Expect("...without saving anything", env.Addon.db.char.IsMuted, false)
+Expect("...and the player is muted", Q:IsMuted(), true)
+Expect("the player's own mute changes nothing while it holds", Q:SetMuted(true), false)
+Q:SetMuted(false)
+Expect("...nor does lifting it", Q:IsMuted(), true)
 stub.Advance(1.55)
 local during = H.Clip()
 quests:Enqueue(during)
 Expect("...and the next line is silent", world.played[2], nil)
 Expect("...but shown", rec:Has("CLIP_STARTED " .. during.key), true)
 stub.Advance(1.55)
-Q:SetCaptionsOnlyOverride(false)
+Q:SetMuteOverride(false)
 local after = H.Clip()
 quests:Enqueue(after)
 Expect("lifted, lines play again", world.played[2], after.path)
 
--- One clip captions only, on its caller's say: the party addon's line another client drives.
-CaptionsFresh()
+MuteFresh()
+env.Addon.db.profile.Audio.AutoToggleDialog = true
+Q:SetMuteOverride(true)
+quests:Enqueue(H.Clip())
+stub.Advance(0.6) -- the NPC's voice is faded out, not cut
+Expect("muted on an addon's say, the game's own dialogue is still muted while the line runs",
+    GetCVar("Sound_EnableDialog"), "0")
+stub.Advance(0.95)
+Expect("...and let back when the queue drains", GetCVar("Sound_EnableDialog"), "1")
+
+-- One clip muted, on its caller's say: the party addon's line another client drives.
+MuteFresh()
 local alone = H.Clip()
-alone.captionsOnly = true
+alone.muted = true
 quests:Enqueue(alone)
-Expect("a clip marked captions only is shown", rec:Has("CLIP_STARTED " .. alone.key), true)
+Expect("a clip marked muted is shown", rec:Has("CLIP_STARTED " .. alone.key), true)
 Expect("...and not played", world.played[1], nil)
 Expect("...and knows it has no sound to stop", alone.silent, true)
-Expect("...while the player is not captions only", Q:IsCaptionsOnly(), false)
+Expect("...while the player is not muted", Q:IsMuted(), false)
 stub.Advance(1.55)
 local plain = H.Clip()
 quests:Enqueue(plain)
 Expect("the next plain clip plays", world.played[1], plain.path)
-CaptionsFresh()
+MuteFresh()
 world.cvars.Sound_MasterVolume = "0"
 local quietOne = H.Clip()
-quietOne.captionsOnly = true
+quietOne.muted = true
 Expect("marked so, a line is admitted on a muted channel without the probe", probedQuiet:Enqueue(quietOne) ~= nil, true)
 
 ---------------------------------------------------------------- the cue between lines (#142)

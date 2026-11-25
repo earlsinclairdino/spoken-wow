@@ -31,8 +31,8 @@ local function Api()
 	PartySync:Print("  you: UnitName %q + %q, chat name %q", tostring(first), tostring(second),
 		tostring(PartySync:UnitChatName("player")))
 	local Spoken = _G.Spoken
-	PartySync:Print("  Spoken player: %s; captions-only override: %s", Yes(PartySync:PlayerAvailable()),
-		Yes(Spoken and Spoken.SetCaptionsOnlyOverride ~= nil))
+	PartySync:Print("  Spoken player: %s; mute override: %s", Yes(PartySync:PlayerAvailable()),
+		Yes(Spoken and Spoken.SetMuteOverride ~= nil))
 	if Spoken and Spoken.GetSource then
 		for _, key in ipairs({ "quests", "places", "readables" }) do
 			local source = Spoken:GetSource(key)

@@ -164,6 +164,9 @@ Expect("...a round button on the DialogueUI window keeps its ring, one elsewhere
 local later = env.Actions.SkipButton(UIParent)
 Expect("...and a Skip button made after login keeps its bar too",
     table.concat(Dressed(eui, "Button", later).kept, ","), "glyph,bar")
+local eject = env.Actions.EjectButton(UIParent)
+Expect("...and Eject keeps its glyph when squared", eject.squared
+    and table.concat(Dressed(eui, "Button", eject).kept, ","), "glyph")
 Expect("...its portrait flat: no gold ring, no art behind it, cut round in a 1 px edge",
     tostring(M.portrait.squared) .. " " .. M.ring:GetAlpha() .. " " .. M.portrait.background:GetAlpha() .. " "
     .. tostring(M.portrait.round) .. " " .. tostring(M.viewport.squareMask), "true 0 0 true false")
@@ -390,6 +393,18 @@ do
         tostring(env.Ellesmere:Font()) .. " " .. tostring(env.MinimalPlayer.name.face) .. " "
         .. tostring(env.MinimalPlayer.portrait.squared), "nil nil true")
     _G.GetLocale = getLocale
+end
+
+-- An English client whose Interface Language is Russian: the words are Cyrillic, so the same.
+do
+    _G.SpokenSettings = { global = { InterfaceLanguage = "ruRU" } }
+    env, eui = Boot("eui")
+    eui.callback(eui.skin)
+    Expect("...and so on an English client whose interface is Russian", tostring(env.Ellesmere:Font()), "nil")
+    _G.SpokenSettings = nil
+    env, eui = Boot("eui")
+    eui.callback(eui.skin)
+    Expect("...while an English interface there takes EllesmereUI's font", env.Ellesmere:Font() ~= nil, true)
 end
 
 ---------------------------------------------------------------- a shell that fails

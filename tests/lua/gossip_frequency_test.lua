@@ -16,6 +16,7 @@ local GREETING = "Well met. How can I help?"
 local BANK = "Where is the bank?"
 local DIRECTIONS = "The bank is past the fountain."
 local OTHER = "Keep your blade sharp, friend."
+local SESSION = "This greeting lasts only for the session."
 -- The option picked to reach the page of the clip that started last.
 local lastTitle
 
@@ -27,10 +28,11 @@ local function Boot(client)
     local VO = stub.LoadQuests(QUESTS, SPOKEN)
     dofile(QUESTS .. "UI/DialogPlayButton.lua")
     VO.Addon:OnInitialize()
-    local gossip = { [GREETING] = "greeting-hash", [DIRECTIONS] = "directions-hash", [OTHER] = "other-hash" }
+    local gossip = { [GREETING] = "greeting-hash", [DIRECTIONS] = "directions-hash", [OTHER] = "other-hash",
+        [SESSION] = "session-hash" }
     VO.DataModules:Register("TestPack", {
         SoundLengthLookupByFileName = { ["greeting-hash"] = 1, ["directions-hash"] = 1, ["other-hash"] = 1,
-            ["101-accept"] = 1 },
+            ["session-hash"] = 1, ["101-accept"] = 1 },
         GossipLookupByNPCID = { [12345] = gossip },
         GossipLookupByNPCName = { Guard = gossip },
         GetSoundPath = function(_, fileName) return fileName .. ".ogg" end,
@@ -82,7 +84,7 @@ for _, client in ipairs({ "11509", "16001" }) do
     VO.Addon.db.profile.Audio.GossipFrequency = Frequency.OncePerNPC
 
     -- An NPC marked heard before greetings were told apart counts as never heard.
-    VO.Addon.db.char.hasSeenGossipForNPC[world.npcGUID] = true
+    VO.Addon.db.char.hasSeenGossipForNPC[12345] = true
 
     Talk()
     Expect(client .. ": the first greeting plays", Played(played), "greeting-hash")
@@ -111,6 +113,13 @@ for _, client in ipairs({ "11509", "16001" }) do
     Talk()
     Expect(client .. ": ...and the first greeting is still held back", Played(played), "(nothing)")
     Leave()
+
+    local firstSpawn = world.npcGUID
+    world.npcGUID = "Creature-0-0-0-0-12345-1"
+    Talk()
+    Expect(client .. ": the same NPC spawned again does not greet a second time", Played(played), "(nothing)")
+    Leave()
+    world.npcGUID = firstSpawn
 
     -- DialogueUI picks an option by its index, not its id.
     if _G.C_GossipInfo then
@@ -169,9 +178,22 @@ for _, client in ipairs({ "11509", "16001" }) do
     Leave()
     _G.Spoken:SetPartOn("gossip", true)
 
-    -- Stop When Window Closes stops a quest giver's greeting too, as its quest frame closes.
+    -- Stop When Window Closes stops gossip as its window closes, and a quest giver's greeting too,
+    -- as its quest frame closes.
     VO.Addon.db.profile.Audio.GossipFrequency = Frequency.Always
     VO.Addon.db.profile.Audio.StopAudioOnDisengage = true
+    stub.ShowGossip(GREETING, { BANK })
+    stub.FireEvent("GOSSIP_SHOW")
+    stub.Advance(0.3)
+    Expect(client .. ": gossip is playing before its window closes", _G.Spoken:GetCurrent() ~= nil, true)
+    stub.HidePanels()
+    stub.FireEvent("GOSSIP_CLOSED")
+    stub.Advance(0.1)
+    Expect(client .. ": gossip stops as its window closes, under Stop When Window Closes",
+        _G.Spoken:GetCurrent(), nil)
+    stub.Advance(1)
+    Played(played)
+
     world.questID = 0
     world.greetingText = GREETING
     stub.ShowPanel("QuestFrameGreetingPanel")
@@ -181,11 +203,68 @@ for _, client in ipairs({ "11509", "16001" }) do
     stub.ShowPanel(nil)
     stub.FireEvent("QUEST_FINISHED")
     stub.Advance(0.1)
-    Expect(client .. ": ...and stops as its window closes, under Stop When Window Closes",
+    Expect(client .. ": ...and a greeting stops as its quest frame closes",
         _G.Spoken:GetCurrent(), nil)
     stub.Advance(10)
     Played(played)
     VO.Addon.db.profile.Audio.StopAudioOnDisengage = false
+
+    VO.Addon.db.profile.Audio.GossipFrequency = Frequency.Always
+    Talk()
+    Played(played)
+    local mute = VO.DialogPlayButton.muteButton
+    Expect(client .. ": the NPC dialog offers the mute toggle", mute:IsShown(), true)
+    Expect(client .. ": the greeting offers no Mute in Spoken's window", #VO.Player:Current().present.actions, 2)
+    Expect(client .. ": an audible NPC has no mute slash", mute.muteSlash:IsShown(), false)
+    local popups = #stub.popups
+    mute:Click()
+    Expect(client .. ": Mute does not ask for confirmation", #stub.popups, popups)
+    Expect(client .. ": muting removes the current greeting", VO.Player:Current(), nil)
+    Expect(client .. ": the NPC is recorded as muted, by name", VO.Addon.db.char.ignoredGossipNPCs[12345], "Guard")
+    Expect(client .. ": the muted NPC shows a slash", mute.muteSlash:IsShown(), true)
+    Expect(client .. ": a muted NPC's line can still be asked for", VO.DialogPlayButton.button:IsShown(), true)
+    Leave()
+    Talk()
+    Expect(client .. ": a muted NPC's automatic greeting stays quiet", Played(played), "(nothing)")
+    VO.DialogPlayButton:OnClick()
+    stub.Advance(1)
+    Expect(client .. ": Listen plays a muted NPC's greeting", Played(played), "greeting-hash")
+    mute:Click()
+    Expect(client .. ": clicking the toggle again unmutes the NPC", VO.Addon:IsGossipNPCIgnored(world.npcGUID), false)
+    Expect(client .. ": unmuting removes the slash", mute.muteSlash:IsShown(), false)
+    Expect(client .. ": unmuting hands the line back to Read Automatically", VO.DialogPlayButton.button:IsShown(), false)
+    Leave()
+    Talk()
+    Expect(client .. ": an unmuted NPC's automatic greeting plays again", Played(played), "greeting-hash")
+    Leave()
+
+    -- No pack voices this NPC, so there is nothing for the toggle to mute.
+    local voicedName, voicedGUID = world.npcName, world.npcGUID
+    world.npcName, world.npcGUID = "Stranger", "Creature-0-0-0-0-99999-0"
+    Talk()
+    Expect(client .. ": an unvoiced NPC's dialog has no mute toggle", mute:IsShown(), false)
+    Leave()
+    world.npcName, world.npcGUID = voicedName, voicedGUID
+
+    -- Once per Session keeps greetings per NPC like the saved settings, but in memory only.
+    local sessionVO, sessionPlayed = Boot(client)
+    sessionVO.Addon.db.profile.Audio.GossipFrequency = sessionVO.Enums.GossipFrequency.OncePerSession
+    Talk(SESSION)
+    Expect(client .. ": Once per Session plays a greeting the first time", Played(sessionPlayed), "session-hash")
+    Leave()
+    Talk(SESSION)
+    Expect(client .. ": ...holds that greeting back for this session", Played(sessionPlayed), "(nothing)")
+    Leave()
+    sessionVO.Addon:ForgetGreetingsHeard()
+    Talk(SESSION)
+    Expect(client .. ": ...and Forget Greetings Heard lets it play again", Played(sessionPlayed), "session-hash")
+    Leave()
+
+    local reloadedVO, reloadedPlayed = Boot(client)
+    reloadedVO.Addon.db.profile.Audio.GossipFrequency = reloadedVO.Enums.GossipFrequency.OncePerSession
+    Talk(SESSION)
+    Expect(client .. ": ...allows it again after a reload", Played(reloadedPlayed), "session-hash")
+    Leave()
 end
 
 if Failures() > 0 then

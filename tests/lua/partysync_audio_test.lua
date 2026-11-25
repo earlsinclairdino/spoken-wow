@@ -110,7 +110,7 @@ P.Clear()
 ns.Room:SetAll("lala throwaway")
 Expect("all the sound on her computer is one rule for the party", Fields(P.Last("PS", LALA)),
 	"anyone|lala throwaway|1111|anyone|music=lala throwaway;effects=lala throwaway;ambience=lala throwaway;dialog=lala throwaway")
-Expect("...so this computer shows captions", Spoken:IsCaptionsOnly(), true)
+Expect("...so this computer shows captions", Spoken:IsMuted(), true)
 Expect("...and keeps the game's channels off", CVar("Sound_EnableMusic") .. CVar("Sound_EnableSFX"), "00")
 ns:ShowWindow(true)
 Expect("...which the chip reads", ns.windowModel.chips.audio.text, format(ns.L.CHIP_AUDIO_FMT, "Lala"))
@@ -144,7 +144,7 @@ Expect("another left out joins the list", ns.Room:Owner("voice"), "-bob stranger
 ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
 P.Receive(stub, LALA, "PS", "anyone", "-tata throwaway", "1111", "anyone", NONE)
-Expect("taken off the voice by the leader, this computer shows captions", Spoken:IsCaptionsOnly(), true)
+Expect("taken off the voice by the leader, this computer shows captions", Spoken:IsMuted(), true)
 local entries = ns:WindowAudioMenu()
 local ticked = false
 for _, entry in ipairs(entries) do
@@ -228,7 +228,7 @@ Expect("...and sets the voice apart from their summary", ns.Room:Summary(), "mix
 ns.Room:Set("music", "none")
 Expect("...which is theirs alone", ns.Room:Summary(), "none")
 Expect("nobody owns the voice", ns.Room:Voices("lala throwaway") or ns.Room:Voices(ns:MyKey()), false)
-Expect("...each computer playing its own lines", ns.Room:Plays("voice") and not Spoken:IsCaptionsOnly(), true)
+Expect("...each computer playing its own lines", ns.Room:Plays("voice") and not Spoken:IsMuted(), true)
 Expect("...and the others' captions only", ns.Room:CaptionsHere(), true)
 Expect("...unless this one decides its voice", (function() ns.Room:SetOwn("sound"); local here = ns.Room:CaptionsHere(); ns.Room:SetOwn(""); return here end)(), false)
 Expect("...in words", ns.Room:Describe("trigger"), ns.L.ROOM_TRIGGER)
@@ -270,7 +270,7 @@ ns, VO, env, Spoken = P.Boot(stub, LOOKUP)
 P.Party(stub, ns)
 P.Receive(stub, LALA, "PS", "anyone", "trigger", "1111", "anyone", NONE)
 Expect("the leader putting the voice on its trigger reaches a member", ns.Room:Triggered(), true)
-Expect("...whose sound stays on for its own lines", Spoken:IsCaptionsOnly(), false)
+Expect("...whose sound stays on for its own lines", Spoken:IsMuted(), false)
 Expect("...the tick greyed for it", P.Entry(ns:WindowAudioMenu(), ns.L.MENU_VOICE_TRIGGER).reason, ns.L.OPT_RULES_LEADER)
 
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end

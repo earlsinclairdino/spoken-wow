@@ -135,7 +135,7 @@ describe("reportContribution", () => {
   it("shows text the corpus already has as known", async () => {
     const submission = reportSubmission(await report("Hello, $n."));
     if (typeof submission === "string") throw new Error(submission);
-    expect((await reportContribution(submission)).state).toEqual({ kind: "known", lineId: expect.any(String) });
+    expect((await reportContribution(submission)).state).toEqual({ kind: "known", lineId: expect.any(String), variant: 0 });
   });
 });
 
@@ -153,7 +153,7 @@ describe("contributeReport", () => {
       `select "text" from "quest_line" where "lineId" = $1 and "lang" = 'enUS' and "isCurrent"`,
       [lineId],
     );
-    expect(rows).toEqual([{ text: "Greetings, Adventurer." }]);
+    expect(rows).toEqual([{ text: "Greetings, $N." }]);
   });
 
   it("refuses text the line already speaks, and stores nothing", async () => {

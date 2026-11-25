@@ -137,18 +137,18 @@ Expect("...and does nothing", Spoken:Pause() == false and Spoken:IsPaused() == f
 -- What the player shows (2026-10-08: the Subtitles player's Stop and Skip stayed lit).
 local Subtitle = env.Subtitle
 if not Subtitle.frame then Subtitle:Build() end
-Subtitle:UpdatePause()
+Subtitle:UpdateControls()
+-- Next Line greys with nothing waiting whatever the gate says, so Stop alone shows it.
 Expect("...the subtitle's Stop is greyed", Subtitle.pause:IsEnabled(), false)
-Expect("...and its Skip", Subtitle.skip:IsEnabled(), false)
 ns:ShowWindow(true)
 local windowStop = _G.SpokenPartySyncWindow.pause
 Expect("...and the party window's Stop", windowStop:IsEnabled(), false)
 Expect("...saying why", windowStop.tip.reason, ns.L.GATE_NOBODY)
 ns.Peers:SetRule("controls", "leader")
 Expect("under the leader's controls the leader may stop", Spoken:WhyNoControl(), nil)
-Subtitle:UpdatePause()
+Subtitle:UpdateControls()
 ns:RefreshWindow()
-Expect("...its subtitle buttons live again", Subtitle.pause:IsEnabled() and Subtitle.skip:IsEnabled(), true)
+Expect("...its subtitle Stop lives again", Subtitle.pause:IsEnabled(), true)
 Expect("...and the window's Stop", windowStop:IsEnabled() and windowStop.tip.reason == nil and windowStop.tip.title, ns.L.WINDOW_STOP)
 ns:ShowWindow(false)
 Expect("...and it reaches the party", Spoken:Pause() and P.Last("PZ", LALA) ~= nil, true)

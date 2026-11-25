@@ -352,7 +352,7 @@ function Skin:Initialize()
     -- Why the line waits, Stopped and the lines waiting, after the title: each its own text, so
     -- each fades by itself.
     self.stopped = Font(self.title, 12, 1, 1, 1)
-    self.stopped:SetText(format("• (%s)", L.SUBTITLE_STOPPED))
+    self.stopped:SetText(format("· (%s)", L.SUBTITLE_STOPPED))
     self.stopped:Hide()
     self.count = Font(self.title, 12, 1, 1, 1)
     self.count:Hide()
@@ -375,20 +375,22 @@ function Skin:Initialize()
     self.controls:SetHeight(1)
     local play = Actions.StopButton(self.controls, function() return self:HasClip() end,
         function() self:UpdateControls() end)
-    self.play, self.skip = play, Actions.SkipButton(self.controls)
-    self.buttons = { self.play, self.skip }
+    self.play, self.previous, self.skip = play, Actions.PreviousButton(self.controls), Actions.SkipButton(self.controls)
+    self.eject = Actions.EjectButton(self.controls)
+    self.buttons = { self.previous, self.play, self.skip, self.eject }
     Actions:Build(frame)
 
     -- No scrollbar: the captions scroll themselves on the wheel.
 end
 
 --- DialogueUI's own window open over this one, which then stays hidden: the dialog shows the line.
---- Not while this one sits on the dialog (Show Spoken Over DialogueUI).
+--- Not while this one sits on the dialog (Show Spoken Over DialogueUI). Closed, it still covers a
+--- line its module is about to stop.
 function Skin:Covered()
     for _, dialog in ipairs(self.dialogs or {}) do
         if dialog:IsShown() and self.frame:GetParent() ~= dialog then return true end
     end
-    return false
+    return self:HeldByWindow(PlayerFrame:Current())
 end
 
 function Skin:StartDrag()
@@ -564,7 +566,7 @@ function Skin:ConfigurePortrait()
 end
 
 function Skin:ConfigureActions()
-    self.row = Actions:HeaderControls(self.frame, self.controls, { self.play, self.skip }, self.clip)
+    self.row = Actions:HeaderControls(self.frame, self.controls, self.buttons, self.clip)
     self:LayoutControls()
 end
 
@@ -852,8 +854,8 @@ function Skin:EndFade()
     end
 end
 
---- After the title: why the line waits, "• (Stopped)" while it is stopped, and the lines waiting
---- behind it, "• +N". The title is cut short, not these.
+--- After the title: why the line waits, "· (Stopped)" while it is stopped, and the lines waiting
+--- behind it, "· +N". The title is cut short, not these.
 function Skin:Count(waiting)
     local tail = self.tail
     tail:SetCount(waiting)
@@ -881,7 +883,7 @@ function Skin:Tick(elapsed)
     if preparing then
         preparing.waited = preparing.waited + elapsed
         local still = self:Still()
-        if still or preparing.waited >= PREPARE_MOST then
+        if (still or preparing.waited >= PREPARE_MOST) and not self:AwaitsDialog(PlayerFrame:Current()) then
             self.preparing = nil
             self:StartFade(not still)
         end

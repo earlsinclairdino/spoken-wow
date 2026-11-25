@@ -4,15 +4,19 @@
  * id. What is listed matches the corpus's rule otherwise: a language's own rows, then English's
  * for the moments it has none of, so an English split shows as :m and :f until translated.
  */
+import { LEVEL_PARAM } from "@/lib/line-fields";
 import "server-only";
 
+import { audioRelPath, fileIndex } from "@/lib/audio";
 import { momentOf, momentSql, answersQuestMomentSql } from "@/lib/contributions/naming";
 import { query } from "@/lib/db";
 import { BASE_LANG, type Lang } from "@/lib/lang";
 import { branchesOnPlayerGender } from "@/lib/player-words";
+import { OverrideError, overrideOf, validateOverride, type LineOverride } from "@/lib/quests/override";
+import { clearOverride, readOverrides, writeOverride } from "@/lib/quests/overrides";
 import { restoreQuestText, retireQuestText, saveQuestText } from "@/lib/quests/text";
 
-import { Refused } from "./errors";
+import { checkOriginalVersion, Refused, untranslated } from "./errors";
 import { decodeCursor, encodeCursor, hasNul, isVariant, keyOf, type SectionApi, type TextItem } from "./types";
 
 type Row = {
@@ -23,6 +27,7 @@ type Row = {
   playerGender: string | null;
   text: string | null;
   version: number | null;
+  fileName: string;
   name: string | null;
   nameVersion: number | null;
   englishText: string | null;
@@ -61,7 +66,7 @@ function linesSql(where: string, limit: string, scope: (alias: string) => string
        ${limit}
     )
     select ln."lineId", ln."variant", ln."source", ln."questId", ln."playerGender", t."text", t."version",
-           n."name", n."version" as "nameVersion", e."text" as "englishText",
+           coalesce(t."fileName", e."fileName") as "fileName", n."name", n."version" as "nameVersion", e."text" as "englishText",
            coalesce(en."name", e."questTitle") as "englishName"
       from "page" ln
       left join "quest_line" t
@@ -80,11 +85,12 @@ function linesSql(where: string, limit: string, scope: (alias: string) => string
      order by ln."lineId" collate "C", ln."variant"`;
 }
 
-function toItem(row: Row): TextItem {
+function toItem(row: Row, overrides: Map<string, LineOverride>): TextItem {
   return {
     id: row.lineId,
     variant: row.variant,
     text: row.text,
+    override: overrideOf(overrides, audioRelPath(row))?.text ?? null,
     version: row.version,
     name: row.name,
     nameVersion: row.nameVersion,
@@ -111,10 +117,19 @@ export function listSql(
   const add = (value: unknown) => `$${params.push(value)}`;
   const quest = filter.quest === undefined ? null : add(Number(filter.quest));
   const source = filter.source === undefined ? null : add(filter.source);
+  const minLevel = filter.minLevel === undefined ? null : add(Number(filter.minLevel));
+  const maxLevel = filter.maxLevel === undefined ? null : add(Number(filter.maxLevel));
+  const levelBounds = [
+    ...(minLevel ? [`"level" >= ${minLevel}::int`] : []),
+    ...(maxLevel ? [`"level" <= ${maxLevel}::int`] : []),
+  ].join(" and ");
   const scope = (alias: string) =>
     [
       ...(quest ? [`${alias}."questId" = ${quest}::int`] : []),
       ...(source ? [`${alias}."source" = ${source}`] : []),
+      ...(levelBounds
+        ? [`${alias}."questId" in (select "questId" from "quest_level" where ${levelBounds})`]
+        : []),
     ].join(" and ") || "true";
   const after = cursor === null ? null : decodeCursor(cursor, isCursor);
   const where = after
@@ -123,26 +138,37 @@ export function listSql(
   return { text: linesSql(where, `limit ${add(limit + 1)}`, scope), params };
 }
 
+async function lineOf(lang: Lang, id: string, variant: number): Promise<Row | null> {
+  if (hasNul(id)) return null;
+  const rows = await query<Row>(
+    linesSql(`where ln."lineId" = $3 and ln."variant" = $4`, "", (alias) => answersQuestMomentSql(`${alias}."lineId"`, "$5")),
+    [lang, BASE_LANG, id, variant, momentOf(id)],
+  );
+  return rows[0] ?? null;
+}
+
+const GENDER_SPLIT = "an override cannot split a line by the reader's gender; that changes the original text";
+const VOICE_LINE = "this line is spoken in another voice; override it on the site";
+
 export const quests: SectionApi = {
-  filters: { quest: /^\d{1,9}$/, source: /^(accept|progress|complete|gossip)$/ },
+  filters: {
+    quest: /^\d{1,9}$/,
+    source: /^(accept|progress|complete|gossip)$/,
+    minLevel: LEVEL_PARAM,
+    maxLevel: LEVEL_PARAM,
+  },
 
   async list(lang, filter, cursor, limit) {
     const { text, params } = listSql(filter, cursor, limit, lang);
-    const rows = await query<Row>(text, params);
-    const items = rows.slice(0, limit).map(toItem);
+    const [rows, overrides] = await Promise.all([query<Row>(text, params), readOverrides(lang)]);
+    const items = rows.slice(0, limit).map((row) => toItem(row, overrides));
     const last = items[items.length - 1];
     return { items, nextCursor: rows.length > limit ? encodeCursor([last.id, last.variant]) : null };
   },
 
   async one(lang, id, variant) {
-    if (hasNul(id)) return null;
-    const rows = await query<Row>(
-      linesSql(`where ln."lineId" = $3 and ln."variant" = $4`, "", (alias) =>
-        answersQuestMomentSql(`${alias}."lineId"`, "$5"),
-      ),
-      [lang, BASE_LANG, id, variant, momentOf(id)],
-    );
-    return rows[0] ? toItem(rows[0]) : null;
+    const [line, overrides] = await Promise.all([lineOf(lang, id, variant), readOverrides(lang)]);
+    return line ? toItem(line, overrides) : null;
   },
 
   async known(lang, asked) {
@@ -193,6 +219,38 @@ export const quests: SectionApi = {
       expectedVersion,
       audit,
     });
+  },
+
+  async saveOverride({ lang, id, variant, text, by, expectedVersion, audit }) {
+    const line = await lineOf(lang, id, variant);
+    if (!line) throw untranslated(lang);
+    // The file the Explorer's rewrite writes: named by the language's row, else by English's, so
+    // the site and the API edit one override.
+    const file = audioRelPath(line);
+    const done = (wrote: boolean, removed: boolean) => ({ version: line.version, lines: [id], wrote, removed });
+    // Where the line's speakers all moved to another voice, the corpus lists only that voice's line
+    // and file, and an override on this file would never be spoken or shown.
+    const unlisted = async () => !(await fileIndex(lang)).has(file);
+    // Taking an override back needs no original under it, so one over a retired line can still go.
+    if (text === null) {
+      if (!(await readOverrides(lang)).has(file) && (await unlisted())) throw new Refused(VOICE_LINE);
+      const removed = await clearOverride(lang, file, by, audit);
+      return done(removed, removed);
+    }
+    if (line.text === null) throw untranslated(lang);
+    checkOriginalVersion(line.version, expectedVersion);
+    // A split rewrites the moment's original lines, which every team voices.
+    if (branchesOnPlayerGender(text)) throw new Refused(GENDER_SPLIT);
+    if (await unlisted()) throw new Refused(VOICE_LINE);
+    let draft;
+    try {
+      draft = validateOverride({ file, lineId: line.lineId, text }, lang);
+    } catch (error) {
+      if (error instanceof OverrideError) throw new Refused(error.message);
+      throw error;
+    }
+    const { before } = await writeOverride(lang, file, draft.lineId, draft.text, by, audit);
+    return done(before !== draft.text, false);
   },
 
   async nameTarget(lang, id, variant) {

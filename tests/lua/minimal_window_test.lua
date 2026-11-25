@@ -40,13 +40,15 @@ local M, T, L = env.MinimalPlayer, env.Transcript, env.L
 quests:Enqueue(Line("One", "Grull", { REPORT }))
 quests:Enqueue(Line("Two"))
 Expect("the small window shows the line", M.wanted and M.clip ~= nil, true)
-Expect("it has the DialogueUI window's round controls, Stop or Replay then Skip", Try(function()
+Expect("it has the round controls, Previous, Stop or Replay, Skip then Eject", Try(function()
     return M.controls ~= nil and M.play:GetParent() == M.controls and M.skip:GetParent() == M.controls
-        and M.skip.bar ~= nil and M.row[1] == M.play and M.row[2] == M.skip end), true)
+        and M.previous:GetParent() == M.controls and M.skip.bar ~= nil
+        and M.row[1] == M.previous and M.row[2] == M.play and M.row[3] == M.skip
+        and M.row[4] == M.eject and M.eject:GetParent() == M.controls end), true)
 Expect("...in its header, at the right", Try(function() return M.controls.anchor.point == "RIGHT"
     and M.controls.anchor.relativeTo == M.content and M.controls.anchor.relativePoint == "TOPRIGHT" end), true)
-Expect("...Report after Skip, in the header and as large", Try(function()
-    local report = M.row[3]
+Expect("...Report after Eject, in the header and as large", Try(function()
+    local report = M.row[5]
     return report:GetParent() == M.controls and report:GetWidth() == M.play:GetWidth() end), true)
 Expect("...the name and the title stopping short of them", Try(function() return M.controls ~= nil
     and M.name.anchor.relativeTo == M.controls and M.title.anchor.relativeTo == M.controls end), true)
@@ -56,8 +58,9 @@ Expect("no fold and no list of the lines waiting", tostring(M.fold) .. " " .. to
 Expect("...nor a queue entry in its menu", M.menuQueue, nil)
 Expect("the line's title is a name, nothing to click", M.title:GetObjectType(), "Frame")
 Expect("the title counts the lines waiting, after it", Try(function() return M.title.text:GetText() .. "|"
-    .. tostring(M.count:IsShown()) .. "|" .. M.count:GetText() end), "One|true|• +1")
+    .. tostring(M.count:IsShown()) .. "|" .. M.count:GetText() end), "One|true|· +1")
 Expect("...fading in as the line is added", Try(function() return M.count:GetAlpha() < 1 end), true)
+Expect("...with no swell while lines play", Try(function() return M.tail.pulse:Active() end), false)
 M:Tick(0.3)
 Expect("...all the way", Try(function() return M.count:GetAlpha() end), 1)
 _G.GameTooltip.AddDoubleLine = function(self, left, right) self:AddLine(left .. "|" .. right) end
@@ -75,10 +78,32 @@ pcall(function() M.play.scripts.OnClick(M.play) end)
 Expect("Stop stops the line, its glyph turning to Replay", Try(function() return tostring(env.SoundQueue:IsPaused())
     .. " " .. tostring(M.play.state) end), "true replay")
 Expect("...and the title says it is stopped, after the line's name", Try(function()
-    return tostring(M.stopped:IsShown()) .. "|" .. M.stopped:GetText() end), "true|• (" .. L.SUBTITLE_STOPPED .. ")")
+    return tostring(M.stopped:IsShown()) .. "|" .. M.stopped:GetText() end), "true|· (" .. L.SUBTITLE_STOPPED .. ")")
 Expect("...fading in", Try(function() return M.stopped:GetAlpha() < 1 end), true)
 M:Tick(0.3)
 Expect("...all the way", Try(function() return M.stopped:GetAlpha() end), 1)
+quests:Enqueue(Line("Three"))
+Expect("a line added while stopped waits, the queue still stopped", Try(function()
+    return tostring(env.SoundQueue:IsPaused()) .. "|" .. M.count:GetText() end), "true|· +2")
+local burst = M.tail.pulse.burst
+local SetText = burst.SetText
+-- The client rejects SetText until a newly created FontString has a font.
+burst.SetText = function(self, text)
+    assert(self.fontFile, "FontString:SetText(): Font not set")
+    return SetText(self, text)
+end
+M:Tick(0.15)
+Expect("...the count swelling, lit, over the count itself", Try(function()
+    local pulse = M.tail.pulse
+    local size = pulse.burst.fontSize
+    return tostring(pulse.burst:IsShown()) .. " " .. tostring(pulse.glow:IsShown()) .. " " .. pulse.burst:GetText()
+        .. " " .. tostring(size > 12) .. " " .. M.count:GetAlpha()
+end), "true true · +2 true 0")
+M:Tick(0.6)
+Expect("...and settling back", Try(function()
+    return tostring(M.tail.pulse.burst:IsShown()) .. " " .. tostring(M.tail.pulse.glow:IsShown()) .. " " .. M.count:GetAlpha()
+end), "false false 1")
+env.SoundQueue:RemoveSoundFromQueue(env.SoundQueue.sounds[3])
 pcall(function() M.play.scripts.OnClick(M.play) end)
 M:Tick(0.4)
 Expect("Replay plays it again, Stopped fading out", Try(function()
@@ -179,7 +204,7 @@ quests:AddGate(function() return "in combat" end)
 quests:Enqueue(Line("One"))
 Expect("a held line says why after its title", Try(function()
     return tostring(M.held:IsShown()) .. " " .. M.held:GetText()
-end), "true • (in combat)")
+end), "true · (in combat)")
 env.SoundQueue:RemoveAllSoundsFromQueue()
 
 ---------------------------------------------------------------- bronze

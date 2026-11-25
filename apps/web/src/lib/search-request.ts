@@ -9,10 +9,11 @@
  * a hand-edited URL, and answering it with the unfiltered corpus is both safe and more
  * useful than a 400.
  */
+import { clientFilterOf } from "./contributions/client";
 import { audioStateFromParams } from "./audio-state";
 import { facets } from "./facets";
 import type { Lang } from "./lang";
-import { NPC_TYPES, sourcesFromParam } from "./line-fields";
+import { levelFromParam, NPC_TYPES, sourcesFromParam } from "./line-fields";
 import { RECORDED } from "./recordings/live";
 import { BROADCAST_STATUSES } from "./broadcast/status";
 import type { Filter, LineFilters } from "./search";
@@ -28,7 +29,7 @@ function oneOf<T extends string>(value: string | null, allowed: readonly T[]): T
  * is a question with a current answer rather than a constant baked into the release.
  */
 export async function filtersFromParams(params: URLSearchParams, lang: Lang): Promise<LineFilters> {
-  const { races, genders, flavors, voices } = await facets(lang);
+  const { races, genders, flavors, voices, zones } = await facets(lang);
 
   return {
     q: params.get("q") ?? "",
@@ -40,14 +41,15 @@ export async function filtersFromParams(params: URLSearchParams, lang: Lang): Pr
     voice: oneOf(params.get("voice"), voices),
     source: sourcesFromParam(params.get("source")),
     npcType: oneOf(params.get("type"), NPC_TYPES),
+    // As written, like every other filter: zone=01411 is no zone.
+    zone: Number(oneOf(params.get("zone"), zones.map((zone) => String(zone.uiMapID)))) || undefined,
     narration: params.get("narration") === "1",
-    // Absent means hidden, so the default state needs no parameter and a bare URL is the
-    // useful view rather than the padded one.
-    includeProgress: params.get("progress") === "1",
+    // Absent means Era + Forever, the clients the site voices (lib/quests/line-client.ts).
+    client: clientFilterOf(params.get("client")),
     line: params.get("line") || undefined,
     overridden: params.get("overridden") === "1",
-    // Absent means hidden, like progress text: the useful default view is the corpus minus
-    // the lines nobody will ever voice.
+    // Absent means hidden: the useful default view is the corpus minus the lines nobody will
+    // ever voice.
     ignored: params.get("ignored") === "1",
     dirty: params.get("dirty") === "1",
     reports: oneOf(params.get("fb"), ["open"] as const),
@@ -61,6 +63,9 @@ export async function filtersFromParams(params: URLSearchParams, lang: Lang): Pr
     author: params.get("author") || undefined,
     recorded: oneOf(params.get("rec"), RECORDED),
     broadcast: oneOf(params.get("bt"), BROADCAST_STATUSES),
+    minLevel: levelFromParam(params.get("minLevel")),
+    maxLevel: levelFromParam(params.get("maxLevel")),
+    playerGender: oneOf(params.get("playerGender"), ["m", "f"] as const),
   };
 }
 
@@ -76,6 +81,10 @@ export function withoutMadeBy(filters: LineFilters): LineFilters {
 /** Whether staleness has to be answered for the whole corpus, which is a query and a hash per take. */
 export function needsStale(filters: LineFilters): boolean {
   return filters.state === "stale" || filters.state === "current";
+}
+
+export function needsLevels(filters: LineFilters): boolean {
+  return filters.minLevel !== undefined || filters.maxLevel !== undefined;
 }
 
 /** The same question for pronunciation: one query plus a substring pass per changed word. */

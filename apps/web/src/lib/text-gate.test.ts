@@ -20,6 +20,14 @@ describe("hasInvalidChars", () => {
     expect(hasInvalidChars("What < is this")).toBe(true);
   });
 
+  it("catches every client escape, which the voice would read out as written", () => {
+    // q:303:complete, q:2418:complete, q:94240:accept, and a koKR particle.
+    for (const text of ["chasse-|nresse", "rencontré |2 voyageur", "1 |4пару:пары:пар;", "모험가|1이여;여;", "|cff00ff00Vert|r"]) {
+      expect(hasInvalidChars(text)).toBe(true);
+    }
+    expect(hasInvalidChars("A || B")).toBe(false);
+  });
+
   it("passes ordinary text, punctuation and apostrophe names alike", () => {
     expect(hasInvalidChars("I hate those nasty timber wolves!")).toBe(false);
     expect(hasInvalidChars("Kel'Thuzad -- the lich -- waits.")).toBe(false);
@@ -61,12 +69,8 @@ describe("isVoiceable", () => {
     expect(isVoiceable({ skipReason: "invalid-chars" }, "Hello $2113w. <He waves.>")).toBe(false);
   });
 
-  it("still refuses progress text whatever its brackets", () => {
-    expect(isVoiceable({ skipReason: "progress" }, "<He waits.>")).toBe(false);
-  });
-
-  it("never rescues progress text, which is skipped by policy rather than by damage", () => {
-    expect(isVoiceable({ skipReason: "progress" }, "perfectly ordinary text")).toBe(false);
+  it("voices progress text, which is skipped by nothing but damage", () => {
+    expect(isVoiceable({ skipReason: null }, "Did you find it yet?")).toBe(true);
   });
 
   it("still refuses a clean line that an override has broken", () => {

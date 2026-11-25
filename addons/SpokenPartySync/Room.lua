@@ -8,7 +8,7 @@
 -- captions only); the game's channels have no trigger. A computer may decide a channel for
 -- itself instead (Play My Own Sound): "" (as the party decides), "plays" or "muted". The voice
 -- is Spoken's lines: a computer that does not play it shows them as captions, through the
--- player's session override (Spoken:SetCaptionsOnlyOverride), never its saved setting, so the
+-- player's session override (Spoken:SetMuteOverride), never its saved mute, so the
 -- sound comes back the moment the party or the owner goes. The game's own channels are switched
 -- in Channels.lua.
 --
@@ -170,7 +170,7 @@ function Room:Update()
 	if PartySync.Channels then PartySync.Channels:Apply() end
 	Peers:AnnounceIfChanged()
 	local Spoken = _G.Spoken
-	if not (PartySync:PlayerAvailable() and Spoken.SetCaptionsOnlyOverride) then
+	if not (PartySync:PlayerAvailable() and Spoken.SetMuteOverride) then
 		return
 	end
 	local silent = self:IsSilent()
@@ -181,7 +181,7 @@ function Room:Update()
 			self:Describe(self:Owner("voice")), voiceHere and ", decided here" or "")
 		-- Set first: the override fires the player's AUDIO_CHANGED, which comes back here.
 		applied = silent
-		Spoken:SetCaptionsOnlyOverride(silent)
+		Spoken:SetMuteOverride(silent)
 		if silent then
 			PartySync:Print("same room: %s, this computer shows the captions", voiceHere
 				and "captions only here by choice" or format("%s plays the voice", self:Describe(self:Owner("voice"))))

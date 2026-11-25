@@ -16,6 +16,7 @@ matplotlib zone picker is deleted.
 import gzip
 import json
 import os
+import re
 from datetime import datetime, timezone
 
 from tts_cli.flavors import is_model_voice
@@ -37,6 +38,8 @@ from tts_cli.npc_bodies import npc_bodies
 SCHEMA_VERSION = 6
 DEFAULT_CORPUS_PATH = "corpus/corpus.json.gz"
 INVALID_CHARS = "$<>"
+#: `$N`, `$C` and `$R` in English text, which the site says as English's words, `$` doubled or not.
+PLAYER_TOKEN = re.compile(r"\$\$?[NnCcRr]")
 #: The skipReason of a line whose voice is a model slot nobody has chosen a voice for yet.
 NO_VOICE = "no-voice"
 
@@ -54,8 +57,7 @@ def spawn_key(entity_type: str, entity_id) -> str:
 def _skip_reason(row):
     """Why the generator would not synthesize this row, or None.
 
-    Mirrors TTSProcessor.process_row (tts_cli/tts_utils.py:175-187): progress text is
-    deliberately never voiced, and unresolved template tokens would be read aloud.
+    Unresolved template tokens would be read aloud.
 
     A line in a model voice (flavors.model_voice) has nobody to speak it yet: which voice a
     model gets is still to be chosen, so the line is gathered - it has a line id, a file name
@@ -63,8 +65,6 @@ def _skip_reason(row):
     reason no rewrite of the text can lift; the site asks the voice, not this, for the same
     answer (apps/web/src/lib/text-gate.ts).
     """
-    if row["source"] == "progress":
-        return "progress"
     if is_model_voice(row.get("voice_name")):
         return NO_VOICE
     if any(c in row["cleanedText"] for c in INVALID_CHARS):
@@ -72,12 +72,17 @@ def _skip_reason(row):
     return None
 
 
+def english_skip_reason(row):
+    """_skip_reason for an English row, whose player tokens the site says."""
+    return _skip_reason({**row, "cleanedText": PLAYER_TOKEN.sub("", row["cleanedText"])})
+
+
 def build_corpus(df, spawn_rows, display_rows=()) -> dict:
     """Turn the preprocessed dataframe, raw spawn rows and creature displays into the corpus
     document."""
     lines = []
     for row in df.to_dict("records"):
-        reason = _skip_reason(row)
+        reason = english_skip_reason(row)
         lines.append({
             "lineId": line_id_for_row(row),
             "source": row["source"],

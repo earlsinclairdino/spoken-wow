@@ -1,3 +1,5 @@
+import { CLIENT_ESCAPE, speakPlayerTokens } from "../../../lib/player-words.mjs";
+
 // Page text as it comes out of vmangos, and as it goes to a narrator.
 //
 // Two forms, deliberately: `normaliseText` is stored and shown, so it keeps the shape of
@@ -9,8 +11,11 @@
 /** Pages whose text is a maintenance placeholder rather than anything a player reads. */
 const PLACEHOLDERS = new Set(["missing text", "texto ausente", "test", "placeholder"]);
 
-/** What the game substitutes at runtime and a recording cannot: $N, $C, $R, $Gx:y;. */
-const SUBSTITUTION = /\$[a-zA-Z]/;
+/**
+ * What the game substitutes at runtime and a recording cannot: $N, $C, $R, $Gx:y;, and a client
+ * escape such as ruRU's declension `|3-6(...)`, left whole when its case has no word.
+ */
+const SUBSTITUTION = new RegExp(String.raw`\$[a-zA-Z]|${CLIENT_ESCAPE.source}`);
 
 /**
  * The tags the signed pages are written in, and nothing else in angle brackets.
@@ -83,6 +88,8 @@ const ASIDE = /<([^<>]+)>/g;
  */
 const NAME_PLACEHOLDER = /<nombre>/gi;
 
+const ENTITY = /&(amp|lt|gt|quot|apos|nbsp);/g;
+
 /**
  * Narration form: one flowing paragraph, asides read.
  *
@@ -98,7 +105,14 @@ export function spokenText(text) {
     .replace(ASIDE, "\n$1\n")
     .replace(/\s*\n\s*/g, "\n")
     .trim()
-    .replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (_, name) => ENTITIES[name]);
+    .replace(ENTITY, (_, name) => ENTITIES[name]);
+}
+
+/** Paragraphs kept, because spokenText's single flowing line reads badly on screen. */
+export function shownPage(text, lang) {
+  return normaliseText(speakPlayerTokens(text, lang))
+    .replace(NAME_PLACEHOLDER, " ")
+    .replace(ENTITY, (_, name) => ENTITIES[name]);
 }
 
 /**

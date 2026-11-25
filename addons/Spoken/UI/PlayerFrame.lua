@@ -50,7 +50,7 @@ local NAME_COLOR = { 1, .82, .02 }
 local WORDS_COLOR = { 1, 1, 1 }
 local TAIL_COLOR = { .6, .6, .6 }
 local LABEL_GAP = 6
-local LABEL_LEAST = "• ..."
+local LABEL_LEAST = "· ..."
 
 do
     local font = CreateFont("SpokenNameFont")
@@ -168,7 +168,7 @@ function PlayerFrame:InitHeader()
         return text
     end
     self.stopped, self.count, self.held = TailText(), TailText(), TailText()
-    self.stopped:SetText(format("• (%s)", L.SUBTITLE_STOPPED))
+    self.stopped:SetText(format("· (%s)", L.SUBTITLE_STOPPED))
     self.tail = Actions.Tail(self.stopped, self.count, self.held)
     for _, text in ipairs({ container.name, self.stopped, self.count, self.held }) do Ellesmere:Refont(text) end
 
@@ -177,8 +177,10 @@ function PlayerFrame:InitHeader()
     self.controls:SetPoint("TOPRIGHT", self.frame, "TOPRIGHT", -CORNER_X, -CORNER_Y)
     self.play = Actions.StopButton(self.controls, function() return self:Current() ~= nil end,
         function() self:UpdateControls() end)
+    self.previous = Actions.PreviousButton(self.controls)
     self.skip = Actions.SkipButton(self.controls)
-    self.buttons = { self.play, self.skip }
+    self.eject = Actions.EjectButton(self.controls)
+    self.buttons = { self.previous, self.play, self.skip, self.eject }
 
     self.progress = Actions.ProgressBar(container)
     self.progress.track:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", 0, 0)
@@ -213,9 +215,9 @@ function PlayerFrame:InitMover()
         GameTooltip:Show()
     end)
     mover:HookScript("OnLeave", function() SetCursor(nil); GameTooltip_Hide() end)
-    mover:HookScript("OnMouseDown", function()
+    mover:HookScript("OnMouseDown", function(_, button)
         if Addon:IsFrameLocked() then return end
-        Snap.Start(self.frame, { locked = function() return Addon:IsFrameLocked() end })
+        Snap.Start(self.frame, { button = button, locked = function() return Addon:IsFrameLocked() end })
     end)
     mover:HookScript("OnMouseUp", function()
         if Addon:IsFrameLocked() then return end
@@ -526,7 +528,7 @@ function PlayerFrame:Update()
         -- Less room than a dot and an ellipsis would draw only a stray fragment.
         label:SetText(LABEL_LEAST)
         self.labelLeast = (label:GetStringWidth() or 0) + 1
-        label:SetText("• " .. Label(head))
+        label:SetText("· " .. Label(head))
         self.labelWidth = (label:GetStringWidth() or 0) + 1
     end
 

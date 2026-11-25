@@ -52,7 +52,7 @@ Expect("the header is the clip's", F.frame.container.name:GetText(), "Eagan Pelt
 ExpectOf("...and the line's name after it and a dot, as the other windows show both", function()
     local label = F.frame.container.label
     return tostring(label:IsShown()) .. "|" .. label:GetText() .. "|" .. tostring(label.anchor.relativeTo == F.frame.container.name)
-end, "true|• Wolves Across the Border|true")
+end, "true|· Wolves Across the Border|true")
 env.SoundQueue:RemoveAllSoundsFromQueue()
 Expect("hidden again when the queue empties", F.frame:IsShown(), false)
 quests:Enqueue(H.Clip({ key = "b:1", present = { header = "A Letter Home", portrait = { kind = "none" } } }))
@@ -80,14 +80,14 @@ places:Enqueue(H.Clip({ key = "s:1436:moonbrook", present = { header = "Westfall
     portrait = { kind = "none" } } }))
 ExpectOf("a subzone's story names the zone, then the subzone", function()
     return F.frame.container.name:GetText() .. " " .. F.frame.container.label:GetText()
-end, "Westfall • Moonbrook")
+end, "Westfall · Moonbrook")
 env.SoundQueue:RemoveAllSoundsFromQueue()
 -- A zone's own story is headed by its continent.
 places:Enqueue(H.Clip({ key = "z:1436", present = { header = "Eastern Kingdoms", label = "Westfall", bullet = "zone",
     portrait = { kind = "none" } } }))
 ExpectOf("a zone's own story names the continent, then the zone", function()
     return F.frame.container.name:GetText() .. " " .. F.frame.container.label:GetText()
-end, "Eastern Kingdoms • Westfall")
+end, "Eastern Kingdoms · Westfall")
 env.SoundQueue:RemoveAllSoundsFromQueue()
 -- An area whose zone has no name is headed by its own name.
 places:Enqueue(H.Clip({ key = "s:1436:moonbrook", present = { header = "Moonbrook", label = "Moonbrook", bullet = "zone",
@@ -104,7 +104,7 @@ local long = string.rep("The Defias Brotherhood ", 6)
 Row("Gryan Stoutmantle", long)
 ExpectOf("a long line's name is cut to the room left, past the speaker's name in full", function()
     return tostring(name.width == #"Gryan Stoutmantle" * 7 + 1) .. " " .. tostring(title:GetAlpha())
-        .. " " .. tostring(title.width < #("• " .. long) * 7 + 1) .. " " .. tostring(title.anchor.x == name.width + 6)
+        .. " " .. tostring(title.width < #("· " .. long) * 7 + 1) .. " " .. tostring(title.anchor.x == name.width + 6)
 end, "true 1 true true")
 local room = name.width + 6 + title.width
 ExpectOf("...and pointing at it shows the whole of it", function()
@@ -114,7 +114,7 @@ ExpectOf("...and pointing at it shows the whole of it", function()
 end, "true " .. long)
 env.SoundQueue:RemoveAllSoundsFromQueue()
 Row("Gryan Stoutmantle", "Wolves Across the Border")
-ExpectOf("...which a line's name in full does not need", function() return F.frame.container.labelHover:IsShown() end, false)
+ExpectOf("...which a line's name in full does not need", function() return F.frame.container.labelHover:IsShown() end, true)
 env.SoundQueue:RemoveAllSoundsFromQueue()
 Row(string.rep("W", math.floor((room - 27) / 7)), long)
 ExpectOf("...not drawn at all where only a fragment of it would fit", function()
@@ -127,10 +127,10 @@ ExpectOf("...nor where the speaker's name takes the whole row, which is cut to i
 end, "0 true")
 env.SoundQueue:RemoveAllSoundsFromQueue()
 -- A short line's name is drawn where it fits whole, though less room is left than the least a cut one
--- takes ("• ...").
+-- takes ("· ...").
 Row(string.rep("W", math.floor((room - 6 - 1 - 40) / 7)), "A")
 ExpectOf("a line's name shorter than the least that is cut is drawn whole in the room it fits", function()
-    return tostring(title:GetAlpha()) .. " " .. tostring(title.width == #"• A" * 7 + 1)
+    return tostring(title:GetAlpha()) .. " " .. tostring(title.width == #"· A" * 7 + 1)
 end, "1 true")
 env.SoundQueue:RemoveAllSoundsFromQueue()
 -- The count of lines waiting takes its room from the line's name, which is cut to what is left.
@@ -261,7 +261,7 @@ Expect("the speaking clip heads the window even if queued second", F.frame.conta
 ExpectOf("a waiting line gets no row: the header counts it after the name, as the DialogueUI window does", function()
     return tostring(F.frame.container.buttons) .. " " .. tostring(F.count:IsShown()) .. " " .. F.count:GetText()
         .. " " .. tostring(F.count.anchor.relativeTo == F.frame.container.name)
-end, "nil true • +1 true")
+end, "nil true · +1 true")
 ExpectOf("...past the line's name", function()
     local label = F.frame.container.label
     return F.count.anchor.x > label.anchor.x + label.width
@@ -284,7 +284,7 @@ places:AddGate(function() return "in combat" end)
 places:Enqueue(H.Clip({ present = { header = "Durotar", bullet = "zone", portrait = { kind = "none" } } }))
 ExpectOf("a held line says why after its name", function()
     return tostring(F.held:IsShown()) .. " " .. F.held:GetText()
-end, "true • (in combat)")
+end, "true · (in combat)")
 env.Addon.db.profile.Transcript.SubtitleProgress = false
 F:RefreshConfig()
 Expect("Show Progress off hides the large window's progress line", F.progress.track:IsShown(), false)
@@ -343,15 +343,15 @@ places:Enqueue(H.Clip({ present = { header = "h", label = "l", bullet = "b", por
 Expect("two actions make two buttons", #F.frame.actions.buttons, 2)
 Expect("...each its round icon", F.frame.actions.buttons[1].glyph:GetTexture() .. "|"
     .. F.frame.actions.buttons[2].glyph:GetTexture(), "Read|Report")
-ExpectOf("...in the header's controls after Stop and Skip", function()
-    return #F.row == 4 and F.row[1] == F.play and F.row[2] == F.skip
-        and F.row[3] == F.frame.actions.buttons[1] and F.row[4]:GetParent() == F.controls
+ExpectOf("...in the header's controls after Previous, Stop, Skip and Eject", function()
+    return #F.row == 6 and F.row[1] == F.previous and F.row[2] == F.play and F.row[3] == F.skip
+        and F.row[4] == F.eject and F.row[5] == F.frame.actions.buttons[1] and F.row[6]:GetParent() == F.controls
 end, true)
 F.frame.actions.buttons[1]:Click()
 Expect("clicking passes the clip", clicked ~= nil and clicked:sub(1, 5), "read:")
 env.SoundQueue:RemoveAllSoundsFromQueue()
 quests:Enqueue(H.Clip({ present = { header = "h", label = "l", bullet = "b", portrait = { kind = "none" } } }))
-ExpectOf("no actions, Stop and Skip alone", function() return #F.frame.actions.buttons .. " " .. #F.row end, "0 2")
+ExpectOf("no actions, Previous, Stop, Skip and Eject alone", function() return #F.frame.actions.buttons .. " " .. #F.row end, "0 4")
 
 ---------------------------------------------------------------- the Talking Head's layout
 -- The window is the game's Talking Head frame as TalkingHeadUI.xml lays it out: 570 by 155, the
@@ -390,10 +390,11 @@ end, "3 false")
 ExpectOf("...above the progress line", function()
     return WordsTop() + 3 * 20 <= column:GetHeight() - F.progress.height
 end, true)
-ExpectOf("the round controls 10 inside the box's shadow at the top and the right, Stop or Replay then Skip", function()
+ExpectOf("the round controls 10 inside the box's shadow at the top and the right, Previous, Stop or Replay, Skip then Eject", function()
     local anchor = F.controls.anchor
     return anchor.point .. " " .. tostring(anchor.relativeTo == F.frame) .. " " .. anchor.x .. " " .. anchor.y
-        .. " " .. tostring(F.row[1] == F.play and F.row[2] == F.skip) .. " " .. F.play.state
+        .. " " .. tostring(F.row[1] == F.previous and F.row[2] == F.play and F.row[3] == F.skip
+            and F.row[4] == F.eject) .. " " .. F.play.state
 end, "TOPRIGHT true -22 -25 true stop")
 ExpectOf("...Skip in the subtitle's art", function() return F.skip.bar ~= nil end, true)
 ExpectOf("the progress line along the column's foot, as wide as the words", function()
@@ -405,7 +406,7 @@ pcall(F.UpdateControls, F)
 ExpectOf("Stop stops the line, its glyph turning to Replay", function() return F.play.state end, "replay")
 ExpectOf("...and the header says it is stopped, after the name and a dot", function()
     return tostring(F.stopped:IsShown()) .. "|" .. F.stopped:GetText() .. "|" .. tostring(F.stopped.anchor.relativeTo == column.name)
-end, "true|• (" .. env.L.SUBTITLE_STOPPED .. ")|true")
+end, "true|· (" .. env.L.SUBTITLE_STOPPED .. ")|true")
 ExpectOf("...fading in", function() return F.stopped:GetAlpha() < 1 end, true)
 pcall(F.Tick, F, 0.3)
 ExpectOf("...all the way", function() return F.stopped:GetAlpha() end, 1)
@@ -502,17 +503,24 @@ local menu = env.Minimap:BuildMenu()
 local labels = {}
 for _, entry in ipairs(menu) do table.insert(labels, entry.text) end
 Expect("the menu is the player's entries then each source's in order", table.concat(labels, "|"),
-    "Stop or Replay|Skip Line|Stop All|Settings|Quest settings|Open lore window")
+    "Stop or Replay|Previous Line|Next Line|Stop All|Settings|Quest settings|Open lore window")
+local ids = {}
+for _, entry in ipairs(menu) do table.insert(ids, entry.id) end
+Expect("the player's menu IDs use standard media terms", table.concat(ids, "|"),
+    "PlayPause|SkipBackward|SkipForward|Eject|Settings|opts|lore")
+Expect("old Previous IDs still resolve for saved minimap assignments",
+    env.Minimap:FindEntry("Previous").id .. "|" .. env.Minimap:FindEntry("Skip").id
+        .. "|" .. env.Minimap:FindEntry("Stop").id, "SkipBackward|SkipForward|Eject")
 env.Minimap:RemoveEntry("places", "lore")
-Expect("RemoveEntry", getn(env.Minimap:BuildMenu()), 5)
+Expect("RemoveEntry", getn(env.Minimap:BuildMenu()), 6)
 -- An addon that queues nothing has a heading of its own, after the sources.
 env.Minimap:AddEntry("party", { id = "window", text = "Open party window", order = 1, onClick = function() end })
-Expect("an entry with no source and no section is not shown", getn(env.Minimap:BuildMenu()), 5)
+Expect("an entry with no source and no section is not shown", getn(env.Minimap:BuildMenu()), 6)
 env.Minimap:AddSection("party", "Party", 10)
 labels = {}
 for _, entry in ipairs(env.Minimap:BuildMenu()) do table.insert(labels, entry.text) end
 Expect("...with its section, after the sources'", table.concat(labels, "|"),
-    "Stop or Replay|Skip Line|Stop All|Settings|Quest settings|Open party window")
+    "Stop or Replay|Previous Line|Next Line|Stop All|Settings|Quest settings|Open party window")
 
 -- A click on the icon opens the settings at once; the menu is a right-click away.
 local openSettings, settingsOpened = env.Options.Open, false
@@ -537,7 +545,7 @@ end
 -- A rule before each addon's heading. Without one the headings are the only thing
 -- separating the groups, and a heading reads as a row of the group above it.
 Expect("...listing the player's entries, then each source's under its name, ruled apart",
-    table.concat(shown, "|"), "Stop or Replay|Skip Line|Stop All|Settings|---|[Quests]|Quest settings|---|[Party]|Open party window")
+    table.concat(shown, "|"), "Stop or Replay|Previous Line|Next Line|Stop All|Settings|---|[Quests]|Quest settings|---|[Party]|Open party window")
 Expect("...anchored to the button", stub.openDropDown.dropdownAnchor, mmButton)
 
 -- The menu opens under the cursor, which is still on the button, so the button's tooltip
@@ -821,7 +829,7 @@ Expect("voice only is still one of the ways to show lines", _G.SpokenEnv.Options
 Expect("...and a narrator card of its own, a sound's bars rising and falling", labels["Voice Only"], true)
 Expect("...and there is no separate switch to hide the window", labels["Hide Window"], nil)
 Expect("the channel is chosen here", labels["Volume Follows"], true)
-Expect("...and the voice language, once for every module", labels["Voice Language"], true)
+Expect("...and the voices, once for every module", labels["Voices, in Order"], true)
 Expect("...and so is silencing the game's own dialogue",
     labels["Silence NPC Voices"], true)
 
@@ -846,8 +854,8 @@ Expect("the action is a button", corner ~= nil, true)
 Expect("...showing its icon, not a word, in the player's round button", corner.glyph:GetTexture(), ICON)
 Expect("...the ring round it, as the subtitle's controls have", corner.ring ~= nil, true)
 Expect("...with no label", corner:GetText() or "", "")
-ExpectOf("...in the header after Skip, as the DialogueUI window shows it", function()
-    return corner:GetParent() == env.PlayerFrame.controls and env.PlayerFrame.row[3] == corner
+ExpectOf("...in the header after Eject, as the DialogueUI window shows it", function()
+    return corner:GetParent() == env.PlayerFrame.controls and env.PlayerFrame.row[5] == corner
 end, true)
 -- Sized to be aimed at. Pinned as a floor rather than a number, so it can be tuned but
 -- cannot drift back to something you have to hunt for.
@@ -961,7 +969,7 @@ env.PlayerFrame:Update()
 local report = table.concat(env.PlayerFrame:Describe(), "\n")
 Expect("it reports the header it drew", string.find(report, 'header="Gornek"', 1, true) ~= nil, true)
 Expect("...the line's name after it, and whether it is drawn",
-    string.find(report, 'label="• Cutting Teeth" shown=true alpha=1.00', 1, true) ~= nil, true)
+    string.find(report, 'label="· Cutting Teeth" shown=true alpha=1.00', 1, true) ~= nil, true)
 Expect("...which portrait renderer is in use", string.find(report, "portrait kind=none", 1, true) ~= nil, true)
 Expect("...and how much is queued", string.find(report, "queue=1", 1, true) ~= nil, true)
 
@@ -1193,6 +1201,49 @@ end, 0)
 env.SoundQueue:RemoveAllSoundsFromQueue()
 env.Addon:SetPlayerStyle("classic")
 _G.IsShiftKeyDown = hadShift
+
+do
+    env, quests, places = Boot()
+    F = env.PlayerFrame
+    local eject = F.eject
+    Expect("the player has an eject button after Skip", F.buttons[4], eject)
+    Expect("eject draws its own glyph", eject.glyph:GetTexture(), [[Interface\AddOns\Spoken\Textures\GlyphEject]])
+    Expect("...with no separate bar", eject.bar, nil)
+    eject.scripts.OnEnter(eject)
+    Expect("eject explains the Eject action", GameTooltip.lines[1], env.L.BIND_EJECT)
+    for _, style in ipairs({ "classic", "minimal", "subtitle" }) do
+        env.Addon:SetPlayerStyle(style)
+        F:RefreshConfig()
+        local view = style == "classic" and F or style == "minimal" and env.MinimalPlayer or env.Subtitle
+        local controls = view.buttons or { view.pause, view.previous, view.skip, view.eject }
+        quests:Enqueue(H.Clip({ present = { transcript = "A single narrated quest line." } }))
+        stub.Advance(0.1)
+        if style == "subtitle" then
+            Expect("subtitle puts Stop after Previous Line", view.pause.anchor.x > view.previous.anchor.x, true)
+            Expect("subtitle puts Next Line after Stop", view.skip.anchor.x > view.pause.anchor.x, true)
+            Expect("subtitle puts Stop All after Next Line", view.eject.anchor.x > view.skip.anchor.x, true)
+        end
+        env.Actions.SetPausable(controls)
+        Expect(style .. " disables Next Line without a next line", view.skip:IsEnabled(), false)
+        Expect(style .. " greys Next Line without a next line", view.skip:GetAlpha(), .4)
+        Expect(style .. " keeps Eject enabled for the current line", view.eject:IsEnabled(), true)
+        view.eject:Click()
+        Expect(style .. " Eject ends the only queued line", Spoken:GetQueueSize(), 0)
+        local stopped = 0
+        local function OnStop() stopped = stopped + 1 end
+        quests:Enqueue(H.Clip({ stopCallback = OnStop, present = { transcript = "A narrated quest line." } }))
+        places:Enqueue(H.Clip({ stopCallback = OnStop, present = { transcript = "A narrated place line." } }))
+        stub.Advance(0.1)
+        Spoken:Pause()
+        Expect(style .. " enables eject for a stopped queue", view.eject:IsEnabled(), true)
+        view.eject:Click()
+        Expect(style .. " eject clears every source's queued lines", Spoken:GetQueueSize(), 0)
+        Expect(style .. " eject stops both lines through the normal callbacks", stopped, 2)
+        Expect(style .. " eject clears the paused flag like the minimap Eject", Spoken:IsPaused(), false)
+        env.Actions.SetPausable({ view.eject })
+        Expect(style .. " disables eject with no queue", view.eject:IsEnabled(), false)
+    end
+end
 
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end
 print("\nAll player frame tests passed")

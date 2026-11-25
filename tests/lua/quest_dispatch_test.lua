@@ -34,6 +34,18 @@ local function Expect(scenario, expected)
     end
 end
 
+local function ExpectCurrent(scenario, expected)
+    local current = Spoken:GetCurrent()
+    local actual = current and current.fileName or ""
+    if actual == expected then
+        print(string.format("ok   %s\n     current: %s", scenario, actual ~= "" and actual or "(nothing)"))
+    else
+        failures = failures + 1
+        print(string.format("FAIL %s\n     expected: %s\n     actual:   %s", scenario,
+            expected ~= "" and expected or "(nothing)", actual ~= "" and actual or "(nothing)"))
+    end
+end
+
 local function StartScenario()
     Spoken:StopAll()
     world.questID = 0
@@ -162,6 +174,171 @@ lookup[string.format("%d-progress", full)] = 1
 lookup[string.format("%d-complete", full)] = 1
 lookup[string.format("%d-accept", followUp)] = 1
 
+-- Read After Accepting: a quest's line waits until the quest is accepted or handed in, and a window
+-- closed without either reads nothing. Manual reads do not wait.
+local afterAccept = 106
+local ACCEPT_LINE = string.format("%d-accept", afterAccept)
+local COMPLETE_LINE = string.format("%d-complete", afterAccept)
+lookup[ACCEPT_LINE] = 1
+lookup[string.format("%d-progress", afterAccept)] = 1
+lookup[COMPLETE_LINE] = 1
+VO.Addon.db.profile.Audio.ReadAfterAccept = true
+
+local function OpenPage(panel, event)
+    world.questID = afterAccept
+    stub.ShowPanel(panel or "QuestFrameDetailPanel")
+    stub.FireEvent(event or "QUEST_DETAIL")
+end
+
+local function CloseWindow()
+    world.questID = 0
+    stub.ShowPanel(nil)
+    stub.FireEvent("QUEST_FINISHED")
+end
+
+StartScenario()
+OpenPage()
+stub.Advance(3)
+Expect("read-after-accept holds an offer while its window is open", "")
+CloseWindow()
+stub.Advance(3)
+Expect("read-after-accept leaves a declined offer quiet", "")
+
+StartScenario()
+OpenPage()
+stub.Advance(3)
+CloseWindow()
+stub.FireEvent("QUEST_ACCEPTED", afterAccept)
+stub.Advance(3)
+Expect("read-after-accept reads the offer once it is accepted", ACCEPT_LINE)
+
+-- The server's answer comes after the window has closed, and can be slow.
+StartScenario()
+OpenPage()
+stub.Advance(3)
+CloseWindow()
+stub.Advance(2)
+stub.FireEvent("QUEST_ACCEPTED", afterAccept)
+stub.Advance(3)
+Expect("read-after-accept reads an offer whose accept arrives late", ACCEPT_LINE)
+
+-- An offer read slowly is still read when accepted.
+StartScenario()
+OpenPage()
+stub.Advance(30)
+CloseWindow()
+stub.FireEvent("QUEST_ACCEPTED", afterAccept)
+stub.Advance(3)
+Expect("read-after-accept reads an offer left open a long time", ACCEPT_LINE)
+
+-- Declined, then picked up much later another way (a party member's share): the old offer is not read.
+StartScenario()
+OpenPage()
+stub.Advance(3)
+CloseWindow()
+stub.Advance(12)
+stub.FireEvent("QUEST_ACCEPTED", afterAccept)
+stub.Advance(3)
+Expect("read-after-accept forgets a declined offer", "")
+
+-- Auto-accept closes the window in the frame it opened: nothing reads at the close, the accept reads it.
+StartScenario()
+world.questID = afterAccept
+stub.FireEvent("QUEST_DETAIL")
+CloseWindow()
+stub.Advance(0.3)
+Expect("read-after-accept does not read an auto-accepted offer at the close", "")
+stub.FireEvent("QUEST_ACCEPTED", afterAccept)
+stub.Advance(3)
+Expect("...and reads it once on the accept", ACCEPT_LINE)
+
+-- A turn-in waits for the hand-in, and a progress page followed by its reward page reads the reward.
+StartScenario()
+OpenPage("QuestFrameProgressPanel", "QUEST_PROGRESS")
+stub.Advance(3)
+OpenPage("QuestFrameRewardPanel", "QUEST_COMPLETE")
+stub.Advance(3)
+Expect("read-after-accept holds a turn-in while its window is open", "")
+CloseWindow()
+stub.FireEvent("QUEST_TURNED_IN", afterAccept, 0, 0)
+stub.Advance(3)
+Expect("read-after-accept reads the reward page once the quest is handed in",
+    COMPLETE_LINE)
+
+StartScenario()
+OpenPage("QuestFrameProgressPanel", "QUEST_PROGRESS")
+stub.Advance(3)
+CloseWindow()
+stub.Advance(3)
+Expect("read-after-accept leaves a turn-in walked away from quiet", "")
+
+-- Complete Quest clicked before the reward page was read: the hand-in reads the reward page alone,
+-- never the progress page's "have you got the items?".
+StartScenario()
+OpenPage("QuestFrameProgressPanel", "QUEST_PROGRESS")
+stub.Advance(3)
+OpenPage("QuestFrameRewardPanel", "QUEST_COMPLETE")
+stub.Advance(0.2)
+CloseWindow()
+stub.FireEvent("QUEST_TURNED_IN", afterAccept, 0, 0)
+stub.Advance(3)
+Expect("read-after-accept reads only the reward page of a quick hand-in",
+    COMPLETE_LINE)
+
+-- The Forever client hides the quest ID in instances and combat: the accept or hand-in still
+-- releases what the player just committed to.
+StartScenario()
+OpenPage()
+stub.Advance(3)
+CloseWindow()
+stub.Secrets(afterAccept)
+stub.FireEvent("QUEST_ACCEPTED", afterAccept)
+stub.Secrets()
+stub.Advance(3)
+Expect("read-after-accept reads an offer whose accept hides its quest ID", ACCEPT_LINE)
+
+StartScenario()
+OpenPage("QuestFrameRewardPanel", "QUEST_COMPLETE")
+stub.Advance(3)
+CloseWindow()
+stub.Secrets(afterAccept)
+stub.FireEvent("QUEST_TURNED_IN", afterAccept, 0, 0)
+stub.Secrets()
+stub.Advance(3)
+Expect("read-after-accept reads a hand-in that hides its quest ID", COMPLETE_LINE)
+
+-- Stop When Window Closes does not cut a line that starts after its window: here the accept
+-- arrives before the close, as some clients send it.
+VO.Addon.db.profile.Audio.StopAudioOnDisengage = true
+StartScenario()
+OpenPage()
+stub.Advance(3)
+stub.FireEvent("QUEST_ACCEPTED", afterAccept)
+CloseWindow()
+stub.Advance(0.6)
+VO.Addon.db.profile.Audio.StopAudioOnDisengage = false
+ExpectCurrent("read-after-accept is not cut by Stop When Window Closes", ACCEPT_LINE)
+
+-- A quest-log page has no NPC window behind it and is never accepted, so it reads as before.
+StartScenario()
+world.questID = afterAccept
+stub.ShowPanel("QuestLogDetailFrame")
+stub.Advance(3)
+Expect("read-after-accept still reads a quest-log page", ACCEPT_LINE)
+
+StartScenario()
+OpenPage()
+stub.Advance(3)
+VO.Addon:InvokeQuestHandler("QUEST_DETAIL", "Play button", true)
+Expect("manual Play does not wait for the accept", ACCEPT_LINE)
+
+StartScenario()
+OpenPage()
+stub.Advance(3)
+VO.Addon:ReadVisibleQuest("/spq read")
+Expect("/spq read does not wait for the accept", ACCEPT_LINE)
+VO.Addon.db.profile.Audio.ReadAfterAccept = false
+
 -- A page whose event arrives with neither a quest ID nor a title names no quest, and nothing that
 -- comes later can tie it to one: a quest accepted within seconds, one nobody was shown (an escort a
 -- party member starts), is not read as if that page had been its offer.
@@ -212,6 +389,228 @@ stub.FireEvent("QUEST_ACCEPTED", full)
 stub.Advance(3)
 Expect("normal accept reads accept once", string.format("%d-accept", full))
 
+-- Stop When Window Closes on its own stops a quest's line however its window closes, accepted,
+-- turned in or walked away from.
+VO.Addon.db.profile.Audio.StopAudioOnDisengage = true
+StartScenario()
+world.questID = full
+stub.ShowPanel("QuestFrameDetailPanel")
+stub.FireEvent("QUEST_DETAIL")
+stub.Advance(0.6)
+world.questID = 0
+stub.ShowPanel(nil)
+stub.FireEvent("QUEST_FINISHED")
+stub.FireEvent("QUEST_ACCEPTED", full)
+stub.Advance(0.6)
+ExpectCurrent("Stop When Window Closes stops an accepted offer as its window closes", "")
+
+StartScenario()
+world.questID = full
+stub.ShowPanel("QuestFrameRewardPanel")
+stub.FireEvent("QUEST_COMPLETE")
+stub.Advance(0.6)
+world.questID = 0
+stub.ShowPanel(nil)
+stub.FireEvent("QUEST_FINISHED")
+stub.FireEvent("QUEST_TURNED_IN", full, 0, 0)
+stub.Advance(0.6)
+ExpectCurrent("Stop When Window Closes stops a turned-in quest as its window closes", "")
+
+-- An addon that moves straight from one quest's dialog to the next leaves the first quest's line
+-- queued: closing stops it too, not just the line read last.
+lookup[string.format("%d-complete", followUp)] = 1
+StartScenario()
+world.questID = full
+VO.Addon:QUEST_PROGRESS()
+world.questID = followUp
+VO.Addon:QUEST_COMPLETE()
+world.questID = 0
+VO.Addon:QUEST_FINISHED()
+stub.Advance(0.6)
+ExpectCurrent("Stop When Window Closes stops an earlier dialog's line as the window closes", "")
+
+-- With Stop Narration When Accepting off, closing an unaccepted offer stops it, while accepting
+-- it in the close event's grace period leaves the line playing.
+VO.Addon.db.profile.Audio.StopOnAccept = false
+StartScenario()
+world.questID = full
+stub.ShowPanel("QuestFrameDetailPanel")
+stub.FireEvent("QUEST_DETAIL")
+stub.Advance(0.6)
+world.questID = 0
+stub.ShowPanel(nil)
+stub.FireEvent("QUEST_FINISHED")
+stub.Advance(0.2)
+ExpectCurrent("an unaccepted offer keeps playing during the acceptance grace period", "104-accept")
+stub.Advance(0.6)
+ExpectCurrent("closing an unaccepted offer stops its audio", "")
+
+StartScenario()
+world.questID = full
+stub.ShowPanel("QuestFrameDetailPanel")
+stub.FireEvent("QUEST_DETAIL")
+stub.Advance(0.6)
+world.questID = 0
+stub.ShowPanel(nil)
+stub.FireEvent("QUEST_FINISHED")
+stub.FireEvent("QUEST_ACCEPTED", full)
+stub.Advance(0.2)
+ExpectCurrent("accepting an offer leaves its audio playing when stopping is enabled", "104-accept")
+
+-- Some clients report QUEST_ACCEPTED before QUEST_FINISHED. The accepted offer must still survive
+-- the later close event when Stop When Window Closes is enabled.
+StartScenario()
+world.questID = full
+stub.ShowPanel("QuestFrameDetailPanel")
+stub.FireEvent("QUEST_DETAIL")
+stub.Advance(0.6)
+stub.FireEvent("QUEST_ACCEPTED", full)
+world.questID = 0
+stub.ShowPanel(nil)
+stub.FireEvent("QUEST_FINISHED")
+stub.Advance(0.6)
+ExpectCurrent("accepting before the window closes leaves its audio playing", "104-accept")
+
+-- The snapshot can capture the previous quest while the dispatched page resolves to the current
+-- one. The dispatched ID must own the offer's close tracking and stop its sound.
+StartScenario()
+VO.Addon.openQuestOffer = { questID = full, title = world.title }
+world.questID = followUp
+VO.Addon:QUEST_DETAIL()
+VO.Addon:QUEST_FINISHED()
+stub.Advance(0.6)
+ExpectCurrent("a dispatched offer ID replaces a stale snapshot ID", "")
+
+-- Closing a turn-in window without handing in the quest stops its pages, but the turn-in event
+-- cancels that stop just as QUEST_ACCEPTED does for an offer. Test both event orders.
+StartScenario()
+world.questID = full
+stub.ShowPanel("QuestFrameProgressPanel")
+stub.FireEvent("QUEST_PROGRESS")
+stub.Advance(0.1)
+stub.ShowPanel("QuestFrameRewardPanel")
+stub.FireEvent("QUEST_COMPLETE")
+stub.Advance(0.6)
+world.questID = 0
+stub.ShowPanel(nil)
+stub.FireEvent("QUEST_FINISHED")
+stub.Advance(0.2)
+-- The progress page was on screen too briefly for the watcher, so it is read before the reward.
+ExpectCurrent("an unturned-in quest keeps its audio during the turn-in grace period", "104-progress")
+stub.Advance(0.6)
+ExpectCurrent("closing an unturned-in quest stops its progress and completion audio", "")
+
+StartScenario()
+world.questID = full
+stub.ShowPanel("QuestFrameRewardPanel")
+stub.FireEvent("QUEST_COMPLETE")
+stub.Advance(0.6)
+world.questID = 0
+stub.ShowPanel(nil)
+stub.FireEvent("QUEST_FINISHED")
+stub.FireEvent("QUEST_TURNED_IN", full, 0, 0)
+stub.Advance(0.6)
+ExpectCurrent("turning in after the window closes leaves completion audio playing", "104-complete")
+
+StartScenario()
+world.questID = full
+stub.ShowPanel("QuestFrameRewardPanel")
+stub.FireEvent("QUEST_COMPLETE")
+stub.Advance(0.6)
+stub.FireEvent("QUEST_TURNED_IN", full, 0, 0)
+world.questID = 0
+stub.ShowPanel(nil)
+stub.FireEvent("QUEST_FINISHED")
+stub.Advance(0.6)
+ExpectCurrent("turning in before the window closes leaves completion audio playing", "104-complete")
+
+-- A replacement dialog can dispatch the page before the recorder has a snapshot for it. The
+-- currently queued turn-in line must still get the same close grace period.
+StartScenario()
+world.questID = full
+VO.Addon:QUEST_COMPLETE()
+stub.Advance(0.6)
+world.questID = 0
+stub.ShowPanel(nil)
+VO.Addon:QUEST_FINISHED()
+stub.Advance(0.2)
+ExpectCurrent("a turn-in line without a snapshot keeps playing during close grace", "104-complete")
+stub.Advance(0.6)
+ExpectCurrent("a turn-in line without a snapshot stops after close grace", "")
+
+-- A newer turn-in must not replace an earlier pending record: its queued line remains available
+-- for the earlier quest's own QUEST_TURNED_IN event.
+lookup[string.format("%d-complete", followUp)] = 1
+StartScenario()
+world.questID = full
+VO.Addon:QUEST_PROGRESS()
+world.questID = followUp
+VO.Addon:QUEST_COMPLETE()
+VO.Addon:QUEST_FINISHED()
+local hasEarlierTurnIn = false
+for _, turnIn in ipairs(VO.Addon.openQuestTurnIns or {}) do
+    if turnIn.questID == full and #turnIn.soundData == 1 then
+        hasEarlierTurnIn = true
+    end
+end
+if hasEarlierTurnIn then
+    print("ok   a newer turn-in preserves an earlier pending record")
+else
+    failures = failures + 1
+    print("FAIL a newer turn-in preserves an earlier pending record")
+end
+stub.Advance(0.6)
+ExpectCurrent("the earlier retained turn-in line is removed after close", "")
+
+-- QUEST_FINISHED can also be reported while the NPC window is changing from its greeting to the
+-- turn-in panel. That is not a close: the line must keep playing until the panel really goes away.
+StartScenario()
+world.questID = full
+stub.ShowPanel("QuestFrameProgressPanel")
+stub.FireEvent("QUEST_PROGRESS")
+stub.Advance(0.6)
+stub.FireEvent("QUEST_FINISHED")
+stub.Advance(0.6)
+ExpectCurrent("a turn-in panel remains audible through a transition close event", "104-progress")
+world.questID = 0
+stub.ShowPanel(nil)
+stub.FireEvent("QUEST_FINISHED")
+stub.Advance(0.6)
+ExpectCurrent("the turn-in panel stops only after it really closes", "")
+
+VO.Addon.db.profile.Audio.StopOnAccept = true
+
+-- With Stop When Window Closes off, declining an offer leaves its audio playing.
+VO.Addon.db.profile.Audio.StopAudioOnDisengage = false
+StartScenario()
+world.questID = full
+stub.ShowPanel("QuestFrameDetailPanel")
+stub.FireEvent("QUEST_DETAIL")
+stub.Advance(0.6)
+world.questID = 0
+stub.ShowPanel(nil)
+stub.FireEvent("QUEST_FINISHED")
+stub.Advance(0.6)
+ExpectCurrent("closing an unaccepted offer leaves its audio playing when stopping is disabled", "104-accept")
+
+-- Reopening the same quest after closing it starts a new interaction instead of being suppressed
+-- as a duplicate of the dialog that just ended.
+VO.Addon.db.profile.Audio.StopAudioOnDisengage = true
+StartScenario()
+world.questID = full
+stub.ShowPanel("QuestFrameDetailPanel")
+stub.FireEvent("QUEST_DETAIL")
+stub.Advance(0.6)
+world.questID = 0
+stub.ShowPanel(nil)
+stub.FireEvent("QUEST_FINISHED")
+stub.Advance(0.6)
+world.questID = full
+stub.ShowPanel("QuestFrameDetailPanel")
+stub.FireEvent("QUEST_DETAIL")
+stub.Advance(0.6)
+ExpectCurrent("reopening a closed quest starts its offer audio again", "104-accept")
+
 -- A player who declines: no accept event comes, and nothing is read beyond what the open window read.
 StartScenario()
 world.questID = full
@@ -237,6 +636,37 @@ stub.Advance(0.1)
 stub.FireEvent("QUEST_TURNED_IN", full, 0, 0)
 stub.Advance(5)
 Expect("auto turn-in reads progress then complete",
+    string.format("%d-progress, %d-complete", full, full))
+
+-- A turn-in where the reward page waits for the player to pick a reward. An auto turn-in shows the
+-- progress page 0.24 s, too short for the watcher, which reads the reward page first.
+local function TurnInPickingReward(progressSeconds)
+    StartScenario()
+    world.questID = full
+    stub.ShowPanel("QuestFrameProgressPanel")
+    stub.FireEvent("QUEST_PROGRESS")
+    stub.Advance(progressSeconds)
+    stub.FireEvent("QUEST_FINISHED")
+    stub.ShowPanel("QuestFrameRewardPanel")
+    stub.FireEvent("QUEST_COMPLETE")
+    stub.Advance(3)
+    world.questID = 0
+    stub.ShowPanel(nil)
+    stub.FireEvent("QUEST_FINISHED")
+    stub.FireEvent("QUEST_TURNED_IN", full, 0, 0)
+    stub.Advance(5)
+end
+TurnInPickingReward(0.24)
+Expect("auto turn-in with a reward to pick reads progress then complete",
+    string.format("%d-progress, %d-complete", full, full))
+
+VO.Addon.db.profile.Audio.ProgressText = false
+TurnInPickingReward(0.24)
+VO.Addon.db.profile.Audio.ProgressText = true
+Expect("...and with Read Quest Progress Text off, complete alone", string.format("%d-complete", full))
+
+TurnInPickingReward(1)
+Expect("a progress page read in the window is read once",
     string.format("%d-progress, %d-complete", full, full))
 
 -- A turn-in after a page that names no quest reads nothing either.
@@ -417,23 +847,6 @@ stub.Advance(5)
 Expect("a page already queued when the window closes is not read again",
     string.format("%d-accept", full))
 
--- Read When Window Closes holds the read until the window closes, and the page is read once. The
--- line is short, so it is over before the watcher sees the window gone and would read the page again.
-lookup["106-accept"] = 0.02
-StartScenario()
-VO.Addon.db.profile.Audio.ReadAfterClose = true
-world.questID = 106
-stub.ShowPanel("QuestFrameDetailPanel")
-stub.FireEvent("QUEST_DETAIL")
-stub.Advance(8)
-Expect("Read When Window Closes holds the offer while the window is open", "")
-world.questID = 0
-stub.ShowPanel(nil)
-stub.FireEvent("QUEST_FINISHED")
-stub.Advance(5)
-VO.Addon.db.profile.Audio.ReadAfterClose = false
-Expect("...and reads it once when the window closes", "106-accept")
-
 -- A replay is not held back by DialogueUI's wait for its window: the window it waits for is not
 -- the page's.
 VO.DialogueUIBridge = { Defer = function() return true end, Read = function() end }
@@ -494,6 +907,80 @@ stub.Advance(3)
 world.title = "Test Quest"
 testPack.QuestIDLookup = nil
 Expect("an offer recorded under quest ID 0 is read by its accept event", "107-accept")
+
+-- The DialogueUI narrator waits for the open page's line, which DialogueUI's window may show a
+-- moment later, and for nothing played from the quest log.
+local function ExpectPageLine(scenario, line, expected)
+    local actual = VO.Addon:IsPageLine(line)
+    if actual == expected then
+        print("ok   " .. scenario)
+    else
+        failures = failures + 1
+        print(string.format("FAIL %s\n     expected: %s\n     actual:   %s", scenario, tostring(expected), tostring(actual)))
+    end
+end
+StartScenario()
+world.questID = full
+stub.ShowPanel("QuestFrameDetailPanel")
+stub.FireEvent("QUEST_DETAIL")
+stub.Advance(0.6)
+local pageLine = Spoken:GetCurrent()
+ExpectPageLine("the open offer's line is the page's", pageLine, true)
+ExpectPageLine("...a line played from the quest log is not", { fileName = "104-accept" }, false)
+world.questID = 0
+stub.ShowPanel(nil)
+stub.FireEvent("QUEST_FINISHED")
+ExpectPageLine("...nor the offer's once its window has closed", pageLine, false)
+StartScenario()
+
+-- Addon:EndsWithWindow answers ahead of time what QUEST_FINISHED and its accept grace then do, so
+-- the DialogueUI narrator can keep out of the way. It must agree with them in every setting.
+for _, stopOnClose in ipairs({ true, false }) do
+    for _, stopOnAccept in ipairs({ true, false }) do
+        for _, page in ipairs({ { "QuestFrameDetailPanel", "QUEST_DETAIL", "QUEST_ACCEPTED" },
+            { "QuestFrameRewardPanel", "QUEST_COMPLETE", "QUEST_TURNED_IN" } }) do
+            for _, done in ipairs({ false, true }) do
+                local audio = VO.Addon.db.profile.Audio
+                audio.StopAudioOnDisengage, audio.StopOnAccept = stopOnClose, stopOnAccept
+                StartScenario()
+                world.questID = full
+                stub.ShowPanel(page[1])
+                stub.FireEvent(page[2])
+                stub.Advance(0.6)
+                local line = Spoken:GetCurrent()
+                local answers = { VO.Addon:EndsWithWindow(line) }
+                world.questID = 0
+                stub.ShowPanel(nil)
+                stub.FireEvent("QUEST_FINISHED")
+                table.insert(answers, VO.Addon:EndsWithWindow(line))
+                if done then
+                    stub.FireEvent(page[3], full, 0, 0)
+                    -- Accepted, the answer changes: asked from here on, it must say what happens.
+                    answers = { VO.Addon:EndsWithWindow(line) }
+                end
+                stub.Advance(0.6)
+                local stopped = line ~= nil and Spoken:GetCurrent() ~= line
+                local scenario = string.format("EndsWithWindow agrees with closing: %s%s, Stop When Window Closes %s, "
+                    .. "Stop Narration When Accepting %s", page[2], done and " then " .. page[3] or "",
+                    tostring(stopOnClose), tostring(stopOnAccept))
+                local agree, said = line ~= nil, {}
+                for i, answer in ipairs(answers) do
+                    agree = agree and answer == stopped
+                    said[i] = tostring(answer)
+                end
+                if agree then
+                    print("ok   " .. scenario)
+                else
+                    failures = failures + 1
+                    print(string.format("FAIL %s\n     line: %s, stopped: %s, answered: %s", scenario,
+                        tostring(line and line.fileName), tostring(stopped), table.concat(said, ", ")))
+                end
+            end
+        end
+    end
+end
+VO.Addon.db.profile.Audio.StopAudioOnDisengage, VO.Addon.db.profile.Audio.StopOnAccept = false, true
+StartScenario()
 
 if failures > 0 then
     print(string.format("\n%d scenario(s) failed", failures))

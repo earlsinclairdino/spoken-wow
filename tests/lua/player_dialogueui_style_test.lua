@@ -321,7 +321,7 @@ Expect("...naming the speaker", Skin.name:GetText(), "Eagan Peltskinner")
 Expect("...and the line", Skin.title.text:GetText(), "Wolves Across the Border")
 
 quests:Enqueue(H.Clip({ present = { header = "Eagan", label = "Second", portrait = { kind = "none" } } }))
-Expect("a waiting line gets no row, the title counts it", tostring(Skin.rows) .. " " .. Skin.count:GetText(), "nil • +1")
+Expect("a waiting line gets no row, the title counts it", tostring(Skin.rows) .. " " .. Skin.count:GetText(), "nil · +1")
 Spoken:StopAll()
 
 -- A clip that names its own face (present.font) keeps it when the window is laid out again,
@@ -491,7 +491,7 @@ quests:Enqueue(H.Clip({ length = 30, present = { header = "Grull", label = "Held
 env.PlayerFrame:RefreshConfig()
 Skin:UpdateControls()
 Expect("a held line says why after its title", tostring(Skin.held:IsShown()) .. " " .. tostring(Skin.held:GetText()),
-    "true • (in combat)")
+    "true · (in combat)")
 holding = false
 quests:RecheckGates()
 Skin:UpdateControls()
@@ -504,8 +504,9 @@ local REPORT = { id = "report", icon = "Interface/HelpFrame/HelpIcon-Bug", ancho
 quests:Enqueue(H.Clip({ length = 30, present = { header = "Grull", label = "One", portrait = { kind = "none" },
     actions = { REPORT } } }))
 quests:Enqueue(H.Clip({ length = 30, present = { header = "Grull", label = "Two", portrait = { kind = "none" } } }))
-Expect("it has the subtitle's round controls, Stop or Replay then Skip, and no Stop All",
-    #Skin.buttons == 2 and Skin.buttons[1] == Skin.play and Skin.buttons[2] == Skin.skip and Skin.stop == nil, true)
+Expect("it has the round controls, Previous, Stop or Replay, Skip then Eject",
+    #Skin.buttons == 4 and Skin.buttons[1] == Skin.previous and Skin.buttons[2] == Skin.play
+    and Skin.buttons[3] == Skin.skip and Skin.buttons[4] == Skin.eject, true)
 Expect("...Skip in the subtitle's art", Skin.skip.bar ~= nil, true)
 Expect("...in the header at the right, beside the speaker and the line",
     Skin.controls.anchor.point == "RIGHT" and Skin.controls.anchor.relativeTo == Skin.content
@@ -529,18 +530,22 @@ do
     Skin.frame:SetScale(to)
     Skin:Layout()
 end
-local report = Skin.row[3]
-Expect("...Report after Skip, as large and as strong, as the subtitle shows it", report ~= nil and report:GetParent() == Skin.controls
+local report = Skin.row[5]
+Expect("...Report after Eject, as large and as strong, as the subtitle shows it", report ~= nil and report:GetParent() == Skin.controls
     and report:GetWidth() == Skin.play:GetWidth() and report:GetAlpha() == 1, true)
 local extra = {}
 local function Walk(frame)
     for _, child in ipairs({ frame:GetChildren() }) do
-        if child:GetObjectType() == "Button" then
-            local known = false
-            for _, button in ipairs(Skin.row) do known = known or button == child end
-            if not known then table.insert(extra, child) end
+        -- The transcript docked under the face (Transcript:Dock) is its own window, not one of
+        -- the header's buttons.
+        if child ~= T.frame then
+            if child:GetObjectType() == "Button" then
+                local known = false
+                for _, button in ipairs(Skin.row) do known = known or button == child end
+                if not known then table.insert(extra, child) end
+            end
+            Walk(child)
         end
-        Walk(child)
     end
 end
 Walk(Skin.frame)
@@ -554,13 +559,13 @@ Skin:ConfigurePortrait()
 Expect("Hide Portrait leaves its face: the header's socket would stand empty", Skin.portrait:IsShown(), true)
 env.Addon.db.profile.Frame.HidePortrait = false
 Expect("the title counts the lines waiting, after it, as the subtitle does",
-    Skin.title.text:GetText() .. "|" .. tostring(Skin.count:IsShown()) .. "|" .. Skin.count:GetText(), "One|true|• +1")
+    Skin.title.text:GetText() .. "|" .. tostring(Skin.count:IsShown()) .. "|" .. Skin.count:GetText(), "One|true|· +1")
 Expect("...fading in as the line is added", Skin.count:GetAlpha() < 1, true)
 Skin:Tick(0.3)
 Expect("...all the way", Skin.count:GetAlpha(), 1)
 quests:Enqueue(H.Clip({ length = 30, present = { header = "Grull", label = "Three", portrait = { kind = "none" } } }))
 Skin:Update()
-Expect("...and again with one more", Skin.count:GetText() .. " " .. tostring(Skin.count:GetAlpha() < 1), "• +2 true")
+Expect("...and again with one more", Skin.count:GetText() .. " " .. tostring(Skin.count:GetAlpha() < 1), "· +2 true")
 Skin:Tick(0.3)
 env.SoundQueue:RemoveSoundFromQueue(env.SoundQueue.sounds[3])
 Skin:Update()
@@ -580,7 +585,7 @@ Expect("Stop stops the line, its glyph turning to Replay", tostring(env.SoundQue
     "true replay")
 Expect("...and the title says it is stopped, after the line's name and a dot, as the count is",
     Skin.title.text:GetText() .. "|" .. tostring(Skin.stopped:IsShown()) .. "|" .. Skin.stopped:GetText(),
-    "One|true|• (" .. env.L.SUBTITLE_STOPPED .. ")")
+    "One|true|· (" .. env.L.SUBTITLE_STOPPED .. ")")
 Expect("...fading in", Skin.stopped:GetAlpha() < 1, true)
 Expect("...the count after it", Skin.count.anchor.x > Skin.stopped.anchor.x, true)
 Skin:Tick(0.3)
@@ -1107,6 +1112,22 @@ Expect("DialogueUI hiding its window from ShowUI hides it at once", tostring(DUI
 Skin.dialogWatches[DUI].scripts.OnHide(Skin.dialogWatches[DUI])
 Spoken:StopAll()
 for _ = 1, 40 do Skin:Tick(0.05) end
+-- Hidden from ShowUI the conversation goes on, so a line that would stop with the window does not:
+-- the narrator shows it rather than wait for a close that never comes.
+quests.endsWithWindow = function() return true end
+OpenDialog()
+quests:Enqueue(H.Clip({ length = 30, present = { header = "Grull", label = "The Hunt Begins", portrait = { kind = "none" } } }))
+DUI.onShowUI = function(frame)
+    frame:Hide()
+    Skin.dialogWatches[DUI].scripts.OnHide(Skin.dialogWatches[DUI])
+end
+DUI:ShowUI("GOSSIP_SHOW")
+DUI.onShowUI = nil
+Expect("a line DialogueUI hid from ShowUI is not held for a close", Skin:HeldByWindow(Spoken:GetCurrent()), false)
+Expect("...and the narrator shows it", Skin.wanted, true)
+quests.endsWithWindow = nil
+Spoken:StopAll()
+for _ = 1, 40 do Skin:Tick(0.05) end
 
 ---------------------------------------------------------------- books and stones
 local BOOK = "Interface/AddOns/DialogueUI/Art/Book/TextureKit-"
@@ -1194,6 +1215,63 @@ if bookWatch then
     Expect("...and settles at the top left, the stone's edge 16 from the screen's", AtTopLeft(123, 112) and Skin.settling == nil, true)
     Skin.frame.GetLeft, Skin.frame.GetTop = frameLeft, frameTop
     Spoken:StopAll()
+end
+
+---------------------------------------------------------------- a book read before its view opens
+-- The game opens a book and the page starts reading at once; DialogueUI's book view shows it about
+-- 0.18 s later, the first time after a reload (logged in game). Played from elsewhere, a page
+-- shows in this window as soon as it is still.
+if bookWatch then
+    local open
+    readables.onScreen = function(clip) return clip == open end
+    -- The book's art loaded, as the game has it by now: the window is still within STILL of
+    -- showing a page, so nothing but the wait keeps it from fading in.
+    local viewport = Skin.viewport
+    local art = { Skin.picture, Skin.badge, viewport and viewport.activeFrame, viewport and viewport.texture }
+    for _, texture in pairs(art) do
+        if type(texture) == "table" then texture.IsObjectLoaded = function() return true end end
+    end
+    local function Shows(seconds)
+        local seen = false
+        for _ = 1, math.floor(seconds / 0.02 + 0.5) do
+            stub.Advance(0.02)
+            Skin:Tick(0.02)
+            seen = seen or (Skin.frame:IsShown() and (Skin.level or 0) > 0)
+        end
+        return seen
+    end
+    Spoken:StopAll()
+    Skin:SetVisible(false, true)
+    stub.Advance(2)
+    open = Page("Stone")
+    readables:Enqueue(open)
+    local early = Shows(0.18)
+    BookView:Show()
+    bookWatch.scripts.OnShow(bookWatch)
+    Expect("a book's page read as the game opens it waits for the book view", early, false)
+    Expect("...which covers it", Shows(0.5), false)
+    BookView:Hide()
+    Skin:CloseStep(1)
+    bookWatch.scripts.OnHide(bookWatch)
+    Spoken:StopAll()
+    Skin:SetVisible(false, true)
+    stub.Advance(2)
+    open = Page("Stone")
+    readables:Enqueue(open)
+    Expect("...with the book view off, it shows once the wait is over", Shows(0.3), false)
+    Expect("...not much later", Shows(0.6), true)
+    Spoken:StopAll()
+    Skin:SetVisible(false, true)
+    stub.Advance(2)
+    open = nil
+    readables:Enqueue(Page("Stone"))
+    Expect("a page played from elsewhere shows at once", Shows(0.3), true)
+    Spoken:StopAll()
+    Skin:SetVisible(false, true)
+    readables.onScreen = nil
+    for _, texture in pairs(art) do
+        if type(texture) == "table" then texture.IsObjectLoaded = nil end
+    end
 end
 
 ---------------------------------------------------------------- a dialog's line joining the queue
@@ -1286,7 +1364,7 @@ Expect("a line from an earlier page of the closing dialog: this window settles o
 for _ = 1, 40 do Skin:Tick(0.05) end
 Expect("...nor once it has landed: the next page's line is counted after the title",
     tostring(Skin.settling) .. " " .. tostring(Skin.landing) .. " " .. tostring(Skin.tuck) .. " " .. Skin.count:GetText(),
-    "nil nil nil • +1")
+    "nil nil nil · +1")
 Expect("...this window showing the first quest's line as it was", Skin.title.text:GetText(), "First")
 -- A quest accepted at once (the space bar): the window closes before its line is read, and the
 -- line joins the queue just after. It is still the dialog's: it settles out of where the dialog

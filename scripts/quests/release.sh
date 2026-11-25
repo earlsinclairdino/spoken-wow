@@ -115,7 +115,7 @@ esac; }
 # after an upload, and for the Wago upload's own log line.
 target_slug() { case "$1" in
   spoken)         echo "spoken";;
-  audio-all)      echo "spoken-quests-audio-all";;
+  audio-all)      echo "spoken-audio-quests-all";;
   spoken-all)     if english; then echo "spoken-english"; else meta_field slug; fi;;
   audio-alliance|audio-horde|audio-shared|audio-gossip) pack_field "$1" slug;;
 esac; }
@@ -172,10 +172,10 @@ target_dependencies() { case "$1" in
   # packs are named here as well as through audio-all, so a manager that does not follow a
   # dependency's own dependencies still installs them.
   spoken-all) ! english && { meta_field dependencies; return; }
-              echo "spoken spoken-quests-audio-all \
+              echo "spoken spoken-audio-quests-all \
                     spoken-audio-quests-alliance spoken-audio-quests-horde \
                     spoken-audio-quests-shared spoken-audio-gossip \
-                    spoken-audio-places spoken-audio-readables";;
+                    spoken-audio-places spoken-audio-readables spoken-audio-bosses";;
   audio-*)   echo "spoken";;
 esac; }
 
@@ -346,7 +346,7 @@ changelog_for() {
       if (lines[i].startsWith("## ")) { end = i; break; }
     }
     process.stdout.write(lines.slice(start, end).join("\n").trim());
-  ' "$file" "$1" "$2"
+  ' "$file" "$1" "$2" | node "$REPO/scripts/lib/changelog.mjs" unwrap
 }
 
 #-- upload --------------------------------------------------------------------------------

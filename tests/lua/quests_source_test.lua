@@ -127,6 +127,19 @@ for _, queued in ipairs(env.SoundQueue.sounds) do if queued.questID == 103 then 
 Expect("a quest from an item shows the item's icon", fromItem and fromItem.present.portrait.texture, 134939)
 Expect("...the icon found by name too, for a book read from the bags", Spoken:BagItemIcon("Gold Pickup Schedule"), 134939)
 _G.C_Container = nil
+-- Once the item has left the bags, the packs name it and the client has its icon.
+do
+    local oldCItem, pack = _G.C_Item, nil
+    for _, module in VO.DataModules:GetModules() do pack = module end
+    _G.C_Item = { GetItemInfoInstant = function(id) if id == 1307 then return id, nil, nil, nil, 134940 end end }
+    pack.ItemIDLookupByQuestID = { [103] = 1307 }
+    env.SoundQueue:RemoveAllSoundsFromQueue()
+    VO.Addon:QUEST_DETAIL()
+    fromItem = nil
+    for _, queued in ipairs(env.SoundQueue.sounds) do if queued.questID == 103 then fromItem = queued end end
+    Expect("...and the packs' item's icon once it has left the bags", fromItem and fromItem.present.portrait.texture, 134940)
+    pack.ItemIDLookupByQuestID, _G.C_Item = nil, oldCItem
+end
 Expect("a city has an icon of its own", Spoken:ZoneIcon(1455), [[Interface\AddOns\Spoken\Textures\Zones\Ironforge]])
 Expect("...an area the icon of the zone it is in", Spoken:ZoneIcon(1426), [[Interface\AddOns\Spoken\Textures\Zones\DunMorogh]])
 Expect("...a Forever zone the icon drawn for it", Spoken:ZoneIcon(2524), [[Interface\AddOns\Spoken\Textures\Zones\DarkspearIslands]])
@@ -302,6 +315,115 @@ Expect("a quest dialog keeps its greeting while Quests is switched off", world.c
 Expect("...and expects no line to hold the words back for", VO.Addon:ExpectedLine("QUEST_DETAIL"), nil)
 Spoken:SetPartOn("quests", true)
 
+---------------------------------------------------------------- muting at the click
+-- A first talk's greeting can be heard before the window's event arrives.
+local function ClickBoot()
+    local VO, env, Spoken = MuteBoot()
+    VO.Addon.db.char.hasSeenGossipForNPC = {}
+    VO.Addon.db.profile.Audio.GossipFrequency = VO.Enums.GossipFrequency.OncePerNPC
+    world.npcFriendly = true
+    return VO, env, Spoken
+end
+local function Dialog() return world.cvars.Sound_EnableDialog end
+
+VO, env, Spoken = ClickBoot()
+VO.Addon:MuteGreetingOnClick("RightButton")
+Expect("a right-click on a voiced NPC mutes it before any window", Dialog(), "0")
+stub.ShowGossip("Greetings, traveller.")
+Open(VO, "GOSSIP_SHOW")
+stub.Advance(0.6)
+Expect("...its line is read", Spoken:GetCurrent() and Spoken:GetCurrent().fileName, GREETING_HASH)
+Expect("...under the same mute", Dialog(), "0")
+Spoken:StopAll()
+Expect("...and the empty queue restores it", Dialog(), "1")
+
+VO, env, Spoken = ClickBoot()
+VO.Addon:MuteGreetingOnClick("RightButton")
+stub.Advance(2)
+Expect("a right-click that opens no window gives the voice back at the deadline", Dialog(), "1")
+stub.Advance(0.1)
+world.questID = 101
+VO.Addon:QUEST_DETAIL()
+stub.Advance(0.6)
+Expect("...and leaves later lines able to mute", Dialog(), "0")
+Spoken:StopAll()
+
+lookup["101-accept"] = 10   -- outlasts the click's deadline
+VO, env, Spoken = ClickBoot()
+world.questID = 101
+VO.Addon:QUEST_DETAIL()
+stub.Advance(0.6)
+VO.Addon:MuteGreetingOnClick("RightButton")
+stub.Advance(2)
+Expect("a right-click under a speaking line keeps the line's mute past the deadline", Spoken:IsPlaying() and Dialog(), "0")
+Spoken:StopAll()
+lookup["101-accept"] = 2
+
+VO, env, Spoken = ClickBoot()
+VO.Addon:MuteGreetingOnClick("RightButton")
+VO.Addon:MarkGreetingHeard(world.npcGUID, "Greetings, traveller.")
+stub.ShowGossip("Greetings, traveller.")
+Open(VO, "GOSSIP_SHOW")
+Expect("a window with nothing to read gives the voice back as it opens", Dialog(), "1")
+
+VO, env, Spoken = ClickBoot()
+VO.Addon:MuteGreetingOnClick("LeftButton")
+Expect("a left-click only targets, and mutes nothing", Dialog(), "1")
+
+VO, env, Spoken = ClickBoot()
+VO.Addon:MarkGreetingHeard(world.npcGUID, "Greetings, traveller.")
+VO.Addon:MuteGreetingOnClick("RightButton")
+Expect("an NPC already heard keeps its greeting under a once-per setting", Dialog(), "1")
+VO.Addon.db.profile.Audio.GossipFrequency = VO.Enums.GossipFrequency.Always
+VO.Addon:MuteGreetingOnClick("RightButton")
+Expect("...and is muted when greetings always read", Dialog(), "0")
+
+VO, env, Spoken = ClickBoot()
+world.npcGUID = "Creature-0-0-0-0-9999-0"
+VO.Addon:MuteGreetingOnClick("RightButton")
+Expect("an NPC no pack voices keeps its greeting at the click", Dialog(), "1")
+
+VO, env, Spoken = ClickBoot()
+world.npcFriendly = nil
+VO.Addon:MuteGreetingOnClick("RightButton")
+Expect("a right-click on an enemy mutes nothing", Dialog(), "1")
+
+VO, env, Spoken = ClickBoot()
+VO.Addon.db.profile.Audio.GreetingFirst = true
+VO.Addon:MuteGreetingOnClick("RightButton")
+Expect("with Game Greeting First on the click mutes nothing", Dialog(), "1")
+VO.Addon.db.profile.Audio.GreetingFirst = false
+
+VO, env, Spoken = ClickBoot()
+VO.Addon:SetAutoplay(false)
+VO.Addon:MuteGreetingOnClick("RightButton")
+Expect("with autoplay off the click mutes nothing", Dialog(), "1")
+VO.Addon:SetAutoplay(true)
+
+VO, env, Spoken = ClickBoot()
+stub.Secrets(world.npcGUID)
+VO.Addon:MuteGreetingOnClick("RightButton")
+stub.Secrets()
+Expect("a GUID the client keeps secret mutes nothing and raises nothing", Dialog(), "1")
+
+VO, env, Spoken = ClickBoot()
+world.npcFriendly = nil
+stub.Secrets(true)
+VO.Addon:MuteGreetingOnClick("RightButton")
+stub.Secrets()
+Expect("a secret answer to whether it can be attacked reads as no answer", Dialog(), "0")
+
+VO, env, Spoken = ClickBoot()
+Spoken:RegisterSource("words", { title = "Words", addon = "Spoken_Bosses", textOnly = true }):Enqueue(H.Clip({ length = 10 }))
+stub.Advance(0.1)
+VO.Addon:MuteGreetingOnClick("RightButton")
+Expect("a right-click during a line of words alone still mutes ahead", Dialog(), "0")
+stub.Advance(2)
+Expect("...and the deadline gives the voice back, the line holding no mute", Spoken:IsPlaying() and Dialog(), "1")
+Spoken:StopAll()
+world.npcFriendly = nil
+VO.Addon.db.profile.Audio.GossipFrequency = VO.Enums.GossipFrequency.OncePerQuestNPC
+
 ---------------------------------------------------------------- disengage and abandon
 VO, env, Spoken = Boot()
 VO.Addon.db.profile.Audio.StopAudioOnDisengage = true
@@ -324,19 +446,19 @@ Expect("a line the Play button started is queued", Spoken:GetQueueSize(), 1)
 VO.Addon:DispatchDirectEvent("QUEST_FINISHED", "test")
 Expect("closing the quest frame stops it with Read Automatically off", Spoken:GetQueueSize(), 0)
 
--- Read When Window Closes: an automatic read waits for the window to close, and is not read twice.
+-- Read When Window Closes became Read After Accepting: a profile that had it on keeps reading after
+-- the window, one that had it off is left as it was.
+_G.SpokenQuestsSettings = { profiles = {
+    Default = { Audio = { ReadAfterClose = true } },
+    Other = { Audio = { ReadAfterClose = false } },
+} }
 VO, env, Spoken = Boot()
-VO.Addon.db.profile.Audio.ReadAfterClose = true
-world.questID = 101
-VO.Addon:QUEST_DETAIL(nil, nil)
-Expect("with Read When Window Closes on, an automatic read waits while the window is open", Spoken:GetQueueSize(), 0)
-VO.Addon:DispatchDirectEvent("QUEST_FINISHED", "test")
-Expect("...and starts when it closes", Spoken:GetQueueSize(), 1)
-VO.Addon:DispatchDirectEvent("QUEST_FINISHED", "test")
-Expect("...once", Spoken:GetQueueSize(), 1)
-Spoken:StopAll()
-VO.Addon:QUEST_DETAIL(nil, true)
-Expect("a read the player asks for does not wait", Spoken:GetQueueSize(), 1)
+local migrated = _G.SpokenQuestsSettings.profiles
+Expect("Read When Window Closes on becomes Read After Accepting on", migrated.Default.Audio.ReadAfterAccept, true)
+Expect("...and its old key is gone", migrated.Default.Audio.ReadAfterClose, nil)
+Expect("Read When Window Closes off leaves Read After Accepting at its default", migrated.Other.Audio.ReadAfterAccept, nil)
+Expect("...and its old key is gone too", migrated.Other.Audio.ReadAfterClose, nil)
+_G.SpokenQuestsSettings = nil
 
 ---------------------------------------------------------------- the easter egg
 VO, env, Spoken = Boot()
@@ -396,7 +518,7 @@ VO, env, Spoken = Boot()
 local labels = {}
 for _, entry in ipairs(env.Minimap:BuildMenu()) do table.insert(labels, entry.text) end
 Expect("the quests addon adds its entries to the one button", table.concat(labels, "|"),
-    "Stop or Replay|Skip Line|Stop All|Settings|Quests Settings|Gossip Settings")
+    "Stop or Replay|Previous Line|Next Line|Stop All|Settings|Quests Settings|Gossip Settings")
 Expect("...and registers no button of its own", stub.ldbObjects.SpokenQuests, nil)
 
 if Failures() > 0 then print(string.format("\n%d failure(s)", Failures())); os.exit(1) end

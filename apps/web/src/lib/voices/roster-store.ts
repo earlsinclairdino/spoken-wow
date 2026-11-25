@@ -1,6 +1,6 @@
 /**
  * The roster from migration 0071's tables, kept per process and checked against ROSTER_STAMP on
- * every read, as lib/stamp.ts's memos are: an admin's edit on one pm2 worker is seen by the other
+ * every read (once per server render), as lib/stamp.ts's memos are: an admin's edit on one pm2 worker is seen by the other
  * on its next read, and an unchanged roster stays the same instance, so whatever is keyed on it
  * (slots.ts) keeps.
  *
@@ -8,6 +8,7 @@
  * read as the language's owner, or English's for a language nobody owns.
  */
 import type { PoolClient } from "pg";
+import { cache } from "react";
 
 import { queryIn, TEAM_ROWS, withTeam } from "@/lib/db";
 import type { Lang } from "@/lib/lang";
@@ -57,8 +58,16 @@ async function rosterData(client: PoolClient): Promise<RosterData> {
   };
 }
 
+/** The roster `lang` is voiced with, as the acting team. */
 export async function loadRoster(lang: Lang): Promise<Roster> {
-  const team = await teamOrEnglish(lang);
+  return rosterOf(await teamOrEnglish(lang));
+}
+
+/**
+ * Cached per render because each check is a transaction of four round trips. Keyed by team, not
+ * language: one render can read another team's roster (asTeam) beside the acting one's.
+ */
+const rosterOf = cache(async (team: TeamId): Promise<Roster> => {
   const [{ stamp }] = await queryIn<{ stamp: string }>(team, `select ${ROSTER_STAMP} as "stamp"`);
   const memo = (holder[cacheKey] ??= new Map());
   const hit = memo.get(team);
@@ -70,4 +79,4 @@ export async function loadRoster(lang: Lang): Promise<Roster> {
     if (memo.get(team)?.roster === roster) memo.delete(team);
   });
   return roster;
-}
+});

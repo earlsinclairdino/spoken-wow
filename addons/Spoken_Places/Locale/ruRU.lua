@@ -7,7 +7,7 @@
 
 local _, SpokenPlaces = ...
 
-if GetLocale() ~= "ruRU" then
+if not Spoken:InterfaceIn("ruRU") then
 	return
 end
 
@@ -22,10 +22,13 @@ L.OPT_PLAY_BUTTON = "Читать истории вслух"
 L.OPT_AUTOPLAY = "Читать автоматически"
 L.OPT_AUTOPLAY_SUB = "Включать малые области"
 L.OPT_AUTOPLAY_EXPLORED = "Включать места, открытые раньше"
-L.OPT_LANG_RELOAD = "Введите /reload, чтобы переключиться на него."
-L.OPT_LANGUAGE = "Язык текста"
-L.OPT_LANG_AUTO_FMT = "Авто (%1$s)"
-L.OPT_LANG_SET_FMT = "После перезагрузки интерфейса истории будут на языке: %1$s."
+L.OPT_AUTOPLAY_COMBAT = "Останавливать в начале боя"
+L.OPT_AUTOPLAY_EVERY_VISIT = "Читать при каждом посещении"
+L.OPT_SHARE_HISTORY = "Общий для всех персонажей"
+L.OPT_AUTOPLAY_GAP = "Перерыв между чтениями"
+L.OPT_GAP_1D = "1 день"
+L.OPT_GAP_1W = "1 неделя"
+L.OPT_GAP_1MO = "1 месяц"
 L.OPT_LANG_PROFILE_FMT = "Этот профиль читает истории на языке: %1$s. Введите /reload, чтобы переключиться."
 L.OPT_REPORT_PROBLEM = "Сообщить о проблеме"
 L.MENU_LORE_WINDOW = "Открыть Компендиум"
@@ -58,19 +61,24 @@ L.CMD_VOICE = "  /spp voice      -- «Читать истории вслух»: 
 L.CMD_AUTOPLAY = "  /spp autoplay   -- «Читать автоматически»: вкл. или выкл."
 L.CMD_AUDIO = "  /spp audio      -- установленные пакеты озвучки"
 L.CMD_LANG = "  /spp lang       -- Язык текста: список или смена через /spp lang <code> или auto"
-L.CMD_FORGET = "  /spp forget     -- Забыть услышанные места"
+L.CMD_FORGET = "  /spp forget     -- Забыть посещённые места"
 
 
 -- Added for Lore of Azeroth, Zone Lore, voice packs and the settings page.
 L.REASON_VOICE = "Включите «Читать истории вслух», чтобы пользоваться этим."
-L.OPT_FORGET_PLACES = "Забыть услышанные места"
+L.OPT_FORGET_PLACES = "Забыть посещённые места"
 L.OPT_FORGET_PLACES_DONE = "Список услышанных мест этого персонажа очищен."
+L.OPT_FORGET_PLACES_SHARED_DONE = "Список прослушанных мест этой учётной записи очищен."
+L.OPT_FORGET_PLACES_CONFIRM = "Будет забыто мест: %d."
+L.OPT_FORGET_PLACES_CONFIRM_ONE = "Будет забыто мест: 1."
+L.OPT_FORGET = "Забыть"
 L.OPT_DOWNLOAD_ADDRESS = "Скопируйте этот адрес в браузер, чтобы скачать пакет озвучки."
 L.OTHER_LANDS = "Другие земли"
 L.BATTLEGROUNDS = "Поля боя"
 L.DUNGEONS = "Подземелья и рейды"
 L.COMPENDIUM_PLACES = "Места"
 L.LORE_PANEL_TITLE = "История места"
+L.BOSS_LORE_TITLE = "История босса"
 L.MAP_PANEL_EXPAND = "Показать историю места"
 L.PANEL_SHOWN = "История у карты: вкл."
 L.PANEL_HIDDEN = "История у карты: выкл."
@@ -79,10 +87,9 @@ L.LORE_DISCOVERED_ONLY = "Только открытые"
 L.LORE_VOICED_ONLY = "Только озвученные"
 L.LORE_SEARCH_NONE = "Ничего не найдено."
 L.REASON_DISCOVERY = "Включите «Читать автоматически», чтобы пользоваться этим."
+L.REASON_EVERY_VISIT = "Выключите «Читать при каждом посещении», чтобы пользоваться этим."
 L.REASON_MAP_PANEL = "Включите «История у карты», чтобы пользоваться этим."
 L.OPT_RESET_PAGE_CONFIRM = "Вернуть все настройки мест к значениям по умолчанию?"
-L.OPT_RELOAD_NOW = "Перезагрузить сейчас"
-L.OPT_LATER = "Позже"
 L.OPT_PAGE_TITLE = "Места"
 L.OPT_DEV_DEBUG = "Отладка: Места"
 L.OPT_DEV_PREVIEW = "Незаконченные переводы"

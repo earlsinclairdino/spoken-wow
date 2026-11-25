@@ -13,6 +13,7 @@
  * stranger's address serves no purpose that reading their report does not.
  */
 import { useLang } from "@/components/LangProvider";
+import { useUiText } from "@/components/UiTextProvider";
 import { localeHref } from "@/lib/lang";
 import Link from "@/components/LocaleLink";
 import { useRouter } from "next/navigation";
@@ -28,6 +29,7 @@ import LineHeading from "@/components/reports/LineHeading";
 import ReportContribution from "@/components/reports/ReportContribution";
 import SortHeader from "@/components/SortHeader";
 import { ReportContextNote } from "@/components/reports/ReportContextFacts";
+import type { PackVersions } from "@/lib/reports/context";
 import { LinkTabs } from "@/components/StatusTabs";
 import { usePendingPush } from "@/components/usePendingPush";
 import { useLocalDates } from "@/components/useLocalDates";
@@ -61,6 +63,7 @@ import { applyResolutions, type ReportGroup } from "@/lib/reports/rows";
 import type { ResultLine as QuestLine } from "@/lib/search";
 import { cn } from "@/lib/utils";
 import type { ResultLine as ZoneLine } from "@/lib/places/search";
+import { SECTION_LABELS } from "@/lib/releases/sections";
 import type { ResultLine as BossLine } from "@/lib/bosses/search";
 import { placesSection } from "@/components/places/sections";
 import { bossesSection } from "@/components/bosses/sections";
@@ -69,13 +72,6 @@ import type { Source } from "@/lib/sections";
 // No facets: the table plays lines, it does not narrow to them.
 const PLACES = placesSection();
 const BOSSES = bossesSection();
-
-const SECTION_LABELS: Record<Section, string> = {
-  quests: "Quests",
-  readables: "Readables",
-  places: "Places",
-  bosses: "Bosses",
-};
 
 const VIEW_LABELS: Record<StatusView, string> = { ...STATUS_LABELS, all: "All" };
 
@@ -105,6 +101,7 @@ export default function ReportTable({
   labelled,
   passTo,
   showNpcPage,
+  latestPacks,
 }: {
   /** This page's lines, each with its reports, in the order the server sorted them. */
   groups: ReportGroup[];
@@ -127,6 +124,8 @@ export default function ReportTable({
   passTo: Queue[];
   /** The NPC page is the admins'; see LineHeading. */
   showNpcPage: boolean;
+  /** The section's released pack versions by language, to flag a report heard on an old pack. */
+  latestPacks: PackVersions;
 }) {
   const when = useLocalDates();
   /**
@@ -139,6 +138,7 @@ export default function ReportTable({
    */
   const { pending, push } = usePendingPush();
   const { refresh } = useRouter();
+  const t = useUiText();
   const lang = useLang();
   const [resolved, setResolved] = useState<Record<number, Report>>({});
   /** Reports with a resolution in flight. A set, because a group resolves all of its at once. */
@@ -399,7 +399,7 @@ export default function ReportTable({
             <span className="text-muted-foreground mr-2 text-xs">{CATEGORY_COLUMN[report.category]}</span>
             {report.body}
           </p>
-          <ReportContextNote context={report.context}>
+          <ReportContextNote context={report.context} latestPacks={latestPacks}>
             {/* The text the reporter's addon saw, as the contributions page would take it. */}
             {canContribute && report.source !== "places" && report.source !== "bosses" && report.context?.text?.trim() ? (
               <ReportContribution
@@ -459,7 +459,7 @@ export default function ReportTable({
   return (
     <>
       <LinkTabs
-        label="Section"
+        label={t.reports.section}
         onGo={push}
         active={filters.section}
         tabs={SECTIONS.map((section) => ({
@@ -469,7 +469,7 @@ export default function ReportTable({
         }))}
       />
       <LinkTabs
-        label="Status"
+        label={t.reports.status}
         onGo={push}
         active={filters.view}
         tabs={STATUS_VIEWS.map((view) => ({
@@ -482,13 +482,13 @@ export default function ReportTable({
         <Input
           type="search"
           value={query}
-          placeholder="What they said, the line or who sent it…"
-          aria-label="Search"
+          placeholder={t.reports.searchPlaceholder}
+          aria-label={t.reports.search}
           className="h-8 min-w-0 basis-64"
           onChange={(event) => setQuery(event.target.value)}
         />
         <FilterChip
-          label="complaint"
+          label={t.reports.complaint}
           value={filters.category === "all" ? undefined : filters.category}
           options={CATEGORY_OPTIONS}
           onChange={(next) => go({ category: (next as Category | undefined) ?? "all" })}
@@ -501,7 +501,7 @@ export default function ReportTable({
       </nav>
 
       {groups.length === 0 ? (
-        <p className="text-muted-foreground text-sm">Nothing here.</p>
+        <p className="text-muted-foreground text-sm">{t.reports.nothing}</p>
       ) : (
         <table
           aria-busy={pending}
@@ -509,7 +509,7 @@ export default function ReportTable({
         >
           <thead className="text-muted-foreground text-left text-xs">
             <tr>
-              <th className="border-b py-2 pr-3 font-normal">Where</th>
+              <th className="border-b py-2 pr-3 font-normal">{t.reports.where}</th>
               <th className="border-b py-2 font-normal" />
               <SortHeader
                 column="filed"
@@ -518,7 +518,7 @@ export default function ReportTable({
               >
                 Filed
               </SortHeader>
-              <th className="border-b py-2 pr-3 font-normal">What</th>
+              <th className="border-b py-2 pr-3 font-normal">{t.reports.what}</th>
               <th className="border-b py-2 font-normal" />
             </tr>
           </thead>

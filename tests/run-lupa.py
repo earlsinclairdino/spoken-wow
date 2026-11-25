@@ -50,7 +50,8 @@ def main():
     only = args[0] if args else ""
     os.chdir(REPO)
     runs = [(p.replace("\\", "/"), []) for p in sorted(glob.glob("tests/lua/*_test.lua"))
-            if "settings_fit_test" not in p]
+            # interface_strings_test runs scripts/interface/strings.lua through luajit in a shell.
+            if "settings_fit_test" not in p and "interface_strings_test" not in p]
     runs += [("tests/lua/settings_fit_test.lua", [lang]) for lang in LANGUAGES]
     runs.append(("tests/captions/verify.lua", []))
     failed = 0

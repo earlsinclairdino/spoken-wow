@@ -17,49 +17,63 @@ local scroller
 -- is built with too, so the pages read alike.
 local Layout = SpokenLayout
 
+-- Spoken's files name their strings here, and the words are looked up as they are read: an
+-- interface pack's strings arrive after these files load (Interface.lua), and a word copied as a
+-- file loads would stay in the language before them. tests/lua/interface_packs_test.lua holds them
+-- to it.
+local function Words(keys)
+    return setmetatable({}, { __index = function(_, name) return keys[name] and L[keys[name]] end })
+end
+
 local CHANNELS = { "Master", "SFX", "Music", "Ambience", "Dialog" }
 -- Stored names stay English: playback passes them to the sound API.
-local CHANNEL_LABELS = {
-    Master = L.OPT_CHANNEL_MASTER,
-    SFX = L.OPT_CHANNEL_SFX,
-    Music = L.OPT_CHANNEL_MUSIC,
-    Ambience = L.OPT_CHANNEL_AMBIENCE,
-    Dialog = L.OPT_CHANNEL_DIALOG,
-}
+local CHANNEL_LABELS = Words({
+    Master = "OPT_CHANNEL_MASTER",
+    SFX = "OPT_CHANNEL_SFX",
+    Music = "OPT_CHANNEL_MUSIC",
+    Ambience = "OPT_CHANNEL_AMBIENCE",
+    Dialog = "OPT_CHANNEL_DIALOG",
+})
 
 -- The ways of showing a line, by the name Addon:PlayerStyle gives each.
-local STYLE_LABELS = {
-    minimal = L.OPT_STYLE_MINIMAL,
-    classic = L.OPT_STYLE_CLASSIC,
-    dialogueui = L.OPT_STYLE_DIALOGUEUI,
-    subtitle = L.OPT_STYLE_SUBTITLE,
-    none = L.OPT_STYLE_NONE,
+local STYLE_LABELS = Words({
+    minimal = "OPT_STYLE_MINIMAL",
+    classic = "OPT_STYLE_CLASSIC",
+    dialogueui = "OPT_STYLE_DIALOGUEUI",
+    subtitle = "OPT_STYLE_SUBTITLE",
+    none = "OPT_STYLE_NONE",
+})
+
+-- The game's key bindings list these in a Spoken category (Bindings.xml): each by its binding and
+-- its string's key.
+local BINDINGS = {
+    { "SPOKEN_PLAYPAUSE", "BIND_STOP_REPLAY" },
+    { "SPOKEN_SKIP", "BIND_SKIP_FORWARD" },
+    { "SPOKEN_PREVIOUS", "BIND_SKIP_BACKWARD" },
+    { "SPOKEN_STOP", "BIND_EJECT" },
+    { "SPOKEN_COMPENDIUM", "BIND_COMPENDIUM" },
+    { "SPOKEN_MUTE", "BIND_MUTE" },
 }
 
--- The game's key bindings list these in a Spoken category (Bindings.xml). The category is
--- the name of a string global the client shows as its title. Set here, after the locale
--- files, so the names are in the player's language.
-_G.BINDING_HEADER_SPOKEN = "Spoken"
-_G.BINDING_NAME_SPOKEN_PLAYPAUSE = L.BIND_PLAYPAUSE
-_G.BINDING_NAME_SPOKEN_SKIP = L.BIND_SKIP
-_G.BINDING_NAME_SPOKEN_STOP = L.BIND_STOP
-_G.BINDING_NAME_SPOKEN_COMPENDIUM = L.BIND_COMPENDIUM
-local BINDINGS = {
-    { "SPOKEN_PLAYPAUSE", L.BIND_PLAYPAUSE },
-    { "SPOKEN_SKIP", L.BIND_SKIP },
-    { "SPOKEN_STOP", L.BIND_STOP },
-    { "SPOKEN_COMPENDIUM", L.BIND_COMPENDIUM },
-}
--- The parts of Spoken by source key, named as their pages are, each with the game's own icon
--- for what it reads and the order its page is listed in under Spoken.
+--- Name the bindings in the player's language. The category is the name of a string global the
+--- client shows as its title. Called as this file loads, after the locale files, and again when an
+--- interface pack's strings are laid over them.
+function Options:NameBindings()
+    _G.BINDING_HEADER_SPOKEN = "Spoken"
+    for _, binding in ipairs(BINDINGS) do _G["BINDING_NAME_" .. binding[1]] = L[binding[2]] end
+end
+Options:NameBindings()
+
+-- The parts of Spoken by source key, named as their pages are (the keys of their strings), each
+-- with the game's own icon for what it reads and the order its page is listed in under Spoken.
 local PARTS = {
-    { key = "quests", label = L.OPT_PART_QUESTS, text = L.OPT_PART_QUESTS_TEXT,
+    { key = "quests", label = "OPT_PART_QUESTS", text = "OPT_PART_QUESTS_TEXT",
         icon = [[Interface\Icons\INV_Scroll_03]], order = 1 },
-    { key = "gossip", label = L.OPT_PART_GOSSIP, text = L.OPT_PART_GOSSIP_TEXT,
+    { key = "gossip", label = "OPT_PART_GOSSIP", text = "OPT_PART_GOSSIP_TEXT",
         icon = [[Interface\Icons\UI_Chat]], order = 2 },
-    { key = "places", label = L.OPT_PART_PLACES, text = L.OPT_PART_PLACES_TEXT,
+    { key = "places", label = "OPT_PART_PLACES", text = "OPT_PART_PLACES_TEXT",
         icon = [[Interface\Icons\INV_Misc_Map02]], order = 3 },
-    { key = "readables", label = L.OPT_PART_READABLES, text = L.OPT_PART_READABLES_TEXT,
+    { key = "readables", label = "OPT_PART_READABLES", text = "OPT_PART_READABLES_TEXT",
         icon = [[Interface\Icons\INV_Misc_Book_09]], order = 4 },
 }
 
@@ -68,7 +82,8 @@ local PARTS = {
 function Options:Parts()
     local parts, known = {}, {}
     for _, part in ipairs(PARTS) do
-        table.insert(parts, part)
+        table.insert(parts, { key = part.key, label = L[part.label], text = L[part.text], icon = part.icon,
+            order = part.order })
         known[part.key] = true
     end
     for key, source in Sources:Iterate() do
@@ -138,36 +153,13 @@ local SKETCHES = {
         end
     end,
 }
-local STYLE_TEXTS = {
-    minimal = L.OPT_STYLE_MINIMAL_TEXT,
-    classic = L.OPT_STYLE_CLASSIC_TEXT,
-    dialogueui = L.OPT_STYLE_DIALOGUEUI_TEXT,
-    subtitle = L.OPT_STYLE_SUBTITLE_TEXT,
-    none = L.OPT_STYLE_NONE_TEXT,
-}
--- The languages a voice pack can speak: the same list, in the same order, as each module's
--- (SpokenQuests' Language.LOCALES, SpokenReadables.LOCALES).
-LANGUAGES = {
-    { code = "enUS", native = "English", english = "English" },
-    { code = "deDE", native = "Deutsch", english = "German" },
-    { code = "esES", native = "Español (España)", english = "Spanish (Spain)" },
-    { code = "esMX", native = "Español (América Latina)", english = "Spanish (Latin America)" },
-    { code = "frFR", native = "Français", english = "French" },
-    -- No client runs in Italian, so "Auto" never lands on it; a player picks it by hand.
-    { code = "itIT", native = "Italiano", english = "Italian" },
-    { code = "ptBR", native = "Português", english = "Portuguese (Brazil)" },
-    { code = "ruRU", native = "Русский", english = "Russian", script = "cyrillic" },
-    { code = "koKR", native = "한국어", english = "Korean", script = "korean" },
-    -- `sample`: characters only that Chinese has, which a font must draw beside the name. A Korean
-    -- font with Hanja draws "繁體中文" and still lacks most of Traditional Chinese.
-    { code = "zhCN", native = "简体中文", english = "Chinese (Simplified)", script = "han", sample = "们这简国" },
-    { code = "zhTW", native = "繁體中文", english = "Chinese (Traditional)", script = "han", sample = "嗎妳麼為" },
-    -- No client runs in it either, and its stacked accents are glyphs a Latin font can lack.
-    -- `hidden` keeps it out of the menus until its pack is released: picked before then, every
-    -- line would play in the fallback language.
-    { code = "viVN", native = "Tiếng Việt", english = "Vietnamese", script = "vietnamese", hidden = true },
-}
-
+local STYLE_TEXTS = Words({
+    minimal = "OPT_STYLE_MINIMAL_TEXT",
+    classic = "OPT_STYLE_CLASSIC_TEXT",
+    dialogueui = "OPT_STYLE_DIALOGUEUI_TEXT",
+    subtitle = "OPT_STYLE_SUBTITLE_TEXT",
+    none = "OPT_STYLE_NONE_TEXT",
+})
 -- Whether a font draws `text`: the settings' font object, or the file `path`. A glyph the font
 -- lacks draws as nothing or as a box, so the text is measured against as many U+0378, a code point
 -- Unicode has never assigned and so no font has: the same width means none of it drew. Han and
@@ -216,35 +208,80 @@ local function FontDraws(text, path)
     return drew
 end
 
-local function Locale(code)
-    for _, locale in ipairs(LANGUAGES) do
-        if locale.code == code then return locale end
-    end
-end
-
--- Whether a font draws the language `code`: its own name, and the characters only it has.
+-- Whether a font draws the language `code`: its own name, and the characters only it has. A
+-- language the registry does not know, or that names itself in no script, draws nothing.
 function Options:LanguageDraws(code, path)
-    local locale = Locale(code)
-    return locale ~= nil and FontDraws(locale.native .. (locale.sample or ""), path)
+    local language = Languages:Get(code)
+    return language ~= nil and language.native ~= nil
+        and FontDraws(language.native .. (language.sample or ""), path)
 end
 
---- A language's name in the lists, one for every module: its own, and in English where this
---- client's font cannot draw its script (Korean on a German client).
+--- A language's name in text drawn in the game's font, one for every module: its own where the
+--- settings' font can draw it, in English where it cannot (Korean on a German client), and the code
+--- where a pack names it in neither. A built-in Latin language needs no probe. A name only a
+--- pack's font draws stays English here, because this text has no way to wear that font.
 function Options:LanguageName(code)
-    local locale = Locale(code)
-    if not locale then return code end
-    if not locale.script then return locale.native end
-    return self:LanguageDraws(code) and locale.native or locale.english
+    local language = Languages:Get(code)
+    if not language then return code end
+    if language.builtin and language.script == "latin" then return language.native end
+    if self:LanguageDraws(code) then return language.native end
+    return language.name or code
 end
 
---- The client's language, as "Auto" reads it: English where the client's is not one of ours.
-function Options:ClientLanguage()
-    local locale = GetLocale and GetLocale()
-    if locale == "enGB" then return "enUS" end
-    for _, each in ipairs(LANGUAGES) do
-        if each.code == locale then return locale end
-    end
-    return "enUS"
+--- A voice's name: its language's, as `LanguageName` gives it ("Deutsch"), or for a team's voice
+--- with the team's name after it ("Deutsch · Stimmen"). `menu` names the language as
+--- `MenuLanguageName` does, for a row drawn in `LanguageFace`.
+function Options:VoiceName(code, menu)
+    local lang, team = Languages:SplitVoice(code)
+    if not lang then return tostring(code) end
+    local name = menu and self:MenuLanguageName(lang) or self:LanguageName(lang)
+    if not team then return name end
+    local voice = Languages:Voice(code)
+    return format(L.OPT_VOICE_TEAM_FMT, name, voice and voice.teamName or team)
+end
+
+--- The name a menu entry shows, for a menu that draws it in `LanguageFace`: its own where only the
+--- pack's font can draw it, else what `LanguageName` gives.
+function Options:MenuLanguageName(code)
+    if self:LanguageFace(code) then return Languages:Get(code).native end
+    return self:LanguageName(code)
+end
+
+--- The pack's font for a language's name in the lists, where the settings' font cannot draw it
+--- but the pack's can; else nil, and the menu keeps the game's font.
+function Options:LanguageFace(code)
+    local language = Languages:Get(code)
+    if not (language and language.font) then return nil end
+    if language.builtin and language.script == "latin" then return nil end
+    if self:LanguageDraws(code) then return nil end
+    return self:LanguageDraws(code, language.font) and language.font or nil
+end
+
+
+
+--- The voices a player may add to their list: "auto", then every installed voice, each language's
+--- own followed by its teams' (Languages:Voices). Read when the menu opens, so that a pack
+--- installed since is there.
+function Options:VoiceChoices()
+    local list = { "auto" }
+    for _, voice in ipairs(Languages:Voices()) do table.insert(list, voice.code) end
+    return list
+end
+
+--- Whether a pack in the voice `code` is installed. "auto" always is: it reads whatever the
+--- client's language has.
+function Options:VoiceInstalled(code)
+    if code == "auto" then return true end
+    local voice = Languages:Voice(code)
+    return voice ~= nil and #voice.folders > 0
+end
+
+--- The voices as the settings list them: the player's list, or while there is none what it would be
+--- built from the old voice language and fallback, which the first change stores.
+function Options:VoiceList()
+    local language = Addon.db.profile.Language
+    if type(language.Voices) == "table" and #language.Voices > 0 then return language.Voices end
+    return Addon:VoiceListFrom(language.Voice, language.Fallback)
 end
 
 --- Show `style` on screen with a sample line, or nil to stop.
@@ -260,7 +297,8 @@ end
 -- unable to open a web page.
 local WEBSITE = "https://spoken.quest"
 local function WebsiteURL()
-    local language = Options:ClientLanguage()
+    -- In the interface's language, where the site has it: a built-in one.
+    local language = Interface:Base()
     return language == "enUS" and WEBSITE or WEBSITE .. "/" .. language
 end
 
@@ -271,7 +309,6 @@ local CURSEFORGE_PAGES = {
     esES = "spoken-spanish-eu",
     esMX = "spoken-spanish-al",
     frFR = "spoken-french",
-    itIT = "spoken-italian",
     ptBR = "spoken-portuguese",
     ruRU = "spoken-russian",
     koKR = "spoken-korean",
@@ -279,15 +316,15 @@ local CURSEFORGE_PAGES = {
     zhTW = "spoken-chinese-traditional",
 }
 local function CurseForgeURL()
-    return CURSEFORGE .. (CURSEFORGE_PAGES[Options:ClientLanguage()] or "spoken")
+    return CURSEFORGE .. (CURSEFORGE_PAGES[Interface:Base()] or "spoken")
 end
 
 local LINKS = {
-    { name = L.OPT_LINKS_WEBSITE, icon = [[Interface\AddOns\Spoken\icon]], url = WebsiteURL() },
+    { nameKey = "OPT_LINKS_WEBSITE", icon = [[Interface\AddOns\Spoken\icon]], url = WebsiteURL() },
     { name = "GitHub", icon = [[Interface\AddOns\Spoken\Textures\LinkGitHub]],
         url = "https://github.com/rusty-key/spoken-wow" },
     { name = "Discord", icon = [[Interface\AddOns\Spoken\Textures\LinkDiscord]],
-        url = "https://discord.gg/KgeQhjv9Rd" },
+        url = "https://spoken.quest/discord" },
     { name = "CurseForge", icon = [[Interface\AddOns\Spoken\Textures\LinkCurseForge]],
         url = CurseForgeURL() },
     { name = "Wago", icon = [[Interface\AddOns\Spoken\Textures\LinkWago]],
@@ -301,7 +338,7 @@ function Options:AddLinks(layout)
     layout:Section(L.OPT_LINKS_TITLE)
     local frames = {}
     for _, link in ipairs(LINKS) do
-        table.insert(frames, layout:Link({ icon = link.icon, title = link.name, url = link.url,
+        table.insert(frames, layout:Link({ icon = link.icon, title = link.name or L[link.nameKey], url = link.url,
             tooltip = L.OPT_LINKS_TIP }))
     end
     return frames
@@ -538,33 +575,60 @@ local function Build()
     Only(wheel, function() return Small() or DUI() or Subtitles() end)
     layout:OnRefresh(function() wheel:SetText(Subtitles() and L.SUBTITLE_WHEEL_HINT or L.WINDOW_WHEEL_HINT) end)
 
-    -- The voice language, once for every module: they share the same list of languages, and a
-    -- player who picks Portuguese means it for quests and readables alike.
+    -- The voices, once for every module, in the order a line tries them: they share the same list
+    -- of languages, and a player who picks Portuguese means it for quests and readables alike.
     layout:Section(L.OPT_LANGUAGE_TITLE)
-    local language = function() return Addon.db.profile.Language end
-    local voices, fallbacks = { "auto" }, { "none" }
-    for _, locale in ipairs(LANGUAGES) do
-        if not locale.hidden then
-            table.insert(voices, locale.code)
-            table.insert(fallbacks, locale.code)
-        end
+    -- A language as the language rows name it: Auto with what it reads now, a pack's in its font.
+    local function Label(code)
+        if code == "auto" then return format(L.OPT_LANG_AUTO_FMT, Options:LanguageName(Languages:Client())) end
+        return Options:MenuLanguageName(code)
     end
-    layout:Dropdown(L.OPT_VOICE_LANGUAGE, nil, voices,
-        function() return language().Voice or "auto" end,
-        function(code) language().Voice = code end, function() Options:UpdateRows() end,
+    local function Face(code)
+        if code == "auto" then return nil end
+        return Options:LanguageFace((Languages:SplitVoice(code)))
+    end
+    layout:OrderedList(L.OPT_VOICES, L.OPT_VOICES_TIP, function() return Options:VoiceList() end,
+        function(list) Spoken:SetVoiceOrder(list) end, function() return Options:VoiceChoices() end,
         function(code)
-            if code == "auto" then return format(L.OPT_LANG_AUTO_FMT, Options:LanguageName(Options:ClientLanguage())) end
-            return Options:LanguageName(code)
-        end)
-    layout:Dropdown(L.OPT_FALLBACK_LANGUAGE, nil, fallbacks,
-        function() return language().Fallback or "enUS" end,
-        function(code) language().Fallback = code end, function() Options:UpdateRows() end,
-        function(code) return code == "none" and L.OPT_FALLBACK_NONE or Options:LanguageName(code) end)
+            if code == "auto" then return Label(code) end
+            local name = Options:VoiceName(code, true)
+            if Options:VoiceInstalled(code) then return name end
+            return format("%s %s", name, L.OPT_VOICE_MISSING)
+        end, Face,
+        { add = L.OPT_VOICE_ADD, earlier = L.OPT_VOICE_EARLIER, later = L.OPT_VOICE_LATER, remove = L.OPT_VOICE_REMOVE,
+            available = function(code) return Options:VoiceInstalled(code) end })
+    -- A language read as Spoken and its modules load, `owner` keeping the choice (Texts, Interface):
+    -- a change waits for a reload, which is asked at once, as a player who switches and sees no change
+    -- concludes it is broken; until then the note says so, while `pending()`.
+    local function LanguageRow(title, setFmt, owner, pending)
+        layout:Dropdown(title, nil, function() return owner:Choices() end,
+            function() return owner:Choice() or "auto" end,
+            function(code)
+                -- Asked only where the next load would read something else: Auto and the client's
+                -- own language read the same interface.
+                if owner:SetChoice(code ~= "auto" and code or nil) and pending() then
+                    Layout.AskReload(format(setFmt,
+                        Options:LanguageName(code ~= "auto" and code or Languages:Client())),
+                        L.OPT_RELOAD_NOW, L.OPT_LATER)
+                end
+            end, function() Options:UpdateRows() end,
+            Label, Face)
+        layout:ShowWhen(layout:Note(L.OPT_TEXT_LANGUAGE_RELOAD, nil, 16), pending)
+    end
+    -- The words' language, apart from the voice's: a Polish reader hears English where no Polish
+    -- voice exists. Choosing the client's own language is a change too: chosen, it comes first
+    -- everywhere.
+    LanguageRow(L.OPT_TEXT_LANGUAGE, L.OPT_TEXT_LANGUAGE_SET_FMT, Texts, function()
+        local wanted, chosen = Texts:Language()
+        local reading, read = Texts:Reading()
+        return wanted ~= reading or chosen ~= read
+    end)
+    -- Spoken's own words, account-wide: the locale files read it before any profile is chosen
+    -- (Interface.lua). A built-in language or an interface pack's, only where the game's font draws it.
+    LanguageRow(L.OPT_INTERFACE_LANGUAGE, L.OPT_INTERFACE_LANGUAGE_SET_FMT, Interface,
+        function() return Interface:Pending() end)
 
     layout:Section(L.OPT_AUDIO_TITLE)
-    layout:Checkbox(L.OPT_CAPTIONS_ONLY, L.OPT_CAPTIONS_ONLY_TIP,
-        function() return audio().CaptionsOnly end,
-        function(v) SoundQueue:SetCaptionsOnly(v) end)
     layout:Dropdown(L.OPT_CHANNEL, nil, CHANNELS,
         function() return audio().SoundChannel end,
         function(v) audio().SoundChannel = v end,
@@ -623,7 +687,7 @@ local function Build()
         layout:Refresh()
     end
     for _, binding in ipairs(BINDINGS) do
-        local name, label = binding[1], binding[2]
+        local name, label = binding[1], L[binding[2]]
         layout:Key(label, function()
             local key = GetBindingKey and GetBindingKey(name)
             if not key then return "off", L.OPT_KEY_NONE end
@@ -925,6 +989,7 @@ local function Build()
             -- to its default.
             Addon.db.profile.CompendiumFontSize = 12
             Addon.db.global.Layout = nil
+            Addon.db.global.InterfaceLanguage = nil
             ReloadUI()
         end)
     end, L.OPT_RESET_ALL_TIP)
@@ -995,17 +1060,355 @@ function Options:NoVoicePacks()
     return known and total == 0
 end
 
+local PROFILE_FORMAT = "SPP1:"
+local PROFILE_MAX_DEPTH = 40
+local PROFILE_MAX_ITEMS = 10000
+
+local function Say(message) print("|cFF00CCFFSpoken:|r " .. message) end
+
+local function Deflate() return LibStub and LibStub:GetLibrary("LibDeflate", true) end
+
+local function Finite(value)
+    return value == value and value ~= math.huge and value ~= -math.huge
+end
+
+local function ProfileKeys(value)
+    if type(value) ~= "table" then return {} end
+    local keys = {}
+    for key in pairs(value) do
+        local kind = type(key)
+        if kind ~= "string" and kind ~= "number" then error("profile has an unsupported key") end
+        table.insert(keys, key)
+    end
+    table.sort(keys, function(a, b)
+        local ak, bk = type(a), type(b)
+        if ak ~= bk then return ak < bk end
+        return tostring(a) < tostring(b)
+    end)
+    return keys
+end
+
+-- A small length-prefixed format keeps profile strings safe to paste even when a setting contains
+-- punctuation or a newline. It deliberately accepts only the types settings can store.
+local function SerializeProfile(value, out, depth)
+    depth = depth or 0
+    if depth > PROFILE_MAX_DEPTH then error("profile is too deeply nested") end
+    out = out or {}
+    local kind = type(value)
+    if kind == "nil" then
+        out[#out + 1] = "n"
+    elseif kind == "boolean" then
+        out[#out + 1] = value and "b1" or "b0"
+    elseif kind == "number" then
+        if not Finite(value) then error("profile has an invalid number") end
+        out[#out + 1] = "d" .. format("%.17g", value) .. ";"
+    elseif kind == "string" then
+        out[#out + 1] = "s" .. tostring(#value) .. ":" .. value
+    elseif kind == "table" then
+        local keys = ProfileKeys(value)
+        if #keys > PROFILE_MAX_ITEMS then error("profile has too many entries") end
+        out[#out + 1] = "t" .. tostring(#keys) .. ":"
+        for _, key in ipairs(keys) do
+            SerializeProfile(key, out, depth + 1)
+            SerializeProfile(value[key], out, depth + 1)
+        end
+    else
+        error("profile has an unsupported value")
+    end
+    return out
+end
+
+local function ReadNumber(text, position, separator)
+    local stop = string.find(text, separator, position, true)
+    if not stop then error("profile is truncated") end
+    local value = tonumber(string.sub(text, position, stop - 1))
+    if not value or value < 0 or value > PROFILE_MAX_ITEMS then error("profile has an invalid length") end
+    return value, stop + 1
+end
+
+local function DeserializeProfile(text, position, depth)
+    position, depth = position or 1, depth or 0
+    if depth > PROFILE_MAX_DEPTH then error("profile is too deeply nested") end
+    local tag = string.sub(text, position, position)
+    position = position + 1
+    if tag == "n" then
+        return nil, position
+    elseif tag == "b" then
+        local value = string.sub(text, position, position)
+        if value ~= "0" and value ~= "1" then error("profile has an invalid boolean") end
+        return value == "1", position + 1
+    elseif tag == "d" then
+        local stop = string.find(text, ";", position, true)
+        if not stop then error("profile is truncated") end
+        local value = tonumber(string.sub(text, position, stop - 1))
+        if not value or not Finite(value) then error("profile has an invalid number") end
+        return value, stop + 1
+    elseif tag == "s" then
+        local length
+        length, position = ReadNumber(text, position, ":")
+        local value = string.sub(text, position, position + length - 1)
+        if #value ~= length then error("profile is truncated") end
+        return value, position + length
+    elseif tag == "t" then
+        local count
+        count, position = ReadNumber(text, position, ":")
+        local value = {}
+        for _ = 1, count do
+            local key
+            key, position = DeserializeProfile(text, position, depth + 1)
+            if type(key) ~= "string" and type(key) ~= "number" then error("profile has an invalid key") end
+            local item
+            item, position = DeserializeProfile(text, position, depth + 1)
+            value[key] = item
+        end
+        return value, position
+    end
+    error("profile has an unknown value type")
+end
+
+--- Each AceDB object once, under the first part that names it: Spoken Quests' quests, gossip
+--- and chatter share one, and a copy or reset applied to it three times fires three times.
+local function ProfileStores()
+    local stores, added = {}, {}
+    if Addon.db and Addon.db.GetProfiles then
+        table.insert(stores, { key = "spoken", db = Addon.db })
+        added[Addon.db] = true
+    end
+    for key, source in Sources:Iterate() do
+        if type(source.profiles) == "function" then
+            local ok, db = pcall(source.profiles)
+            if ok and type(db) == "table" and db.GetProfiles and db.profile and not added[db] then
+                table.insert(stores, { key = key, db = db })
+                added[db] = true
+            end
+        end
+    end
+    return stores
+end
+
+local function At(value, key)
+    if type(value) == "table" then return value[key] end
+end
+
+local function DefaultsOf(db)
+    return type(db.defaults) == "table" and db.defaults.profile or nil
+end
+
+-- Only what differs from the defaults goes in the string, as AceDB saves at logout: a default
+-- carried over would stay the player's choice on an install whose default is another, and a
+-- later change to the default would never reach them.
+local function Changed(value, default)
+    if type(value) ~= "table" then
+        if value == default then return nil end
+        return value
+    end
+    local out = {}
+    for key, item in pairs(value) do out[key] = Changed(item, At(default, key)) end
+    if type(default) == "table" and next(out) == nil then return nil end
+    return out
+end
+
+-- Over the defaults a reset has just put back, so a setting the string lacks (it came from
+-- another version) keeps this install's default instead of reading as nil, and a value of
+-- another type than its default cannot replace it.
+local function MergeOver(destination, source, defaults)
+    for key, value in pairs(source) do
+        local default = At(defaults, key)
+        if default == nil or type(default) == type(value) then
+            if type(value) == "table" then
+                if type(destination[key]) ~= "table" then destination[key] = {} end
+                MergeOver(destination[key], value, default)
+            else
+                destination[key] = value
+            end
+        end
+    end
+end
+
+--- The current profile as a string to paste on another character or install, or nil.
+function Options:ProfileString()
+    local stores = {}
+    for _, store in ipairs(ProfileStores()) do
+        stores[#stores + 1] = { key = store.key, values = Changed(store.db.profile, DefaultsOf(store.db)) or {} }
+    end
+    local ok, parts = pcall(SerializeProfile, stores)
+    if not ok then return nil end
+    local lib = Deflate()
+    if not lib then return nil end
+    local compressed = lib:CompressDeflate(table.concat(parts), { level = 5 })
+    return compressed and PROFILE_FORMAT .. lib:EncodeForPrint(compressed) or nil
+end
+
+local function DecodedProfile(payload)
+    if type(payload) ~= "string" or not string.match(payload, "^" .. PROFILE_FORMAT) then return nil end
+    local lib = Deflate()
+    if not lib then return nil end
+    local encoded = string.sub(payload, #PROFILE_FORMAT + 1):gsub("%s", "")
+    local ok, compressed = pcall(lib.DecodeForPrint, lib, encoded)
+    if not ok or not compressed then return nil end
+    local decompressed
+    ok, decompressed = pcall(lib.DecompressDeflate, lib, compressed)
+    if not ok or type(decompressed) ~= "string" then return nil end
+    local parsed, position
+    ok, parsed, position = pcall(DeserializeProfile, decompressed)
+    if not ok or position ~= #decompressed + 1 or type(parsed) ~= "table" then return nil end
+    local values, hasSpoken = {}, false
+    for _, entry in ipairs(parsed) do
+        if type(entry) ~= "table" or type(entry.key) ~= "string" or type(entry.values) ~= "table" then return nil end
+        values[entry.key] = values[entry.key] or entry.values
+        hasSpoken = hasSpoken or entry.key == "spoken"
+    end
+    return hasSpoken and values or nil
+end
+
+local function ApplyImported(values)
+    local current = Options:CurrentProfile()
+    local stores = {}
+    for _, store in ipairs(ProfileStores()) do
+        if values[store.key] then
+            store.db:ResetProfile(nil, true)
+            MergeOver(store.db.profile, values[store.key], DefaultsOf(store.db))
+            table.insert(stores, store)
+        end
+    end
+    -- What a profile switch does, so each part rebinds its settings to the new tables and applies them.
+    for _, store in ipairs(stores) do
+        local callbacks = store.db.callbacks
+        if callbacks and callbacks.Fire then callbacks:Fire("OnProfileChanged", store.db, current) end
+    end
+end
+
+function Options:ImportProfile(payload)
+    local values = DecodedProfile(payload)
+    if not values then return false end
+    ApplyImported(values)
+    return true
+end
+
+--- Ask before `accept` acts on the current profile, and drop it if another is chosen meanwhile:
+--- the page stays usable while it asks.
+function Options:ConfirmOnProfile(question, acceptLabel, accept)
+    local into = self:CurrentProfile()
+    Layout.Confirm(question, acceptLabel, L.CANCEL, function()
+        if self:CurrentProfile() == into then accept() end
+    end)
+end
+
+local function BuildProfileTransfer()
+    local width, height = 650, 390
+    local frame = CreateFrame("Frame", "SpokenProfileTransfer", UIParent, "BackdropTemplate")
+    frame:SetSize(width, height)
+    frame:SetPoint("CENTER")
+    frame:SetFrameStrata("DIALOG")
+    frame:SetToplevel(true)
+    frame:EnableMouse(true)
+    frame:SetMovable(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", frame.StartMoving)
+    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+    frame:SetClampedToScreen(true)
+    if frame.SetBackdrop then
+        frame:SetBackdrop({
+            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+            edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+            tile = true, tileSize = 32, edgeSize = 32,
+            insets = { left = 11, right = 12, top = 12, bottom = 11 },
+        })
+    end
+    if UISpecialFrames then table.insert(UISpecialFrames, "SpokenProfileTransfer") end
+
+    local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    title:SetPoint("TOP", frame, "TOP", 0, -16)
+    local hint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    hint:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -40)
+    hint:SetWidth(width - 36)
+    hint:SetJustifyH("LEFT")
+
+    local scroll = CreateFrame("ScrollFrame", nil, frame)
+    scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -70)
+    scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -34, 58)
+    local edit = CreateFrame("EditBox", nil, scroll)
+    edit:SetMultiLine(true)
+    edit:SetMaxBytes(0)
+    edit:SetAutoFocus(false)
+    edit:SetWidth(width - 52)
+    edit:SetHeight(height - 130)
+    if edit.SetFontObject then edit:SetFontObject(ChatFontNormal) end
+    scroll:SetScrollChild(edit)
+    edit:SetScript("OnEscapePressed", function() frame:Hide() end)
+    local transfer = { frame = frame, title = title, hint = hint, edit = edit }
+    -- An exported string stays selectable for copying but cannot be edited.
+    edit:SetScript("OnTextChanged", function()
+        if transfer.locked and edit:GetText() ~= transfer.locked then
+            edit:SetText(transfer.locked)
+            edit:HighlightText()
+        end
+    end)
+
+    local action = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    action:SetSize(150, 24)
+    action:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 18, 20)
+    action:SetText(L.OPT_PROFILE_IMPORT)
+    action:SetScript("OnClick", function()
+        local values = DecodedProfile(edit:GetText())
+        if not values then
+            Say(L.OPT_PROFILE_IMPORT_FAILED)
+            return
+        end
+        Options:ConfirmOnProfile(L.OPT_PROFILE_IMPORT_CONFIRM, L.OPT_PROFILE_IMPORT, function()
+            ApplyImported(values)
+            frame:Hide()
+            if Options.profileLayout then Options.profileLayout:Refresh() end
+            Say(L.OPT_PROFILE_IMPORTED)
+        end)
+    end)
+    local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
+    close:SetScript("OnClick", function() frame:Hide() end)
+    -- So a controller's B closes it.
+    Layout.FollowController(frame, close)
+    if Ellesmere and Ellesmere.When then
+        Ellesmere:When(function(skin)
+            skin.Shell(frame, { noTopBar = true })
+            skin.CloseButton(close)
+            skin.Button(action)
+            skin.WhiteButtonLabel(action)
+        end)
+    end
+    transfer.action = action
+    return transfer
+end
+
+local profileTransfer
+--- The transfer window: `payload` to copy for an export, none for an import.
+local function ShowProfileTransfer(payload)
+    profileTransfer = profileTransfer or BuildProfileTransfer()
+    local export = payload ~= nil
+    profileTransfer.title:SetText(export and L.OPT_PROFILE_EXPORT or L.OPT_PROFILE_IMPORT)
+    profileTransfer.hint:SetText(export and L.OPT_PROFILE_EXPORT_HINT or L.OPT_PROFILE_IMPORT_HINT)
+    profileTransfer.action:SetShown(not export)
+    profileTransfer.locked = nil
+    profileTransfer.edit:SetText(payload or "")
+    profileTransfer.locked = payload
+    profileTransfer.frame:Show()
+    profileTransfer.edit:SetFocus()
+    if export then profileTransfer.edit:HighlightText() end
+end
+
+function Options:ExportProfile()
+    local payload = self:ProfileString()
+    if not payload then
+        Say(L.OPT_PROFILE_EXPORT_FAILED)
+        return
+    end
+    ShowProfileTransfer(payload)
+end
+
 --- Every AceDB object a profile choice applies to: the player's, then each installed part's
 --- that keeps its settings in profiles (a source's `profiles`).
 function Options:ProfileDBs()
     local dbs = {}
-    if Addon.db and Addon.db.GetProfiles then table.insert(dbs, Addon.db) end
-    for _, source in Sources:Iterate() do
-        if type(source.profiles) == "function" then
-            local ok, db = pcall(source.profiles)
-            if ok and type(db) == "table" and db.GetProfiles then table.insert(dbs, db) end
-        end
-    end
+    for _, store in ipairs(ProfileStores()) do table.insert(dbs, store.db) end
     return dbs
 end
 
@@ -1092,10 +1495,28 @@ function Options:AddProfiles(layout)
     layout:Dropdown(L.OPT_PROFILE, nil, function() return self:ProfileNames() end,
         function() return self:CurrentProfile() end,
         function(name) self:SetProfile(name); layout:Refresh() end)
+    -- Both act on picking a name, and a dropdown's arrows, or the d-pad's left and right on its
+    -- row, pick one: ask first, or a stray press replaces or deletes a profile.
     layout:Dropdown(L.OPT_COPY_PROFILE, nil, Others, function() return nil end,
-        function(name) self:CopyProfile(name); layout:Refresh() end, nil, Pick)
+        function(name)
+            self:ConfirmOnProfile(format(L.OPT_COPY_PROFILE_CONFIRM, name), _G.ACCEPT or "Accept", function()
+                self:CopyProfile(name); layout:Refresh()
+            end)
+            layout:Refresh()
+        end, nil, Pick)
     layout:Dropdown(L.OPT_DELETE_PROFILE, nil, Others, function() return nil end,
-        function(name) self:DeleteProfile(name); layout:Refresh() end, nil, Pick)
+        function(name)
+            Layout.Confirm(format(L.OPT_DELETE_PROFILE_CONFIRM, name), _G.DELETE or "Delete", L.CANCEL, function()
+                self:DeleteProfile(name); layout:Refresh()
+            end)
+            layout:Refresh()
+        end, nil, Pick)
+    local function NewProfile(name)
+        if name and name ~= "" then
+            Options:SetProfile(name)
+            if Options.profileLayout then Options.profileLayout:Refresh() end
+        end
+    end
     if StaticPopupDialogs and StaticPopup_Show then
         StaticPopupDialogs.SPOKEN_NEW_PROFILE = StaticPopupDialogs.SPOKEN_NEW_PROFILE or {
             text = L.OPT_PROFILE_NEW_PROMPT, button1 = _G.ACCEPT or "Accept", button2 = L.CANCEL,
@@ -1106,21 +1527,22 @@ function Options:AddProfiles(layout)
                     local which = StaticPopup_Visible("SPOKEN_NEW_PROFILE")
                     box = which and _G[which .. "EditBox"]
                 end
-                local name = box and box:GetText()
-                if name and name ~= "" then
-                    Options:SetProfile(name)
-                    if Options.profileLayout then Options.profileLayout:Refresh() end
-                end
+                NewProfile(box and box:GetText())
             end,
             EditBoxOnEnterPressed = function(box)
                 local popup = box and box:GetParent()
                 if popup and popup.button1 then popup.button1:Click() end
             end,
         }
-        layout:Button(L.OPT_PROFILE_NEW, 200, function() StaticPopup_Show("SPOKEN_NEW_PROFILE") end)
+        layout:Button(L.OPT_PROFILE_NEW, 200, function()
+            local asked = Layout.Ask(L.OPT_PROFILE_NEW_PROMPT, _G.ACCEPT or "Accept", L.CANCEL, NewProfile)
+            if not asked then StaticPopup_Show("SPOKEN_NEW_PROFILE") end
+        end)
     end
+    layout:Button(L.OPT_PROFILE_EXPORT, 200, function() self:ExportProfile() end)
+    layout:Button(L.OPT_PROFILE_IMPORT, 200, function() ShowProfileTransfer() end)
     if Addon.db then
-        layout:Dropdown(L.OPT_NEW_CHARACTER_PROFILE, L.OPT_NEW_CHARACTER_PROFILE_TIP,
+        layout:Dropdown(L.OPT_NEW_CHARACTER_PROFILE, nil,
             -- Only Spoken's saved profiles: it reads the choice before any other settings load.
             function()
                 local names = {}
@@ -1192,6 +1614,61 @@ local function FitScroller()
     scroller:SetContentHeight(TOP + panel.layout:Height() + BOTTOM)
 end
 
+-- Page frame to its layout. The cursor refuses addons in combat, so nothing below runs then.
+local canvases = {}
+-- The page that set the window's target.
+local aimed
+
+-- The game's FocusContainer ends on a row of its own settings list or the button the cursor last
+-- left, both off screen on a canvas page. SetTargetButtonForFrame is the only call that selects a
+-- given button for an addon; it also makes that row the window's fallback target.
+local function SelectFirstRow()
+    local cursor = SmartNavigation
+    if not cursor or Layout.CombatRestricted() or not cursor:IsInFocusGroup() then return end
+    local current = cursor:GetCurrentButton()
+    if current and current:IsVisible() then return end
+    for frame, layout in pairs(canvases) do
+        if frame:IsVisible() then
+            local row = layout and layout:FirstRow()
+            if row then
+                aimed = frame
+                cursor:SetTargetButtonForFrame(_G.SettingsPanel, row)
+            else
+                cursor:SelectTopLeftButton()
+            end
+            return
+        end
+    end
+end
+
+-- The window's own target is the selected category's button. Left on a hidden row, a page the
+-- cursor cannot enter would hide the cursor instead of sending it back to the list.
+local function GiveTargetBack(frame)
+    if aimed ~= frame then return end
+    aimed = nil
+    local settings = _G.SettingsPanel
+    if SmartNavigation and not Layout.CombatRestricted() and settings:IsShown() then
+        local button = settings:GetCategoryList():GetSelectedCategoryButton()
+        SmartNavigation:SetTargetButtonForFrame(settings, button)
+    end
+end
+
+local function AskCursor(frame)
+    if SmartNavigation and SmartNavigation.UpdateParent and not Layout.CombatRestricted() then
+        SmartNavigation:UpdateParent(frame)
+    end
+end
+
+-- The settings window takes a page in with SetParent, which the cursor does not notice, so it
+-- keeps the buttons it found when the window opened. A page asks it to look again as it shows,
+-- and waits hidden: one already shown gets no OnShow when the window first takes it.
+local function ForController(frame, layout)
+    canvases[frame] = layout or false
+    frame:Hide()
+    frame:HookScript("OnShow", AskCursor)
+    frame:HookScript("OnHide", GiveTargetBack)
+end
+
 function Options:Setup()
     if panel then return end
     Build()
@@ -1202,6 +1679,12 @@ function Options:Setup()
     -- under it (Options:RegisterPage).
     FitScroller()
     self.category = Settings.RegisterCanvasLayoutCategory(panel, "Spoken")
+    -- Only a mouse can click the game's + that unfolds an entry, so Spoken's pages start listed.
+    self.category:SetExpanded(true)
+    ForController(panel, panel.layout)
+    if _G.SettingsPanel and _G.SettingsPanel.FocusContainer then
+        hooksecurefunc(_G.SettingsPanel, "FocusContainer", SelectFirstRow)
+    end
     Settings.RegisterAddOnCategory(self.category)
     if not pagesHeld then self:ReleasePages() end
 end
@@ -1246,6 +1729,7 @@ end)
 
 function Options:RegisterPage(page)
     page.category = Settings.RegisterCanvasLayoutSubcategory(self.category, page.frame, page.name)
+    ForController(page.frame, page.layout)
 end
 
 function Options:Open()

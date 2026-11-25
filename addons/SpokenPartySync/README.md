@@ -191,7 +191,7 @@ are paced to fit, and a long text is left to each client's own copy rather than 
 The addon uses only Spoken's public API: `Spoken:GetSource(key).rebuild`, a player-wide gate
 that holds a line until its start (and whatever is behind it, so every queue keeps the same
 order), `Spoken:RecheckGates` when it opens, the clip callbacks, an `admit` wrapped around each
-source's own, `Spoken:SetCaptionsOnlyOverride` for the room, and `Spoken:SetControlGate` for
+source's own, `Spoken:SetMuteOverride` for the room, and `Spoken:SetControlGate` for
 the rules: the player's skins ask it before enabling Stop, Replay and Skip, and show its reason
 in their tooltip.
 

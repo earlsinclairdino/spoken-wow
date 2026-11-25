@@ -10,6 +10,7 @@ function M.Fresh(stub, spokenDir)
     stub.ResetTimers()
     local env = stub.LoadSpoken(spokenDir)
     env.Addon.db.char.IsPaused = false
+    env.Addon.db.char.IsMuted = false
     local quests = env.Sources:Register("quests", { title = "Quests", addon = "Spoken_Quests", order = 1 })
     local places = env.Sources:Register("places", { title = "Places", addon = "Spoken_Places", order = 2,
         queueLimit = 3, interClipGap = 0.25 })
@@ -86,31 +87,42 @@ end
 function M.LoadPlaces(addonDirectory, seed)
     local SpokenPlaces = seed or {}
     if not _G.SpokenCompendium then dofile(addonDirectory .. "../Spoken/UI/Compendium.lua") end
-    for _, file in ipairs({ "Language", "Core", "Audio", "Contribute" }) do
+    for _, file in ipairs({ "Language", "Core", "History", "Audio", "Contribute" }) do
         local chunk = assert(loadfile(addonDirectory .. file .. ".lua"))
         chunk("Spoken_Places", SpokenPlaces)
     end
     return SpokenPlaces
 end
 
---- The language codes SpokenPlaces.LOCALES lists, in order, read off its source. The other
---- addons each keep a copy of the list and are tested against this one.
-function M.PlacesLocaleCodes(here)
-    local codes = {}
-    local file = assert(io.open(here .. "/../../addons/Spoken_Places/Language.lua"))
-    for code in file:read("*a"):gmatch('{ code = "(%a+)"') do table.insert(codes, code) end
-    file:close()
-    return table.concat(codes, " ")
+--- Run a module's locale file. Each asks Spoken:InterfaceIn which language loads, and a module
+--- loads only after Spoken in the game; a suite that loads one alone gets the client's language, as
+--- Spoken answers on Auto, from a stand-in that is gone again once the file has run.
+function M.LoadLocale(path, ...)
+    local alone = _G.Spoken == nil
+    if alone then
+        _G.Spoken = { InterfaceIn = function(_, ...)
+            for i = 1, select("#", ...) do
+                if select(i, ...) == GetLocale() then return true end
+            end
+            return false
+        end }
+    end
+    assert(loadfile(path))(...)
+    if alone then _G.Spoken = nil end
 end
 
 --- The parts of the Places addon's Core.lua that its playback files read, as a fake.
 function M.NewZoneLore()
     local cfg = { voiceEnabled = true, autoplay = true, autoplaySubzones = true,
-        autoplayExplored = false, debug = false,
+        autoplayExplored = false, autoplayStopInCombat = false,
+        autoplayEveryVisit = false, autoplayEveryVisitGap = 24 * 3600, debug = false,
         -- What the options panel reads, as well as what the playback files do.
         showMapPanel = true, panelSide = "RIGHT",
         panelWidth = 320, fontSize = 12, highlightOpacity = 0.35 }
     local Z = { printed = {}, heard = {}, zoneChanged = {}, clientLocale = "enUS" }
+    assert(loadfile(PLACES .. "History.lua"))("Spoken_Places", Z)
+    -- Audio.lua's, which is not loaded here: no pack carries words.
+    Z.PackLoreText = function() return nil end
     -- The addon's real English strings, so a label a file reads (a minimap entry, a button,
     -- a settings row) is the one the client would show rather than nil. Language.lua is what
     -- normally takes the table, and it is not loaded here.
@@ -119,7 +131,7 @@ function M.NewZoneLore()
     local registered = {}
     Z.RegisterStrings = function(_, code, strings) registered[code] = strings end
     for _, code in ipairs({ "enUS", "deDE", "esES", "frFR", "ptBR", "ruRU", "koKR", "zhCN", "zhTW" }) do
-        assert(loadfile(PLACES .. "Locale/" .. code .. ".lua"))("Spoken_Places", Z)
+        M.LoadLocale(PLACES .. "Locale/" .. code .. ".lua", "Spoken_Places", Z)
     end
     Z.RegisterStrings = nil
     local english = registered.enUS
@@ -160,6 +172,8 @@ function M.NewZoneLore()
     -- What UI/Options.lua asks the rest of the addon. The panel is the one part that
     -- reports what is installed, so the answers live here rather than in each test.
     function Z:SiteURL() return "https://spoken.test" end
+    Z.EVERY_VISIT_GAPS = { 24 * 3600, 7 * 24 * 3600, 30 * 24 * 3600 }
+    function Z:EveryVisitGap() return cfg.autoplayEveryVisitGap end
     function Z:GetAudioPacks() return {} end
     function Z:GetActiveAudioPack() return nil end
     -- The voice is Spoken's Voice Language and its fallback, as Audio.lua reads them.
@@ -195,6 +209,41 @@ function M.SplitReportLink(link)
         return link, nil
     end
     return address, M.DecodeFragment(fragment)
+end
+
+--- Spoken's Text Language set to `code` (nil for Auto) and read as a reload would: its text packs
+--- loaded, and every module reading it.
+function M.ReadText(code)
+    _G.Spoken:SetTextLanguage(code)
+    _G.SpokenEnv.Texts:Reset()
+    _G.SpokenEnv.Texts:Load()
+end
+
+--- The .toc keys of a text pack in `code` (docs/contributors/TEXT-PACKS.md), named Polish.
+function M.TextPackMeta(code)
+    return { ["X-Spoken-Text"] = code or "plPL", ["X-Spoken-TextFormat"] = "1",
+        ["X-Spoken-LanguageName"] = "Polish", ["X-Spoken-LanguageNative"] = "Polski" }
+end
+
+--- The .toc keys of an interface pack in `code` (docs/contributors/INTERFACE-PACKS.md), named Polish.
+function M.InterfacePackMeta(code)
+    return { ["X-Spoken-Interface"] = code or "plPL", ["X-Spoken-InterfaceFormat"] = "1",
+        ["X-Spoken-LanguageName"] = "Polish", ["X-Spoken-LanguageNative"] = "Polski" }
+end
+
+--- Whether `list` holds `code`, as a value or as an entry's `code`.
+function M.Has(list, code)
+    for _, value in ipairs(list) do
+        if value == code or (type(value) == "table" and value.code == code) then return true end
+    end
+    return false
+end
+
+--- The story Spoken's caption names, as "kind id", or "none".
+function M.CaptionStory()
+    local caption = _G.Spoken:GetCaption()
+    local story = caption and caption.story
+    return story and (story.kind .. " " .. story.id) or "none"
 end
 
 return M

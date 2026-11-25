@@ -26,6 +26,8 @@ SourceMethods.__index = SourceMethods
 ---@field onQueueEmpty? fun()
 ---@field packs? fun():string[] -- the voice packs this source found installed, by name
 ---@field rebuild? fun(fields:table):table|nil -- a clip from another client's description; see API.lua
+---@field onScreen? fun(clip):boolean -- its page is in a window the game has open now
+---@field endsWithWindow? fun(clip):boolean -- the window that showed it stops it as it closes
 
 ---@param key string
 ---@param info SpokenSourceInfo
@@ -52,6 +54,8 @@ function Sources:Register(key, info)
         onQueueEnter = info.onQueueEnter,
         onQueueEmpty = info.onQueueEmpty,
         packs = info.packs,
+        onScreen = info.onScreen,
+        endsWithWindow = info.endsWithWindow,
         -- A part's settings kept in AceDB profiles: a function returning its AceDB object, so
         -- Spoken's own Profiles section switches it with the player's (Options:ProfileDBs).
         profiles = info.profiles,
@@ -185,8 +189,8 @@ end
 ---@return boolean audible
 ---@return string|nil reason
 function SourceMethods:CanPlay()
-    -- Captions only, a muted channel stops nothing: the line is shown without being played.
-    if SoundQueue:IsCaptionsOnly() then
+    -- Muted, a channel that cannot be heard stops nothing: the line is shown without being played.
+    if SoundQueue:IsMuted() then
         return true, nil
     end
     local reason = SoundUtils:WhyInaudible(self:GetChannel())

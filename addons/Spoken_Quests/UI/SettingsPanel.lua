@@ -58,11 +58,26 @@ function SettingsPanel:Setup()
     local followup = layout:Checkbox(L.OPT_PANEL_FOLLOWUP, nil,
         function() return audio().FollowupLines ~= false end,
         function(value) audio().FollowupLines = value end)
+    local progress = layout:Checkbox(L.OPT_PANEL_PROGRESS, nil,
+        function() return Addon:IsProgressTextOn() end,
+        function(value) Addon:SetProgressText(value) end)
+    local once = layout:Checkbox(L.OPT_PANEL_ACCOUNT_ONCE, nil,
+        function() return Addon:SkipsHeardQuestLines() end,
+        function(value) Addon:SetSkipsHeardQuestLines(value) end)
     layout:Outdent()
     layout:Requires(followup, function() return Addon:IsAutoplayOn() end, L.REASON_AUTOPLAY)
+    layout:Requires(progress, function() return Addon:IsAutoplayOn() end, L.REASON_AUTOPLAY)
+    layout:Requires(once, function() return Addon:IsAutoplayOn() end, L.REASON_AUTOPLAY)
     local stopOnClose = layout:Checkbox(L.OPT_PANEL_STOP_ON_CLOSE, nil,
         function() return audio().StopAudioOnDisengage end,
-        function(value) audio().StopAudioOnDisengage = value end)
+        function(value) audio().StopAudioOnDisengage = value end,
+        refresh)
+    layout:Indent()
+    local stopOnAccept = layout:Checkbox(L.OPT_PANEL_STOP_ON_ACCEPT, L.OPT_PANEL_STOP_ON_ACCEPT_TIP,
+        function() return audio().StopOnAccept end,
+        function(value) audio().StopOnAccept = value end)
+    layout:Outdent()
+    layout:Requires(stopOnAccept, function() return audio().StopAudioOnDisengage end, L.REASON_STOP_ON_CLOSE)
     -- The NPC's own greeting first, then Spoken's line: for quest windows and gossip windows alike.
     local greetingFirst = layout:Checkbox(L.OPT_PANEL_GAME_GREETING_FIRST, nil,
         function() return audio().GreetingFirst end,
@@ -71,9 +86,9 @@ function SettingsPanel:Setup()
             if value then GreetingFirst:SetDialogApart() end
         end)
     layout:Requires(greetingFirst, function() return Addon:IsAutoplayOn() end, L.REASON_AUTOPLAY)
-    layout:Requires(layout:Checkbox(L.OPT_PANEL_READ_AFTER_CLOSE, nil,
-        function() return audio().ReadAfterClose end,
-        function(value) audio().ReadAfterClose = value end),
+    layout:Requires(layout:Checkbox(L.OPT_PANEL_READ_AFTER_ACCEPT, nil,
+        function() return audio().ReadAfterAccept end,
+        function(value) audio().ReadAfterAccept = value end),
         function() return Addon:IsAutoplayOn() end, L.REASON_AUTOPLAY)
 
     local function HasQuestLog()
@@ -81,8 +96,8 @@ function SettingsPanel:Setup()
     end
     local function HasObjectiveTracker()
         return _G.QuestObjectiveTracker ~= nil or _G.CampaignQuestObjectiveTracker ~= nil
+            or _G.KT_QuestObjectiveTracker ~= nil or _G.KT_CampaignQuestObjectiveTracker ~= nil
             or QuestWatch_Update ~= nil
-            or (_G.QuestieLoader and _G.QuestieLoader.ImportModule ~= nil)
     end
     layout:Section(L.OPT_SECTION_TRACKER)
     local questLogPlay = layout:Checkbox(L.OPT_TRACKER_QUEST_LOG, nil,
@@ -152,8 +167,14 @@ function SettingsPanel:Setup()
             if module.AddonName ~= ALL and Present(ALL) then return "off", L.OPT_PACK_INCLUDED end
         end, W.MODULE_DOWNLOAD, function() ReportButton:ShowAddress(module.URL) end)
     end
-    for _, locale in ipairs(Language.LOCALES) do
-        local code = locale.code
+    -- The built-in languages, then those an installed pack declares. Only a built-in language has
+    -- packs to get, so a voice chosen before its pack went needs no row of its own.
+    local codes, seen = {}, {}
+    local function Add(code)
+        if code and not seen[code] then table.insert(codes, code); seen[code] = true end
+    end
+    for _, locale in ipairs(Spoken:KnownLanguages()) do Add(locale.code) end
+    for _, code in ipairs(codes) do
         for _, pack in ipairs(Spoken:QuestsVoicePacks(code) or {}) do
             local folder = pack.folder
             local side = pack.side == "gossip" and L.OPT_PACK_GOSSIP

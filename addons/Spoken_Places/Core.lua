@@ -43,7 +43,8 @@ local defaults = {
 	fontSize = 12,
 	showPictures = true,
 	-- How bright the area under the pointer lights on a zone map; 0 turns the highlight off.
-	highlightOpacity = 0.35,
+	-- Off, so the map looks as the game draws it until a player asks for the highlight.
+	highlightOpacity = 0,
 	-- Off, so Azeroth's Compendium opens only the places this character has found (Discovery.lua).
 	showUndiscovered = false,
 	-- Azeroth's Compendium's Discovered Only, in its filter menu.
@@ -53,10 +54,16 @@ local defaults = {
 	autoplay = true,
 	autoplaySubzones = true,
 	-- On, because the game announces a discovery once per character: off, a character who
-	-- explored before installing hears nothing there, and Forget Places Heard reads nothing again.
+	-- explored before installing hears nothing there, and Forget Visited Places reads nothing again.
 	-- A new character hears its zone right after its valley at login, and a place it has heard,
 	-- from the Play button too, is not read again when the game announces its discovery.
 	autoplayExplored = true,
+	-- Off, so a story that started on its own plays through a fight. On, it stops and replays after.
+	autoplayStopInCombat = false,
+	-- Off, so players used to hearing a place once are not read it again unasked.
+	autoplayEveryVisit = false,
+	-- Seconds, one of EVERY_VISIT_GAPS.
+	autoplayEveryVisitGap = 24 * 3600,
 	-- Off, so a player cannot end up reading an unfinished translation without
 	-- having asked for one (Spoken > Developer). See Language.lua.
 	languagePreview = false,
@@ -567,6 +574,19 @@ function SpokenPlaces:CityAt(mapID, areaName)
 	return nil
 end
 
+-- The game's area for a city reaches far past its walls (Ironforge's covers Grizzled Den), so the
+-- city's map rectangle on the zone bounds it. With no rectangle, the area alone decides.
+local function OnCity(city, mapID, x, y)
+	if not (C_Map and C_Map.GetMapRectOnMap) then
+		return true
+	end
+	local ok, left, right, top, bottom = pcall(C_Map.GetMapRectOnMap, city, mapID)
+	if not (ok and left) or right <= left or bottom <= top then
+		return true
+	end
+	return x >= left and x <= right and y >= top and y <= bottom
+end
+
 --- The area at a normalised canvas position on the zone map `mapID`: the name the game gives it,
 --- and the zone's story for that name and its key; or, for a city inside the zone, the city's own
 --- story and its map (name, entry, nil, cityMapID). The click (UI/SubzoneClick.lua) and the map
@@ -585,7 +605,7 @@ function SpokenPlaces:AreaAt(mapID, x, y)
 		return areaName, entry, key
 	end
 	local city, cityEntry = self:CityAt(mapID, areaName)
-	if city and cityEntry then
+	if city and cityEntry and OnCity(city, mapID, x, y) then
 		return areaName, cityEntry, nil, city
 	end
 	return areaName
@@ -846,7 +866,7 @@ local function CmdStatus()
 	if pack then
 		SpokenPlaces:Print("voice pack: %s -- %s", pack.addon, SpokenPlaces:GetAudioPackLabel(pack))
 	else
-		SpokenPlaces:Print("|cffffcc00no voice pack installed|r -- install Spoken Audio: Places and Bosses to hear the lore")
+		SpokenPlaces:Print("|cffffcc00no voice pack installed|r -- install Spoken Audio: Places to hear the lore")
 	end
 
 	if SpokenPlaces:Get("debug") then
@@ -908,7 +928,7 @@ local function CmdAudioPack(arg)
 		-- Named by CurseForge project, not by folder: a player with the pre-rename pack has a
 		-- ZoneLoreAudio folder, and saying that name sends them looking for a project that no
 		-- longer exists.
-		SpokenPlaces:Print("  install Spoken Audio: Places and Bosses alongside Spoken Places")
+		SpokenPlaces:Print("  install Spoken Audio: Places alongside Spoken Places")
 		return
 	end
 
@@ -1005,17 +1025,26 @@ local function CmdLanguage(arg)
 	if code and code ~= "" then
 		local locale = SpokenPlaces:GetLocaleInfo(code)
 		-- Matched case-insensitively against the codes, since "dede" is the same
-		-- request as "deDE" and nobody remembers Blizzard's capitalisation.
+		-- request as "deDE" and nobody remembers Blizzard's capitalisation. The built-in
+		-- languages, then those of the installed packs.
 		if not locale then
-			for i = 1, #SpokenPlaces.LOCALES do
-				if SpokenPlaces.LOCALES[i].code:lower() == code:lower() then
-					locale = SpokenPlaces.LOCALES[i]
+			for _, candidate in ipairs(Spoken:KnownLanguages()) do
+				if candidate.code:lower() == code:lower() then
+					locale = candidate
+					break
 				end
 			end
 		end
 
 		if not locale then
 			SpokenPlaces:Print('|cffffcc00"%s" is not a WoW language code|r -- /spp lang to list', code)
+			return
+		end
+		-- An installed pack's language whose packs carry only voices: no preview can show lore
+		-- that does not exist, so say so rather than suggest one.
+		if not SpokenPlaces:HasLore(locale.code) then
+			SpokenPlaces:Print("|cffffcc00no lore in %s|r -- its installed packs carry only voices",
+				SpokenPlaces:GetLanguageName(locale.code))
 			return
 		end
 
@@ -1137,7 +1166,8 @@ SlashCmdList["SPOKENPLACES"] = function(msg)
 	elseif cmd == "forget" then
 		if SpokenPlaces.ForgetAutoplayHistory then
 			SpokenPlaces:ForgetAutoplayHistory()
-			SpokenPlaces:Print(SpokenPlaces.L.OPT_FORGET_PLACES_DONE)
+			SpokenPlaces:Print(SpokenPlaces:SharesHistory() and
+				SpokenPlaces.L.OPT_FORGET_PLACES_SHARED_DONE or SpokenPlaces.L.OPT_FORGET_PLACES_DONE)
 		end
 	elseif cmd == "diagnostics" then
 		SpokenPlaces:ShowDiagnostics()
